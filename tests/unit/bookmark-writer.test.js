@@ -117,7 +117,7 @@ test('cross-parent relocation stops when an external same-set reorder wins after
             { parentId: 'target', expectedCanonicalIds: ['c', 'd'], desiredCanonicalIds: ['c', 'a', 'd'] }
         ],
         relocation: { kind: 'move', bookmarkId: 'a', parentId: 'target' }
-    }), error => error.code === 'partial' && error.moved === true);
+    }), error => error.code === 'partial' && error.moved === true && error.createdId === null);
     assert.deepEqual(state.ids('source'), ['b']);
     assert.deepEqual(state.ids('target'), ['d', 'a', 'c']);
     assert.equal(state.moves.length, 1);
@@ -131,7 +131,7 @@ test('creation stops when an external same-set reorder wins after the create', a
             { parentId: 'target', expectedCanonicalIds: ['c', 'd'], desiredCanonicalIds: ['c', '$new', 'd'] }
         ],
         relocation: { kind: 'create', parentId: 'target', title: 'New', url: 'https://new.test/' }
-    }), error => error.code === 'partial' && error.moved === true);
+    }), error => error.code === 'partial' && error.moved === true && error.createdId === state.creates[0].id);
     assert.deepEqual(state.ids('target'), ['d', state.creates[0].id, 'c']);
     assert.equal(state.moves.length, 0);
 });

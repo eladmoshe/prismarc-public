@@ -2,6 +2,7 @@ import { Logger } from './logger.js';
 import { isPracticeUrl } from './tour-practice.js';
 import { syncSpaceGroups } from './tab-group-sync.js';
 import { LocalStorage } from './localstorage.js';
+import { getSpaceBookmarkFolder, isFolderInBookmarkRoot } from './space-bookmarks.js';
 import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR } from './space-colors.js';
 import { boundRestoreRecords, matchStartupRestores, restoreLifetime, restoreUrl } from './space-restore.js';
 
@@ -418,19 +419,40 @@ export class SpaceStore {
                     if (message.discoverBookmarks !== false) this.clearFailure('bookmark_folder_unavailable');
                     break;
                 case 'patch': {
+                    const previous = this.spaces;
+                    const proposed = applySpacePatch(previous, message.before, message.after);
+                    if (message.dropDestination) {
+                        const destination = proposed.find(space => space.id === message.dropDestination);
+                        const folder = destination && await getSpaceBookmarkFolder(destination).catch(() => null);
+                        const stillInSpace = folder && (!message.dropParentId ||
+                            await isFolderInBookmarkRoot(message.dropParentId, folder.id).catch(() => false));
+                        if (!stillInSpace || message.dropTransfers.some(([id, { spaceId, section }]) =>
+                            !proposed.find(space => space.id === spaceId)?.[section].includes(id))) {
+                            throw Object.assign(new Error('The drop destination is no longer available.'), { code: 'space_drop_conflict' });
+                        }
+                    }
                     for (const next of message.after) {
                         const prev = message.before.find(s => s.id === next.id);
                         for (const key of sections) if (JSON.stringify(next[key]) !== JSON.stringify(prev?.[key])) {
                             for (const id of next[key] || []) this.restoredRanks.delete(id);
                         }
                     }
-                    const previous = this.spaces;
-                    this.spaces = applySpacePatch(previous, message.before, message.after);
+                    this.spaces = proposed;
                     const colorChanges = this.spaces.filter(space =>
                         space.color && previous.find(old => old.id === space.id)?.color !== space.color);
-                    if (colorChanges.length) await storageCall(() => LocalStorage.syncSpaceRegistryColors(colorChanges));
-                    if (!this.spaces.length) this.spaces.push(await this.makeSpace(this.defaultSpaceName));
-                    break;
+                    try {
+                        if (colorChanges.length) await storageCall(() => LocalStorage.syncSpaceRegistryColors(colorChanges));
+                        if (!this.spaces.length) this.spaces.push(await this.makeSpace(this.defaultSpaceName));
+                        await this.persist();
+                    } catch (error) {
+                        // If local storage succeeded before a later write failed,
+                        // keep the committed model. Otherwise do not retry the
+                        // rejected optimistic patch on the next read.
+                        const saved = await chrome.storage.local.get('spaces').catch(() => ({}));
+                        this.spaces = saved.spaces || previous;
+                        throw error;
+                    }
+                    return clone(this.spaces);
                 }
                 case 'activate':
                     this.active[message.windowId] = message.spaceId;
@@ -467,7 +489,7 @@ export class SpaceStore {
             if (message.action !== 'get') await this.persist();
             return clone(this.spaces);
         }).catch(error => {
-            this.reportFailure(error);
+            if (error.code !== 'space_drop_conflict') this.reportFailure(error);
             throw error;
         });
     }

@@ -504,3 +504,40 @@ test('storage failure reaches callers and exposes only a status code to sidebars
         { type: 'spaceStoreStatus', code: null }
     ]);
 });
+
+for (const area of ['local', 'session']) {
+    test(`a patch rejected by ${area} storage restores the last durable membership`, async () => {
+        const store = new SpaceStore();
+        const before = await store.dispatch({ action: 'get' });
+        const after = structuredClone(before);
+        after[0].temporaryTabs = [];
+        after[1].temporaryTabs.push(1);
+        const write = chrome.storage[area].set;
+        chrome.storage[area].set = async () => { throw new Error('Synthetic storage failure'); };
+        await assert.rejects(store.dispatch({ action: 'patch', before, after }), { code: 'space_storage_unavailable' });
+        const expected = area === 'local' ? 'a' : 'b';
+        assert.equal(ownerOf(store.spaces, 1).id, expected);
+        assert.equal(ownerOf(local.spaces, 1).id, expected);
+        chrome.storage[area].set = write;
+        const recovered = await store.dispatch({ action: 'get', discoverBookmarks: false });
+        assert.equal(ownerOf(recovered, 1).id, expected);
+        assert.equal(ownerOf(local.spaces, 1).id, expected);
+    });
+}
+
+for (const deletion of ['Space', 'bookmark folder']) {
+    test(`a drag into a deleted ${deletion} leaves the original tab assigned`, async () => {
+        const store = new SpaceStore();
+        const before = await store.dispatch({ action: 'get' });
+        const after = structuredClone(before);
+        after[0].temporaryTabs = [];
+        after[1].temporaryTabs.push(1);
+        if (deletion === 'Space') await store.dispatch({ action: 'patch', before, after: before.slice(0, 1) });
+        await assert.rejects(store.dispatch({
+            action: 'patch', before, after, dropDestination: 'b',
+            dropTransfers: [[1, { spaceId: 'b', section: 'temporaryTabs' }]]
+        }), { code: 'space_drop_conflict' });
+        assert.equal(ownerOf(store.spaces, 1).id, 'a');
+        assert.equal(ownerOf(local.spaces, 1).id, 'a');
+    });
+}

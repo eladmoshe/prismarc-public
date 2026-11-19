@@ -13,7 +13,7 @@ export class SpacePatchQueue {
         this.acknowledged = structuredClone(spaces);
         this.optimistic = structuredClone(spaces);
     }
-    submit(spaces) {
+    submit(spaces, condition = {}) {
         if (this.blocked) return Promise.reject(new Error('Saved state is unavailable; reload before retrying.'));
         const before = structuredClone(this.optimistic);
         const after = structuredClone(spaces);
@@ -22,7 +22,7 @@ export class SpacePatchQueue {
         const run = this.chain.then(async () => {
             if (epoch !== this.epoch) throw new Error('Save cancelled after an earlier failure; please retry.');
             try {
-                const saved = await this.send(before, after);
+                const saved = await this.send(before, after, condition);
                 this.acknowledged = structuredClone(saved);
                 return saved;
             } catch (error) {

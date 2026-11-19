@@ -8,6 +8,8 @@ This fork began on **2026-11-16** from [Arcify 5.2.0](https://github.com/nisargk
 
 This repository contains source snapshots for review. Use a link to a specific commit when reporting a finding or recording which version you reviewed.
 
+While dragging tabs in the sidebar, hover over a space chip to preview its lists and folders. Release over the position you want, or press Escape or right-click to cancel.
+
 ## Build and review
 
 Check out the revision you want to review. With Node.js 22.13 or later on the 22.x line or Node.js 24 or later, run:

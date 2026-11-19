@@ -12,6 +12,15 @@ export async function getSpaceBookmarkFolder(space) {
     return folder;
 }
 
+export async function isFolderInBookmarkRoot(folderId, rootId) {
+    while (folderId && folderId !== rootId) {
+        const [folder] = await chrome.bookmarks.get(folderId);
+        if (!folder || folder.url) return false;
+        folderId = folder.parentId;
+    }
+    return Boolean(rootId) && folderId === rootId;
+}
+
 export async function getSpaceBookmarkTree(space) {
     const folder = await getSpaceBookmarkFolder(space);
     const read = async node => ({

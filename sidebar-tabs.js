@@ -27,6 +27,7 @@ export async function saveBookmarkOperation(operation) {
         error.code = response?.code;
         error.observedOrders = response?.observedOrders;
         error.moved = response?.moved;
+        error.createdId = response?.createdId;
         throw error;
     }
     return response;

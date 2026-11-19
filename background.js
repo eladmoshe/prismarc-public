@@ -68,7 +68,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse, 'Could not complete the space operation.', messageError);
         case 'bookmarkOrder':
             return respond(enqueueBookmarkOperation(message.operation), sendResponse, 'Could not save bookmark order.',
-                error => ({ ...messageError(error), observedOrders: error.observedOrders, moved: error.moved }));
+                error => ({ ...messageError(error), observedOrders: error.observedOrders, moved: error.moved, createdId: error.createdId }));
         case 'nativeFavorites':
             return respond(favorites.dispatch(message).then(tabs => ({ tabs })),
                 sendResponse, 'Could not complete the Favorites operation.', messageError);

@@ -65,7 +65,11 @@ export class TabPointerDrag {
             s.transfer = { dropEffect: 'move', effectAllowed: 'move',
                 setData: (type, value) => data.set(type, value), getData: type => data.get(type) || '' };
             s.started = true;
-            dispatchPointerDrag(s.row, 'dragstart', { dataTransfer: s.transfer });
+            if (dispatchPointerDrag(s.row, 'dragstart', { dataTransfer: s.transfer }).defaultPrevented) {
+                this.suppressClick = true;
+                this.reset();
+                return;
+            }
             this.document.getSelection()?.removeAllRanges();
             this.ghost = this.preview.slot.cloneNode(true);
             this.ghost.className = 'tab-drag-ghost';
@@ -87,10 +91,11 @@ export class TabPointerDrag {
 
     hover(x, y) {
         const target = this.document.elementFromPoint(x, y);
-        if (!target || !this.session) return null;
+        if (!this.session) return null;
         if (this.lastTarget && this.lastTarget !== target) dispatchPointerDrag(this.lastTarget, 'dragleave', {
             relatedTarget: target, dataTransfer: this.session.transfer });
         this.lastTarget = target;
+        if (!target) return null;
         this.session.transfer.dropEffect = 'move';
         const over = dispatchPointerDrag(target, 'dragover', {
             dataTransfer: this.session.transfer, clientX: x, clientY: y });

@@ -39,9 +39,9 @@ export function bookmarkParentIdForContent(content, rootId) {
     return String(content.closest('.folder')?.dataset.bookmarkId || rootId);
 }
 
-export function makeBookmarkDropOperation({ sourceContent, targetContent, draggingElement, rootId, tab }) {
+export function makeBookmarkDropOperation({ sourceContent, targetContent, draggingElement, rootId, sourceRootId = rootId, tab }) {
     const bookmarkId = draggingElement.dataset.bookmarkId || null;
-    const sourceParentId = bookmarkId ? bookmarkParentIdForContent(sourceContent, rootId) : null;
+    const sourceParentId = bookmarkId ? bookmarkParentIdForContent(sourceContent, sourceRootId) : null;
     const targetParentId = bookmarkParentIdForContent(targetContent, rootId);
     const parentIds = [...new Set([sourceParentId, targetParentId].filter(Boolean))];
     const parents = parentIds.map(parentId => {

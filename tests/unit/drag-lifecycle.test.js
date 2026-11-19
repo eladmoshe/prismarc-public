@@ -23,8 +23,10 @@ function element(id = '') {
 function fixture() {
     const tabs = [element('1'), element('2')];
     let refreshes = 0;
+    let previewsEnded = 0;
+    let foldersRestored = 0;
     const document = { activeElement: null, querySelectorAll: () => tabs };
-    const context = { document, getContextTabIds, selectedTabIds: new Set([1, 2]),
+    const context = { document, getContextTabIds, selectedTabIds: new Set([1, 2]), tabDropCommitting: false, pendingMutationCount: 0,
         getOrderedTabElementsById: ids => tabs.filter(tab => ids.includes(Number(tab.dataset.tabId))),
         refreshCoordinator: { schedule: () => refreshes++ } };
     context.tabDragPreview = { start() {}, end() {} };
@@ -32,13 +34,16 @@ function fixture() {
     context.addDragListener = (element, type, listener) => element.addEventListener(type, listener);
     context.hideAllDropIndicators = () => {};
     context.clearFolderOpenTimer = () => {};
+    context.endSpaceDragPreview = () => previewsEnded++;
+    context.restoreDragFolders = () => foldersRestored++;
     const api = runInNewContext(`'use strict'; let isDraggingTab = false; let draggingTabIds = [];
         ${handlers}
         ({ setupTabDragHandlers, setupFolderDragHandlers,
            state: () => ({ isDraggingTab, draggingTabIds }) });`, context);
     const data = [];
     const dataTransfer = { setData: (...args) => data.push(args) };
-    return { api, tabs, document, dataTransfer, data, refreshes: () => refreshes };
+    return { api, tabs, document, dataTransfer, data, refreshes: () => refreshes,
+        previewsEnded: () => previewsEnded, foldersRestored: () => foldersRestored };
 }
 
 test('tab drag starts and ends in module strict mode, clears multi-selection styling, and resumes refresh', () => {
@@ -53,6 +58,8 @@ test('tab drag starts and ends in module strict mode, clears multi-selection sty
     assert.equal(f.api.state().isDraggingTab, false);
     assert.deepEqual([...f.api.state().draggingTabIds], []);
     assert.ok(f.tabs.every(tab => !tab.classList.contains('dragging') && !tab.classList.contains('multi-dragging')));
+    assert.equal(f.previewsEnded(), 1);
+    assert.equal(f.foldersRestored(), 1);
     assert.equal(f.refreshes(), 1);
 });
 

@@ -3,7 +3,8 @@ import { withTabCloseMotion, withRemovedTabMotion } from './tab-close-motion.js'
 import { updateTabAudioIndicator, updateWindowTabAudio, isAudioOnlyTabChange, TabAudioEvents } from './tab-audio.js';
 import { TabDragPreview } from './tab-drag-preview.js';
 import { TabPointerDrag, addDragListener, dispatchPointerDrag } from './tab-pointer-drag.js';
-import { getSpaceBookmarkById, getSpaceBookmarkFolder, getSpaceBookmarkTree, removeSpacePin } from './space-bookmarks.js';
+import { getSpaceBookmarkById, getSpaceBookmarkFolder, getSpaceBookmarkTree,
+    isFolderInBookmarkRoot, removeSpacePin } from './space-bookmarks.js';
 import { initSidebarTour } from './sidebar-tour.js';
 import { setupSidebarPreviewHint } from './sidebar-preview-hint.js';
 import { CalendarPreview } from './calendar-preview.js';
@@ -81,6 +82,7 @@ let previousSpaceId = null;
 let isCreatingSpace = false;
 let isOpeningBookmark = false;
 let isDraggingTab = false;
+let tabDropCommitting = false;
 let draggedSpaceSwitcherButton = null;
 let pendingMutationCount = 0;
 let currentWindow = null;
@@ -93,6 +95,7 @@ let selectionAnchorTabId = null;
 let draggingTabIds = [];
 const tabDragPreview = new TabDragPreview(document, () => {
     clearFolderOpenTimer();
+    endSpaceDragPreview();
     hideAllDropIndicators();
     document.querySelectorAll('.multi-dragging').forEach(row => row.classList.remove('multi-dragging'));
     tabPointerDrag.cancel();
@@ -192,6 +195,7 @@ function setSpaceStoreStatus(code) {
 }
 
 function showSpaceStoreError(error, fallback = 'space_storage_unavailable') {
+    if (error?.code === 'space_drop_conflict') return;
     let code = fallback;
     if (error?.code === 'bookmark_folder_unavailable' || error?.code === 'space_storage_unavailable') {
         code = error.code;
@@ -805,7 +809,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 const spaceSaveQueue = new SpacePatchQueue(
-    (before, after) => spaceRequest('patch', { before, after }),
+    (before, after, condition) => spaceRequest('patch', { before, after, ...condition }),
     async error => {
         const current = await spaceRequest('get');
         await adoptStoredSpaces(current);
@@ -1156,9 +1160,69 @@ function clearSpaceSwitcherDropPlaceholders() {
     });
 }
 
+const SPACE_DRAG_DWELL_MS = 450;
+let spaceDragHover = null;
+let spaceDragPreview = null;
+
+function clearSpaceDragHover() {
+    if (!spaceDragHover) return;
+    clearTimeout(spaceDragHover.timer);
+    spaceDragHover.button.classList.remove('space-drag-hover');
+    spaceDragHover = null;
+}
+
+function endSpaceDragPreview() {
+    clearSpaceDragHover();
+    if (!spaceDragPreview) return;
+    const { element, origin } = spaceDragPreview;
+    element.classList.remove('space-drag-preview');
+    element.style.display = element.dataset.spaceId === activeSpaceId ? 'flex' : 'none';
+    origin.style.display = origin.dataset.spaceId === activeSpaceId ? 'flex' : 'none';
+    spaceSwitcher.querySelector('.space-drag-destination')?.classList.remove('space-drag-destination');
+    spaceDragPreview = null;
+    const activeSpace = spaces.find(space => space.id === activeSpaceId);
+    if (activeSpace) applySpaceColor(activeSpace.color);
+}
+
+async function showSpaceDragPreview(hover) {
+    const { button } = hover;
+    const spaceId = button.dataset.spaceId;
+    if (spaceId === activeSpaceId) {
+        endSpaceDragPreview();
+        return;
+    }
+    const space = spaces.find(item => item.id === spaceId);
+    const element = getSpaceElement(spaceId);
+    const origin = getSpaceElement(activeSpaceId);
+    if (!space || !element || !origin) return;
+    const { pinned, temp } = getContainers(element);
+    if (await loadTabs(space, pinned, temp, { force: true }) === false) return;
+    if (spaceDragHover !== hover || !button.isConnected || !element.isConnected || !isDraggingTab) return;
+    endSpaceDragPreview();
+    updatePinnedSectionPlaceholders(element);
+    origin.style.display = 'none';
+    element.style.display = 'flex';
+    element.classList.add('space-drag-preview');
+    button.classList.add('space-drag-destination');
+    spaceDragPreview = { element, origin };
+    applySpaceColor(space.color);
+}
+
 function handleSpaceSwitcherDragOver(e) {
+    if (!document.querySelector('.dragging-switcher')) {
+        const button = e.target.closest('button[data-space-id]');
+        if (spaceDragHover?.button !== button) clearSpaceDragHover();
+        if (!tabDragPreview.rows.length || tabDragPreview.cancelled || !button ||
+            spaceDragHover || button.dataset.spaceId === (spaceDragPreview?.element.dataset.spaceId || activeSpaceId)) return;
+        const hover = { button, timer: null };
+        spaceDragHover = hover;
+        button.classList.add('space-drag-hover');
+        hover.timer = setTimeout(() => {
+            showSpaceDragPreview(hover).catch(error => Logger.warn('Could not preview drag destination:', error));
+        }, SPACE_DRAG_DWELL_MS);
+        return;
+    }
     e.preventDefault();
-    if (!document.querySelector('.dragging-switcher')) return;
 
     const afterElement = getDragAfterElementSwitcher(spaceSwitcher, e.clientX);
     clearSpaceSwitcherDropPlaceholders();
@@ -1174,6 +1238,7 @@ function handleSpaceSwitcherDragOver(e) {
 }
 
 function handleSpaceSwitcherDragLeave(e) {
+    if (spaceDragHover && !spaceDragHover.button.contains(e.relatedTarget)) clearSpaceDragHover();
     if (e.target === spaceSwitcher) {
         clearSpaceSwitcherDropPlaceholders();
     }
@@ -1314,6 +1379,10 @@ function calculatePinnedTabIndex(afterElement, position, pinnedFavicons) {
 function setupTabDragHandlers(tabElement) {
     tabElement.addEventListener('mousedown', event => tabPointerDrag.prepare(event, tabElement));
     addDragListener(tabElement, 'dragstart', event => {
+        if (pendingMutationCount > 0) {
+            event.preventDefault();
+            return;
+        }
         isDraggingTab = true;
         event.dataTransfer.setData('text/plain', tabElement.dataset.tabId || tabElement.dataset.url || '');
         event.dataTransfer.effectAllowed = 'move';
@@ -1334,6 +1403,10 @@ function setupTabDragHandlers(tabElement) {
 
     addDragListener(tabElement, 'dragend', () => {
         tabDragPreview.end();
+        if (!tabDropCommitting) {
+            endSpaceDragPreview();
+            restoreDragFolders();
+        }
         hideAllDropIndicators();
         clearFolderOpenTimer();
         isDraggingTab = false;
@@ -1372,14 +1445,16 @@ function getDropTargetFolderContent(target, draggingElement) {
     return target.closest('.folder')?.querySelector(':scope > .folder-content');
 }
 
-function isInvalidFolderDrop(draggingElement, container, targetContainer) {
-    return draggingElement.classList.contains('folder') &&
-        (container.dataset.tabType !== 'pinned' || draggingElement.contains(targetContainer));
+function isInvalidDrop(draggingElement, container, targetContainer) {
+    const pinned = container.dataset.tabType === 'pinned';
+    if (draggingElement.classList.contains('folder')) return !pinned || draggingElement.contains(targetContainer);
+    return !pinned && draggingElement.classList.contains('bookmark-only');
 }
 
 // Variables for folder auto-open functionality
 let folderOpenTimer = null;
 let currentHoveredFolder = null;
+const dragOpenedFolders = new Set();
 
 function setFolderCollapsed(folderElement, collapsed, persist = true) {
     folderElement.classList.toggle('collapsed', collapsed);
@@ -1392,9 +1467,15 @@ function setFolderCollapsed(folderElement, collapsed, persist = true) {
     }
 }
 
-// Drag auto-open and child creation use the same durable state as manual toggles.
 function openFolder(folderElement) {
     if (folderElement.classList.contains('collapsed')) setFolderCollapsed(folderElement, false);
+}
+
+function restoreDragFolders() {
+    for (const folder of dragOpenedFolders) {
+        if (folder.isConnected) setFolderCollapsed(folder, true, false);
+    }
+    dragOpenedFolders.clear();
 }
 
 // Helper function to start auto-open timer for a folder
@@ -1404,7 +1485,12 @@ function startFolderOpenTimer(folderElement) {
     currentHoveredFolder = folderElement;
     folderOpenTimer = setTimeout(() => {
         if (currentHoveredFolder === folderElement && folderElement.classList.contains('collapsed')) {
-            openFolder(folderElement);
+            if (tabDragPreview.rows.length) {
+                dragOpenedFolders.add(folderElement);
+                setFolderCollapsed(folderElement, false, false);
+            } else {
+                openFolder(folderElement);
+            }
         }
         folderOpenTimer = null;
         currentHoveredFolder = null;
@@ -1424,6 +1510,7 @@ async function setActiveSpace(spaceId, updateTab = true) {
     const space = spaces.find(s => s.id === spaceId);
     if (!space) return;
     const spaceChanged = activeSpaceId !== spaceId;
+    if (spaceChanged && isDraggingTab) tabPointerDrag.cancel();
     if (activeSpaceId && activeSpaceId !== spaceId) {
         previousSpaceId = activeSpaceId;
         const activeEditor = document.activeElement?.closest?.(`[data-space-id="${activeSpaceId}"]`);
@@ -1519,9 +1606,9 @@ async function createSpaceFromInactive(spaceName, tabToMove) {
     }
 }
 
-function saveSpaces() {
+function saveSpaces(condition) {
     pendingSaveCount++;
-    const run = spaceSaveQueue.submit(spaces);
+    const run = spaceSaveQueue.submit(spaces, condition);
     pendingSpaceSaves = run.catch(error => Logger.error('Saving spaces failed', error)).finally(() => {
         pendingSaveCount--;
         refreshCoordinator.schedule();
@@ -1572,11 +1659,12 @@ function offerFavoriteUndo(removed, restoreTab = null) {
     });
 }
 
-async function restoreFavoriteTab(spaceId, tabId, index, bookmark) {
+async function restoreFavoriteTab(spaceId, tabId, index, bookmark, fromSpaceId = spaceId) {
     const space = spaces.find(s => s.id === spaceId);
-    if (!space?.temporaryTabs.includes(tabId)) return;
+    const current = spaces.find(s => s.id === fromSpaceId);
+    if (!space || !current?.temporaryTabs.includes(tabId)) return;
     await Utils.setPinnedTabState(tabId, { pinnedUrl: bookmark.url, bookmarkId: bookmark.id });
-    space.temporaryTabs = space.temporaryTabs.filter(id => id !== tabId);
+    current.temporaryTabs = current.temporaryTabs.filter(id => id !== tabId);
     space.spaceBookmarks.splice(index, 0, tabId);
     await persistSpaceTabOrder(space.id, { source: 'arcify', movedTabId: tabId });
     await refreshActiveSpaceUI();
@@ -1617,13 +1705,14 @@ async function moveTabToTemp(space, tab, { temporaryDisplayOrder = null, inverte
 
 function offerFavoritesUndo(removedFavorites) {
     if (removedFavorites.length) {
-        showUndoToast(`${removedFavorites.length} favorites removed.`, async () => {
+        showUndoToast(removedFavorites.length === 1 ? 'Favorite removed.' : `${removedFavorites.length} favorites removed.`, async () => {
             // Restore siblings in their original order so saved indices stay meaningful.
             for (const item of removedFavorites.sort((a, b) => a.index - b.index)) {
-                const { tabId, spaceId, favoriteIndex, ...details } = item;
+                const { tabId, spaceId, fromSpaceId, favoriteIndex, relatedTabs = [], ...details } = item;
                 const siblings = await chrome.bookmarks.getChildren(details.parentId);
                 const bookmark = await chrome.bookmarks.create({ ...details, index: Math.min(details.index, siblings.length) });
-                await restoreFavoriteTab(spaceId, tabId, favoriteIndex, bookmark);
+                await restoreFavoriteTab(spaceId, tabId, favoriteIndex, bookmark, fromSpaceId);
+                for (const { id, index } of relatedTabs) await restoreFavoriteTab(spaceId, id, index, bookmark);
             }
             scheduleBookmarkRefresh();
         });
@@ -1834,8 +1923,7 @@ function syncCollapsedFoldersInActiveSpace() {
 }
 
 // Update all pinned section placeholders in the current space (folders + main section)
-function updatePinnedSectionPlaceholders() {
-    const currentSpace = document.querySelector(`[data-space-id="${activeSpaceId}"]`);
+function updatePinnedSectionPlaceholders(currentSpace = getSpaceElement(activeSpaceId)) {
     if (!currentSpace) return;
 
     // Update folder placeholders
@@ -1881,6 +1969,42 @@ async function convertFavoriteToTab(draggingElement, targetIsPinned) {
     updatePinnedFavicons();
 
     return { tab, newTabElement };
+}
+
+function transferDraggedTab(drop, target, tabId, section) {
+    const { source } = drop;
+    source.temporaryTabs = source.temporaryTabs.filter(id => id !== tabId);
+    source.spaceBookmarks = source.spaceBookmarks.filter(id => id !== tabId);
+    if (source !== target && source.lastTab === tabId) source.lastTab = null;
+    if (!target[section].includes(tabId)) target[section].push(tabId);
+    if (tabId === activeChromeTabId) target.lastTab = tabId;
+    drop.transfers.set(tabId, { spaceId: target.id, section });
+}
+
+function rememberBookmarkRelocation(drop, relocation, bookmarkId, original, sourceRootId) {
+    if (!relocation || !bookmarkId) return;
+    drop.rollbacks.push(async () => {
+        const [current] = await chrome.bookmarks.get(bookmarkId);
+        if (current?.parentId !== relocation.parentId) return;
+        if (original) {
+            if (!await isFolderInBookmarkRoot(original.parentId, sourceRootId)) return;
+            const siblings = await chrome.bookmarks.getChildren(original.parentId);
+            await chrome.bookmarks.move(bookmarkId, { parentId: original.parentId, index: Math.min(original.index, siblings.length) });
+        } else if (current.url === relocation.url && current.title === relocation.title) {
+            await chrome.bookmarks.remove(bookmarkId);
+        }
+    });
+}
+
+async function setDropPinBinding(drop, tabId, binding) {
+    const same = (left, right) => left?.bookmarkId === right?.bookmarkId && left?.pinnedUrl === right?.pinnedUrl;
+    const original = await Utils.getPinnedTabState(tabId);
+    if (same(original, binding)) return;
+    const write = state => state ? Utils.setPinnedTabState(tabId, state) : Utils.removePinnedTabState(tabId);
+    drop.rollbacks.push(async () => {
+        if (same(await Utils.getPinnedTabState(tabId), binding)) await write(original);
+    });
+    await write(binding);
 }
 
 // Handle bookmark operations during drop events
@@ -1975,21 +2099,45 @@ async function handleBookmarkOperations(event, draggingElement, container, targe
             if (!dropIntent?.bookmarkSourceContent || !dropIntent?.bookmarkTargetContent) {
                 throw new Error('Bookmark drop context is unavailable. Refresh and retry.');
             }
+            const crossSpaceDrop = dropIntent.crossSpaceDrop;
+            const source = crossSpaceDrop?.source;
+            const sourceRootId = source && bookmarkId ? (await getSpaceBookmarkFolder(source)).id : undefined;
+            const original = sourceRootId ? (await chrome.bookmarks.get(bookmarkId))[0] : null;
+            const boundIds = sourceRootId ? await getTabsBoundToBookmark(source, bookmarkId) : [];
             const operation = makeBookmarkDropOperation({
                 sourceContent: dropIntent.bookmarkSourceContent,
                 targetContent: dropIntent.bookmarkTargetContent,
                 draggingElement,
                 rootId: spaceFolder.id,
+                sourceRootId,
                 tab
             });
-            const result = await saveBookmarkOperation(operation);
+            if (crossSpaceDrop) {
+                const folderId = bookmarkParentIdForContent(dropIntent.bookmarkTargetContent, spaceFolder.id);
+                operation.bookmarkRoots = [{ folderId, rootId: spaceFolder.id }];
+                if (original) operation.bookmarkRoots.push({ folderId: original.parentId, rootId: sourceRootId });
+            }
+            let result;
+            try {
+                result = await saveBookmarkOperation(operation);
+            } catch (error) {
+                if (crossSpaceDrop && error.moved) {
+                    rememberBookmarkRelocation(crossSpaceDrop, operation.relocation, error.createdId || bookmarkId, original, sourceRootId);
+                }
+                throw error;
+            }
             bookmarkId = result.createdId || bookmarkId;
+            if (crossSpaceDrop) rememberBookmarkRelocation(crossSpaceDrop, operation.relocation, bookmarkId, original, sourceRootId);
             for (const [id, order] of Object.entries(result.orders || {})) bookmarkOrderBaselines.set(String(id), order.map(String));
             draggingElement.dataset.bookmarkId = bookmarkId;
             draggingElement.dataset.pinnedUrl = pinnedUrl;
-            if (tabId) await Utils.setPinnedTabState(tabId, { bookmarkId, pinnedUrl });
-            // Move tab from temporary to pinned in space data (only for regular tabs with real IDs)
-            if (!isBookmarkOnly && tabId) {
+            if (crossSpaceDrop) {
+                if (tabId) await setDropPinBinding(crossSpaceDrop, tabId, { bookmarkId, pinnedUrl });
+                for (const id of new Set([...boundIds, ...(tabId ? [tabId] : [])])) {
+                    transferDraggedTab(crossSpaceDrop, space, id, 'spaceBookmarks');
+                }
+            } else if (!isBookmarkOnly && tabId) {
+                await Utils.setPinnedTabState(tabId, { bookmarkId, pinnedUrl });
                 space.temporaryTabs = space.temporaryTabs.filter(id => id !== tabId);
                 if (!space.spaceBookmarks.includes(tabId)) {
                     space.spaceBookmarks.push(tabId);
@@ -2025,9 +2173,27 @@ async function handleBookmarkOperations(event, draggingElement, container, targe
 
         try {
             const tab = await chrome.tabs.get(tabId);
-            const space = spaces.find(s => s.id === activeSpaceId);
+            const space = spaces.find(s => s.id === container.closest('.space')?.dataset.spaceId);
+            const crossSpaceDrop = dropIntent?.crossSpaceDrop;
 
             if (space && tab) {
+                if (crossSpaceDrop) {
+                    const { source } = crossSpaceDrop;
+                    if (source.spaceBookmarks.includes(tab.id)) {
+                        const bookmarkId = draggingElement.dataset.bookmarkId;
+                        const boundIds = await getTabsBoundToBookmark(source, bookmarkId);
+                        const relatedTabs = boundIds.filter(id => id !== tab.id)
+                            .map(id => ({ id, index: source.spaceBookmarks.indexOf(id) }));
+                        for (const id of new Set([...boundIds, tab.id])) {
+                            await setDropPinBinding(crossSpaceDrop, id, null);
+                            if (id !== tab.id) transferDraggedTab(crossSpaceDrop, source, id, 'temporaryTabs');
+                        }
+                        // Keep the bookmark until the new bindings and membership are durable.
+                        crossSpaceDrop.unpins.push({ tab: { ...tab, bookmarkId }, relatedTabs });
+                    }
+                    transferDraggedTab(crossSpaceDrop, space, tab.id, 'temporaryTabs');
+                    return { orderHandled: true };
+                }
                 // Remove tab from bookmarks if it exists
                 if (space.spaceBookmarks.includes(tab.id)) {
                     const result = await moveTabToTemp(space, tab, {
@@ -2066,19 +2232,19 @@ async function handleBookmarkOperations(event, draggingElement, container, targe
 }
 
 // Order belongs to extension data; Chrome's tab-strip order is irrelevant.
-async function persistSpaceTabOrder(spaceId) {
+async function persistSpaceTabOrder(spaceId, { dropDestination, dropTransfers, dropParentId } = {}) {
     const space = spaces.find(s => s.id === spaceId);
     if (!space) return;
     space.spaceBookmarks = uniqPreserveOrder(space.spaceBookmarks);
     space.temporaryTabs = uniqPreserveOrder(space.temporaryTabs.filter(id => !space.spaceBookmarks.includes(id)));
-    await saveSpaces();
+    return saveSpaces(dropDestination ? { dropDestination, dropTransfers, dropParentId } : undefined);
 }
 
 /**
  * Called after an Arcify drag+drop to update the space model (spaceBookmarks/temporaryTabs)
  * from the DOM and persist the extension order.
  */
-async function handleArcifyOrderChangeAfterDrop(container) {
+async function handleArcifyOrderChangeAfterDrop(container, condition) {
     if (!container) return;
     const spaceElement = container.closest('.space');
     if (!spaceElement) return;
@@ -2103,7 +2269,7 @@ async function handleArcifyOrderChangeAfterDrop(container) {
         return;
     }
 
-    await persistSpaceTabOrder(spaceId);
+    return persistSpaceTabOrder(spaceId, condition);
 }
 
 async function setupDragAndDrop(pinnedContainer, tempContainer) {
@@ -2115,7 +2281,7 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
             if (draggingElement) {
                 const targetFolder = getDropTargetFolderContent(e.target, draggingElement);
                 const targetContainer = targetFolder || container;
-                if (isInvalidFolderDrop(draggingElement, container, targetContainer)) {
+                if (isInvalidDrop(draggingElement, container, targetContainer)) {
                     tabDragPreview.clear();
                     if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
                     hideAllDropIndicators();
@@ -2198,8 +2364,16 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
                 const previewDrop = tabDragPreview.takeDrop(container);
                 pendingMutationCount++;
                 const removedFavorites = [];
-                try {
                 const spaceElement = container.closest('.space');
+                const sourceSpaceId = draggingElement.closest('.space')?.dataset.spaceId;
+                const destinationSpaceId = spaceElement?.dataset.spaceId;
+                const sourceSpace = sourceSpaceId !== destinationSpaceId
+                    ? spaces.find(space => space.id === sourceSpaceId)
+                    : null;
+                const crossSpaceDrop = sourceSpace ? { source: sourceSpace, rollbacks: [], transfers: new Map(), unpins: [] } : null;
+                let crossSpaceSaved = false;
+                try {
+                if (sourceSpace && spaceDragPreview?.element !== spaceElement) return;
                 if (container.dataset.tabType === 'pinned' && spaceElement?.dataset.bookmarkTreeUnavailable === 'true') {
                     throw new Error('Favorites are unavailable until this space bookmark folder is restored.');
                 }
@@ -2208,13 +2382,17 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
                     ? (previewDrop.container === container ? null : previewDrop.container)
                     : getDropTargetFolderContent(e.target, draggingElement);
                 const targetFolderElement = targetFolder?.closest('.folder');
-                if (isInvalidFolderDrop(draggingElement, container, targetFolder || container)) return;
+                if (isInvalidDrop(draggingElement, container, targetFolder || container)) return;
+                tabDropCommitting = true;
                 const draggingElements = draggingTabIds.length > 1 && !draggingElement.classList.contains('folder')
                     ? getOrderedTabElementsById(draggingTabIds) : [draggingElement];
+                const targetContainer = targetFolder || container;
+                const foldersToOpen = [...dragOpenedFolders].filter(folder => folder.contains(targetContainer));
+                if (targetFolderElement && !foldersToOpen.includes(targetFolderElement)) foldersToOpen.push(targetFolderElement);
                 const sourceFolders = new Set(draggingElements.map(el => el.classList.contains('folder')
                     ? el.parentElement.closest('.folder') : el.closest('.folder')).filter(Boolean));
                 const originalFavorites = new Map();
-                if (draggingElements.length > 1 && container.dataset.tabType === 'temporary') {
+                if ((sourceSpace || draggingElements.length > 1) && container.dataset.tabType === 'temporary') {
                     for (const element of draggingElements) {
                         const tabId = Number(element.dataset.tabId);
                         const source = ownerOf(spaces, tabId);
@@ -2222,11 +2400,12 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
                         const binding = await Utils.getPinnedTabState(tabId);
                         const bookmark = await getSpaceBookmarkById(source, binding?.bookmarkId);
                         if (!bookmark) throw new Error('The selected favorite no longer belongs to this space.');
-                        originalFavorites.set(tabId, { index: bookmark.index, favoriteIndex: source.spaceBookmarks.indexOf(tabId), spaceId: source.id });
+                        originalFavorites.set(tabId, {
+                            index: bookmark.index, favoriteIndex: source.spaceBookmarks.indexOf(tabId), spaceId: source.id,
+                            fromSpaceId: destinationSpaceId
+                        });
                     }
                 }
-                const targetContainer = targetFolder || container;
-                if (targetFolderElement) openFolder(targetFolderElement);
                 const afterElement = previewDrop ? null : getDragAfterElementTabs(targetContainer, e.clientY);
                 let insertBefore = previewDrop?.before || null;
                 if (afterElement && targetContainer.contains(afterElement)) {
@@ -2250,30 +2429,101 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
                     removeProjectedAnchor(sourceContent, element);
                     targetContainer.insertBefore(element, insertBefore);
                     const dropIntent = container.dataset.tabType === 'temporary'
-                        ? { temporaryDisplayOrder: getTempSectionTabIds(spaceElement), inverted: dropInverted, offerUndo: draggingElements.length === 1 }
+                        ? { crossSpaceDrop, temporaryDisplayOrder: getTempSectionTabIds(spaceElement), inverted: dropInverted, offerUndo: draggingElements.length === 1 }
                         : {
+                            crossSpaceDrop,
                             bookmarkSourceContent: element.dataset.bookmarkId ? (sourceContent || originalContent) : targetContainer,
                             bookmarkTargetContent: targetContainer
                         };
                     const result = await handleBookmarkOperations(e, element, container, targetFolder, dropIntent);
                     const tabId = Number(element.dataset.tabId);
                     if (result?.removedFavorite && originalFavorites.has(tabId)) {
-                        removedFavorites.push({ ...result.removedFavorite, ...originalFavorites.get(tabId), tabId });
+                        removedFavorites.push({ ...result.removedFavorite, ...originalFavorites.get(tabId), tabId, relatedTabs: result.relatedTabs });
                     }
                     orderHandled ||= Boolean(result?.orderHandled);
                 }
+                // Persist ownership before removing bookmarks from cross-space unpins.
+                if (crossSpaceDrop) {
+                    const dropTransfers = [...crossSpaceDrop.transfers];
+                    let saved;
+                    let saveError;
+                    try {
+                        saved = await handleArcifyOrderChangeAfterDrop(container, {
+                            dropDestination: destinationSpaceId, dropTransfers,
+                            dropParentId: targetFolderElement?.dataset.bookmarkId
+                        });
+                    } catch (error) {
+                        saveError = error;
+                        ({ spaces: saved } = await chrome.storage.local.get('spaces'));
+                        if (!dropTransfers.length) throw error;
+                    }
+                    if (!saved?.some(space => space.id === destinationSpaceId)) {
+                        throw saveError || new Error('The drop destination is no longer available.');
+                    }
+                    const unassigned = new Set(dropTransfers.filter(([id, { spaceId, section }]) =>
+                        !saved.find(space => space.id === spaceId)?.[section].includes(id)).map(([id]) => id));
+                    if (unassigned.size) {
+                        const liveTabs = await chrome.tabs.query({}).catch(error => {
+                            // The ownership write may already be durable. Do not
+                            // reverse it or delete any bookmark on an uncertain read.
+                            crossSpaceSaved = true;
+                            throw error;
+                        });
+                        if (liveTabs.some(tab => unassigned.has(tab.id))) {
+                            throw saveError || new Error('A tab could not be moved to the destination Space.');
+                        }
+                    }
+                    crossSpaceSaved = true;
+                    for (const { tab, relatedTabs } of crossSpaceDrop.unpins) {
+                        const live = await chrome.tabs.get(tab.id).catch(error => {
+                            if (/No tab with id:/i.test(error.message)) return null;
+                            throw error;
+                        });
+                        if (!live) continue;
+                        const removed = await removeSpacePin(sourceSpace, tab);
+                        if (!removed) throw new Error('The tabs were moved, but a saved bookmark could not be removed.');
+                        removedFavorites.push({ ...removed, ...originalFavorites.get(tab.id), tabId: tab.id, relatedTabs });
+                    }
+                }
                 for (const folder of sourceFolders) syncCollapsedFolderTabs(folder);
-                if (targetFolderElement && !sourceFolders.has(targetFolderElement)) syncCollapsedFolderTabs(targetFolderElement);
+                for (const folder of foldersToOpen) {
+                    if (dragOpenedFolders.delete(folder)) {
+                        await saveFolderCollapsed(folder.dataset.bookmarkId, false)
+                            .catch(error => Logger.warn('Could not save opened folder state:', error));
+                    } else openFolder(folder);
+                }
+                if (targetFolderElement && !sourceFolders.has(targetFolderElement)) {
+                    syncCollapsedFolderTabs(targetFolderElement);
+                }
                 // The final DOM order includes all moved rows, including temporary tabs
                 // that have no bookmark operation of their own.
-                if (droppedFolder || draggingElements.length > 1 || !orderHandled) await handleArcifyOrderChangeAfterDrop(container);
+                if (!crossSpaceDrop && (droppedFolder || draggingElements.length > 1 || !orderHandled)) {
+                    await handleArcifyOrderChangeAfterDrop(container);
+                }
+                if (sourceSpace) await setActiveSpace(destinationSpaceId, false);
                 if (orderHandled) await refreshActiveSpaceUI({ force: true });
                 } catch (error) {
                     Logger.warn('Drop could not be completed; restoring saved state.', error);
+                    if (crossSpaceDrop && !crossSpaceSaved) {
+                        for (const rollback of crossSpaceDrop.rollbacks.reverse()) {
+                            await rollback().catch(failure => Logger.warn('Could not restore the previous bookmark or binding:', failure));
+                        }
+                        await spaceRequest('get', { discoverBookmarks: false })
+                            .then(current => adoptStoredSpaces(current, { render: false }))
+                            .catch(failure => Logger.warn('Could not reload Space membership:', failure));
+                    }
+                    if (crossSpaceSaved && activeSpaceId !== destinationSpaceId) {
+                        await setActiveSpace(destinationSpaceId, false)
+                            .catch(failure => Logger.warn('Could not show the destination Space:', failure));
+                    }
+                    if (sourceSpace) endSpaceDragPreview();
                     await refreshActiveSpaceUI({ force: true });
                     alert(error.message);
                 } finally {
                     tabDragPreview.finish();
+                    tabDropCommitting = false;
+                    endSpaceDragPreview();
+                    restoreDragFolders();
                     offerFavoritesUndo(removedFavorites);
                     pendingMutationCount--;
                     refreshCoordinator.schedule();
@@ -3536,6 +3786,7 @@ function handleTabActivated(activeInfo) {
         }
 
         Logger.log('Tab activated:', activeInfo);
+        if (isDraggingTab) tabPointerDrag.cancel();
         activeChromeTabId = activeInfo.tabId;
         selectOnlyTab(activeInfo.tabId);
         // Find which space contains this tab

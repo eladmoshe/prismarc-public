@@ -1,12 +1,15 @@
+import { isFolderInBookmarkRoot } from './space-bookmarks.js';
+
 let chain = Promise.resolve();
 
 export class BookmarkOrderError extends Error {
-    constructor(message, { code = 'bookmark_order_failed', observedOrders = {}, moved = false } = {}) {
+    constructor(message, { code = 'bookmark_order_failed', observedOrders = {}, moved = false, createdId = null } = {}) {
         super(message);
         this.name = 'BookmarkOrderError';
         this.code = code;
         this.observedOrders = observedOrders;
         this.moved = moved;
+        this.createdId = createdId;
     }
 }
 
@@ -28,6 +31,14 @@ async function readOrders(parents) {
     const result = {};
     for (const parent of parents) result[parent.parentId] = ids(await chrome.bookmarks.getChildren(parent.parentId));
     return result;
+}
+
+async function verifyBookmarkRoots(bookmarkRoots = []) {
+    for (const { folderId, rootId } of bookmarkRoots) {
+        if (!await isFolderInBookmarkRoot(folderId, rootId).catch(() => false)) {
+            throw new BookmarkOrderError('A bookmark folder moved outside its Space.', { code: 'conflict' });
+        }
+    }
 }
 
 function predictRelocationOrders(parents, relocation, createdId = null) {
@@ -153,6 +164,7 @@ async function applyOperation(request = {}) {
                 });
             }
         }
+        await verifyBookmarkRoots(request.bookmarkRoots);
         let predictedAfterRelocation;
         if (relocation.kind === 'create') {
             const target = parents.find(parent => parent.parentId === String(relocation.parentId));
@@ -177,11 +189,18 @@ async function applyOperation(request = {}) {
         } else {
             throw new BookmarkOrderError('Bookmark relocation is invalid.', { code: 'invalid_request', observedOrders: fresh });
         }
-        observedOrders = await readOrders(parents);
+        try {
+            observedOrders = await readOrders(parents);
+            await verifyBookmarkRoots(request.bookmarkRoots);
+        } catch (error) {
+            throw new BookmarkOrderError(error.message || 'Could not verify the completed bookmark relocation.', {
+                code: 'partial', observedOrders, moved: true, createdId
+            });
+        }
         for (const parent of parents) {
             if (!equal(observedOrders[parent.parentId], predictedAfterRelocation[parent.parentId])) {
                 throw new BookmarkOrderError('Bookmark order changed during this action. Refresh and retry.', {
-                    code: 'partial', observedOrders, moved: true
+                    code: 'partial', observedOrders, moved: true, createdId
                 });
             }
         }

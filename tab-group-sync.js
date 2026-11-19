@@ -21,14 +21,17 @@ export async function syncSpaceGroups(spaces, activeSpaces = {}) {
             const key = `${space.id}:${windowId}`;
             const ordered = members.filter(t => t.windowId === windowId);
             const ids = ordered.map(t => t.id);
+            const containsActiveTab = ordered.some(t => t.active);
             let groupId = spaceGroupProjection[key];
             const liveGroup = groups.find(g => g.id === groupId && g.windowId === windowId);
             if (!liveGroup) groupId = undefined;
             if (groupId === undefined || ordered.some(t => t.groupId !== groupId)) {
+                // Grouping the foreground tab into a collapsed group can make Chrome switch tabs.
+                if (liveGroup?.collapsed && containsActiveTab) await chrome.tabGroups.update(groupId, { collapsed: false });
                 groupId = await chrome.tabs.group({ tabIds: ids, ...(groupId === undefined ? { createProperties: { windowId } } : { groupId }) });
             }
             next[key] = groupId;
-            const collapsed = Boolean(activeSpaces[windowId] && activeSpaces[windowId] !== space.id);
+            const collapsed = Boolean(!containsActiveTab && activeSpaces[windowId] && activeSpaces[windowId] !== space.id);
             // Chrome tab groups accept named solid colors only.
             const color = presetGroupColors.get(space.color) ?? space.color;
             if (!liveGroup || liveGroup.title !== space.name || liveGroup.color !== color || liveGroup.collapsed !== collapsed) {
