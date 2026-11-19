@@ -13,6 +13,7 @@ import { TabSwitcherPreviews } from './tab-switcher-previews.js';
 import { dispatchTourMessage } from './tour-state.js';
 import { copyCurrentTabUrlWithFallback } from './url-copy.js';
 import { Utils } from './utils.js';
+import { registerZoomLaunchTabs } from './zoom-launch-tabs.js';
 
 const AUTO_ARCHIVE_ALARM_NAME = 'autoArchiveTabsAlarm';
 const TAB_ACTIVITY_STORAGE_KEY = 'tabLastActivity';
@@ -36,6 +37,7 @@ favorites.install();
 spaceStore.install();
 const handleCleanTabs = createCleanTabsHandler(chrome, spaceStore);
 tabSwitcherPreviews.register();
+registerZoomLaunchTabs(chrome, () => Logger.warn('Could not update Zoom launch tab cleanup.'));
 
 function respond(operation, sendResponse, context, mapFailure = () => ({})) {
     operation.then(

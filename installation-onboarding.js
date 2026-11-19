@@ -151,7 +151,12 @@ $('bookmarks').addEventListener('click', () => chrome.tabs.create({
 }).catch(showError));
 async function initialize() {
     try {
-        windowId = (await chrome.windows.getCurrent()).id;
+        const tab = await chrome.tabs.getCurrent();
+        windowId = tab.windowId;
+        // The address bar can retain keyboard focus when the user switches back.
+        chrome.tabs.onActivated.addListener(({ tabId }) => {
+            if (tabId === tab.id) loadShortcuts().catch(showError);
+        });
         render((await chrome.storage.local.get(TOUR_KEY))[TOUR_KEY]);
         $('start').disabled = false;
         await Promise.all([loadShortcuts(), loadBookmarkSpaces()]);

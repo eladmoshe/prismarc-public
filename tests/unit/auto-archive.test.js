@@ -50,6 +50,7 @@ function startBackground() {
         }
     };
     runInNewContext(source, {
+        registerZoomLaunchTabs() {},
         chrome, console, isTrustedExtensionMessage, setTimeout, clearTimeout,
         dispatchTourMessage: async () => ({}), registerBookmarkListeners() {}, createCleanTabsHandler: () => () => {},
         enqueueBookmarkOperation: async () => ({}), copyCurrentTabUrlWithFallback: async () => {},

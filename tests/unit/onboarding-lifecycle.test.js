@@ -28,6 +28,7 @@ function background(completed = false, onboardingVersion = undefined, version = 
         tabs: { create: async tab => opened.push(tab), onActivated: event, onUpdated: event, onRemoved: event }
     };
     runInNewContext(source, {
+        registerZoomLaunchTabs() {},
         chrome, console, isTrustedExtensionMessage, TabSwitcher, dispatchTourMessage: async () => 'tour',
         TabSwitcherPreviews: class { register() {} },
         registerBookmarkListeners() {}, createCleanTabsHandler: () => () => {},
