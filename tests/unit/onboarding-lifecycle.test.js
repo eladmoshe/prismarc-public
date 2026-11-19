@@ -28,7 +28,7 @@ function background(completed = false, onboardingVersion = undefined, version = 
     runInNewContext(source, {
         chrome, console, isTrustedExtensionMessage, TabSwitcher, registerTourMessages() {},
         TabSwitcherPreviews: class { register() {} },
-        registerBookmarkListeners() {}, registerNativeFavorites() {},
+        registerBookmarkListeners() {}, registerNativeFavorites() {}, registerCleanTabs() {},
         enqueueBookmarkOrder: async () => [],
         SpaceStore: class { install() {} async dispatch() { return [{ id: 'home' }]; } },
         Utils: { getSettings: async () => ({ autoArchiveEnabled: false }) },

@@ -20,6 +20,8 @@ import { Logger } from './logger.js';
 
 const MAX_ARCHIVED_TABS = 100;
 const ARCHIVED_TABS_KEY = 'archivedTabs';
+const DEFAULT_ARCHIVE_IDLE_MINUTES = 24 * 60;
+const LEGACY_ARCHIVE_IDLE_MINUTES = 6 * 60;
 
 const Utils = {
 
@@ -90,7 +92,7 @@ const Utils = {
         const defaultSettings = {
             defaultSpaceName: 'Home',
             autoArchiveEnabled: false, // Default: disabled
-            autoArchiveIdleMinutes: 360, // Default: 6 hours
+            autoArchiveIdleMinutes: null,
             syncTabGroups: false,
             invertTabOrder: true, // Default: enabled (new temporary tabs on top; favorites keep bookmark order)
             colorOverrides: null, // Default: no color overrides
@@ -98,6 +100,9 @@ const Utils = {
             showAllOpenTabsInCollapsedFolders: false, // Default: Arc behavior (only show active tab in collapsed folder)
         };
         const result = await chrome.storage.local.get(defaultSettings);
+        result.autoArchiveIdleMinutes ??= result.autoArchiveEnabled
+            ? LEGACY_ARCHIVE_IDLE_MINUTES
+            : DEFAULT_ARCHIVE_IDLE_MINUTES;
         Logger.log("Retrieved settings:", result);
         return result;
     },
@@ -321,14 +326,19 @@ const Utils = {
     },
 
     setArchivingEnabled: async function (enabled) {
-        const settings = await this.getSettings();
-        settings.autoArchiveEnabled = enabled;
-        await chrome.storage.local.set({ autoArchiveEnabled: enabled });
+        const stored = await chrome.storage.local.get(['autoArchiveEnabled', 'autoArchiveIdleMinutes']);
+        const next = { autoArchiveEnabled: enabled };
+        if (stored.autoArchiveIdleMinutes == null && (enabled || stored.autoArchiveEnabled)) {
+            // Save the effective threshold with the toggle so enabling a fresh
+            // profile does not pick up the legacy enabled-profile default.
+            next.autoArchiveIdleMinutes = stored.autoArchiveEnabled
+                ? LEGACY_ARCHIVE_IDLE_MINUTES
+                : DEFAULT_ARCHIVE_IDLE_MINUTES;
+        }
+        await chrome.storage.local.set(next);
     },
 
     setArchiveTime: async function (minutes) {
-        const settings = await this.getSettings();
-        settings.autoArchiveIdleMinutes = minutes;
         await chrome.storage.local.set({ autoArchiveIdleMinutes: minutes });
     },
 

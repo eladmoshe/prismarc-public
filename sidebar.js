@@ -30,7 +30,8 @@ import { spaceRequest } from './space-client.js';
 import { SpacePatchQueue } from './space-patch-queue.js';
 import { RefreshCoordinator } from './refresh-coordinator.js';
 import { EditSessionRegistry } from './edit-sessions.js';
-import { isProtectedFavorite } from './favorite-safety.js';
+import { setupCleanPreview, closeCleanPreview, reconcileCleanPreview, removeCleanCandidate } from './sidebar-clean.js';
+import { setupCleanArchiveControls } from './sidebar-auto-archive.js';
 import { favoriteRequest, getFavoriteDropTarget } from './native-favorites.js';
 import { selectWindowSpaceTabs, mergeVisibleOrder, mergeCapturedTemporaryOrder, canonicalOrderFromDisplay, saveBookmarkOperation } from './sidebar-tabs.js';
 import { ownerOf } from './space-store.js';
@@ -811,6 +812,7 @@ async function adoptStoredSpaces(next, { render = true } = {}) {
     for (const space of old) {
         if (!spaces.some(s => s.id === space.id)) {
             const element = getSpaceElement(space.id);
+            if (space.id === activeSpaceId) closeCleanPreview();
             disposeEditorsInElement(element);
             element?.remove();
         }
@@ -828,6 +830,7 @@ async function adoptStoredSpaces(next, { render = true } = {}) {
         const previous = oldMetadata.get(space.id);
         if (!previous || previous.name !== space.name || previous.color !== space.color) {
             const element = getSpaceElement(space.id);
+            if (space.id === activeSpaceId) closeCleanPreview();
             disposeEditorsInElement(element);
             element?.remove();
             createSpaceElement(space);
@@ -1019,9 +1022,8 @@ function createSpaceElement(space) {
         setupPlaceholderDragAndDrop(placeholderContainer, pinnedContainer);
     }
 
-    // Set up clean tabs button
-    const cleanBtn = spaceElement.querySelector('.clean-tabs-btn');
-    cleanBtn.addEventListener('click', () => cleanTemporaryTabs(space.id));
+    setupCleanPreview(spaceContainer, currentWindow.id);
+    setupCleanArchiveControls(spaceContainer);
 
     // Set up options menu
     const newFolderBtn = spaceElement.querySelector('.new-folder-btn');
@@ -1065,6 +1067,7 @@ function createSpaceElement(space) {
     const spaceContent = spaceElement.querySelector('.space-content');
 
     archiveButton.addEventListener('click', (e) => {
+        closeCleanPreview();
         e.stopPropagation(); // Prevent closing immediately if clicking outside logic exists
         spaceContent.classList.toggle('hidden');
         const isVisible = popup.style.opacity == 1;
@@ -1385,7 +1388,10 @@ async function setActiveSpace(spaceId, updateTab = true) {
         editorSessions.dispose('folder-pending', activeSpaceId);
     }
     activeSpaceId = spaceId;
-    if (spaceChanged) clearTabSelection();
+    if (spaceChanged) {
+        closeCleanPreview();
+        clearTabSelection();
+    }
     await pendingSpaceSaves;
     await spaceRequest('activate', { windowId: currentWindow.id, spaceId });
     await activateSpaceInDOM(spaceId, spaces, updateSpaceSwitcher);
@@ -2797,7 +2803,10 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer, { force = 
     pinnedContainer.appendChild(pinnedFragment);
     tempContainer.appendChild(tempFragment);
     const spaceElement = pinnedContainer.closest('.space');
-    if (spaceElement) spaceElement.dataset.bookmarkTreeUnavailable = treeAvailable ? 'false' : 'true';
+    if (spaceElement) {
+        spaceElement.dataset.bookmarkTreeUnavailable = treeAvailable ? 'false' : 'true';
+        reconcileCleanPreview(spaceElement);
+    }
     return true;
 }
 
@@ -3468,51 +3477,6 @@ async function createNewSpace() {
     }
 }
 
-/**
- * Collect the URL keys (origin+pathname) of every favorite bookmark in a space's folder.
- * Used to protect favorites from bulk-close operations even if a favorite's tab id leaked
- * into temporaryTabs or its tab navigated away from the exact bookmarked URL.
- */
-async function getSpaceFavoriteUrlKeys(space) {
-    const keys = new Set();
-    try {
-        const spaceFolder = await getSpaceBookmarkFolder(space);
-        const [subTree] = await chrome.bookmarks.getSubTree(spaceFolder.id);
-        const walk = (node) => {
-            if (!node) return;
-            if (node.url) keys.add(Utils.getPinnedUrlKey(node.url));
-            if (node.children) node.children.forEach(walk);
-        };
-        walk(subTree);
-    } catch (error) {
-        Logger.warn('Could not read favorite URL keys for space:', space.id, error);
-        throw error;
-    }
-    return keys;
-}
-
-async function cleanTemporaryTabs(spaceId) {
-    Logger.log('Cleaning temporary tabs for space:', spaceId);
-    const space = spaces.find(s => s.id === spaceId);
-    if (!space) return;
-
-    // Only close live tabs owned by this space, protecting favorite bindings.
-    const ownedTabs = await getOwnedTabs(spaceId);
-    const protectedIds = new Set(space.spaceBookmarks);
-    const favoriteUrlKeys = await getSpaceFavoriteUrlKeys(space);
-    const bindings = await Utils.getPinnedTabStates();
-    const closable = ownedTabs.filter(t =>
-        !isProtectedFavorite(t, protectedIds, bindings, favoriteUrlKeys)
-    );
-
-    await Promise.all(closable.map(t => chrome.tabs.remove(t.id)));
-
-    // Keep only surviving favorites.
-    const closedIds = new Set(closable.map(t => t.id));
-    space.temporaryTabs = space.temporaryTabs.filter(id => !closedIds.has(id));
-    saveSpaces();
-}
-
 async function handleTabCreated(tab) {
     if (!sidebarReady || isCreatingSpace || isOpeningBookmark || tab.pinned || tab.windowId !== currentWindow?.id) return;
     await pendingSpaceSaves;
@@ -3654,6 +3618,7 @@ function handleTabUpdate(tabId, changeInfo, tab) {
 
 const removingTabIds = new Set();
 async function handleTabRemove(tabId) {
+    removeCleanCandidate(tabId);
     tabAudioEvents.forget(tabId);
     if (removingTabIds.has(tabId)) return;
     removingTabIds.add(tabId);
@@ -3751,6 +3716,7 @@ function handleTabActivated(activeInfo) {
 
         if (spaceWithTab && spaceWithTab.id !== activeSpaceId) {
             // Switch to the space containing the tab
+            closeCleanPreview();
             activeSpaceId = spaceWithTab.id;
             await activateSpaceInDOM(spaceWithTab.id, spaces, updateSpaceSwitcher);
             await refreshActiveSpaceUI();

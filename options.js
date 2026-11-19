@@ -2,12 +2,11 @@
  * Options - Extension settings and preferences UI
  * 
  * Purpose: Provides user interface for configuring extension behavior and preferences
- * Key Functions: Auto-archive settings, default space configuration, extension preferences management
+ * Key Functions: Default space configuration and extension preferences management
  * Architecture: Options page that syncs with chrome.storage for persistent settings
  * 
  * Critical Notes:
  * - Settings stay in this Chrome profile via chrome.storage.local
- * - Auto-archive timing affects background script alarm configuration
  * - Changes trigger background script updates via message passing
  * - Provides real-time feedback for setting changes
  */
@@ -58,17 +57,6 @@ function addListenerIfExists(elementId, event, handler) {
   return element;
 }
 
-function updateAutoArchiveIdleMinutesVisibility(forceEnabled) {
-  const container = document.getElementById('autoArchiveIdleMinutesContainer');
-  const checkbox = document.getElementById('autoArchiveEnabled');
-  const input = document.getElementById('autoArchiveIdleMinutes');
-  if (!container || !checkbox || !input) return;
-
-  const isEnabled = forceEnabled !== undefined ? Boolean(forceEnabled) : Boolean(checkbox.checked);
-  container.style.display = isEnabled ? '' : 'none';
-  input.disabled = !isEnabled;
-}
-
 // Function to apply color overrides to CSS variables
 function applyColorOverrides(colorOverrides) {
   const root = document.documentElement;
@@ -85,8 +73,6 @@ function applyColorOverrides(colorOverrides) {
 // Function to save options to chrome.storage
 async function saveOptions() {
   const defaultSpaceNameSelect = document.getElementById('defaultSpaceName');
-  const autoArchiveIdleMinutesInput = document.getElementById('autoArchiveIdleMinutes');
-  if (autoArchiveIdleMinutesInput && !autoArchiveIdleMinutesInput.disabled && !autoArchiveIdleMinutesInput.reportValidity()) return;
 
   // Collect color overrides (only non-default values)
   const colorOverrides = {};
@@ -99,8 +85,6 @@ async function saveOptions() {
 
   const settings = {
     defaultSpaceName: defaultSpaceNameSelect?.value || 'Home',
-    autoArchiveEnabled: getCheckboxValue(document.getElementById('autoArchiveEnabled'), false),
-    autoArchiveIdleMinutes: parseInt(autoArchiveIdleMinutesInput?.value, 10) || 360,
     syncTabGroups: getCheckboxValue(document.getElementById('syncTabGroups'), false),
     invertTabOrder: getCheckboxValue(document.getElementById('invertTabOrder'), true),
     showAllOpenTabsInCollapsedFolders: getCheckboxValue(document.getElementById('showAllOpenTabsInCollapsedFolders'), false),
@@ -113,7 +97,6 @@ async function saveOptions() {
     Logger.log('Settings saved:', settings);
 
     applyColorOverrides(settings.colorOverrides);
-    await chrome.runtime.sendMessage({ action: 'updateAutoArchiveSettings' });
     showToast();
   } catch (error) {
     Logger.error('Error saving settings:', error);
@@ -144,18 +127,10 @@ async function restoreOptions() {
   await populateSpacesDropdown(settings.defaultSpaceName);
 
   // Restore checkbox values
-  setCheckboxValue(document.getElementById('autoArchiveEnabled'), settings.autoArchiveEnabled, false);
   setCheckboxValue(document.getElementById('syncTabGroups'), settings.syncTabGroups, false);
   setCheckboxValue(document.getElementById('invertTabOrder'), settings.invertTabOrder, true);
   setCheckboxValue(document.getElementById('showAllOpenTabsInCollapsedFolders'), settings.showAllOpenTabsInCollapsedFolders, false);
   setCheckboxValue(document.getElementById('debugLoggingEnabled'), settings.debugLoggingEnabled, false);
-
-  // Restore number input
-  const autoArchiveIdleMinutesInput = document.getElementById('autoArchiveIdleMinutes');
-  if (autoArchiveIdleMinutesInput) {
-    autoArchiveIdleMinutesInput.value = settings.autoArchiveIdleMinutes;
-  }
-  updateAutoArchiveIdleMinutesVisibility(settings.autoArchiveEnabled);
 
   // Restore color overrides
   const colorOverrides = settings.colorOverrides || {};
@@ -251,15 +226,6 @@ function setupAutoSave() {
   // Auto-save for checkboxes (most just save immediately)
   const checkboxIds = ['syncTabGroups', 'invertTabOrder', 'showAllOpenTabsInCollapsedFolders', 'debugLoggingEnabled'];
   checkboxIds.forEach(id => addListenerIfExists(id, 'change', saveOptions));
-
-  // Auto-archive checkbox needs special handling to update visibility
-  const autoArchiveCheckbox = addListenerIfExists('autoArchiveEnabled', 'change', () => {
-    updateAutoArchiveIdleMinutesVisibility(autoArchiveCheckbox?.checked);
-    saveOptions();
-  });
-
-  // Auto-save for number input (with debounce)
-  addListenerIfExists('autoArchiveIdleMinutes', 'input', debouncedSave);
 
   // Auto-save for color pickers (with debounce)
   COLOR_NAMES.forEach(colorName => {

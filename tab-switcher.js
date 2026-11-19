@@ -1,11 +1,10 @@
 import { isTrustedExtensionMessage } from './message-security.js';
-import { focusOpenTab, recentOpenTabs } from './tab-switcher-tabs.js';
+import { focusOpenTab, recentOpenTabs, TAB_FOCUS_TIMES } from './tab-switcher-tabs.js';
 
 export const TAB_SWITCHER_SESSION = 'openTabSwitcher';
 export const TAB_SWITCHER_PAGE = 'tab-switcher.html';
 export const TAB_SWITCHER_LIMIT = 5;
 const PRIVATE_BURST_MS = 800;
-const TAB_FOCUS_TIMES = 'openTabFocusTimes';
 
 export class TabSwitcher {
     constructor(chromeApi, previews) {

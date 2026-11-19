@@ -1,15 +1,22 @@
+export const TAB_FOCUS_TIMES = 'openTabFocusTimes';
+
+export function tabLastViewed(tab, focusTimes) {
+    const native = Number.isFinite(tab.lastAccessed) ? tab.lastAccessed : 0;
+    const focused = focusTimes?.[tab.id];
+    return Math.max(0, native, Number.isFinite(focused) ? focused : 0);
+}
+
 export async function recentOpenTabs(chromeApi, sourceTab, focusTimes = {}) {
     const [windows, times] = await Promise.all([
         chromeApi.windows.getAll({ windowTypes: ['normal'], populate: true }), focusTimes,
     ]);
     const incognito = Boolean(sourceTab.incognito);
-    const lastSeen = tab => Math.max(tab.lastAccessed ?? 0, times[tab.id] ?? 0);
     return windows
         .filter(window => window.type === 'normal' && Boolean(window.incognito) === incognito)
         .flatMap(window => window.tabs ?? [])
         .filter(tab => Number.isInteger(tab.id) && tab.id >= 0 && Boolean(tab.incognito) === incognito)
         .sort((left, right) => Number(right.id === sourceTab.id) - Number(left.id === sourceTab.id) ||
-            lastSeen(right) - lastSeen(left) ||
+            tabLastViewed(right, times) - tabLastViewed(left, times) ||
             right.id - left.id);
 }
 

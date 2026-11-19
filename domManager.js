@@ -427,69 +427,6 @@ export async function showArchivedTabsPopup(activeSpaceId) {
     const message = popup.querySelector('.no-archived-tabs-message');
     list.innerHTML = '';
 
-    // --- Archiving Controls ---
-    let controls = popup.querySelector('.archiving-controls');
-    if (!controls) {
-        controls = document.createElement('div');
-        controls.className = 'archiving-controls';
-        popup.insertBefore(controls, list);
-    } else {
-        controls.innerHTML = '';
-    }
-
-    // Fetch current settings
-    const settings = await Utils.getSettings();
-    const archivingEnabled = settings.autoArchiveEnabled;
-    const archiveTime = settings.autoArchiveIdleMinutes;
-
-    // Toggle (styled)
-    const toggleLabel = document.createElement('label');
-    toggleLabel.className = 'archiving-toggle-label';
-    const toggleWrapper = document.createElement('span');
-    toggleWrapper.className = 'archiving-toggle';
-    const toggle = document.createElement('input');
-    toggle.type = 'checkbox';
-    toggle.checked = archivingEnabled;
-    const slider = document.createElement('span');
-    slider.className = 'archiving-toggle-slider';
-    toggleWrapper.appendChild(toggle);
-    toggleWrapper.appendChild(slider);
-    toggleLabel.appendChild(toggleWrapper);
-    toggleLabel.appendChild(document.createTextNode('Auto-archive inactive tabs'));
-    controls.appendChild(toggleLabel);
-
-    // Archive time input (styled) - display in hours, store in minutes
-    const timeContainer = document.createElement('div');
-    timeContainer.className = 'archiving-time-container';
-    const timeInput = document.createElement('input');
-    timeInput.type = 'number';
-    timeInput.min = '0.25'; // 15 minutes minimum
-    timeInput.step = '0.25'; // 15 minute increments
-    timeInput.value = (archiveTime / 60).toFixed(2); // Convert minutes to hours
-    timeInput.className = 'archiving-time-input';
-    timeInput.disabled = !archivingEnabled;
-    const hrLabel = document.createElement('span');
-    hrLabel.textContent = 'hr';
-    timeContainer.appendChild(timeInput);
-    timeContainer.appendChild(hrLabel);
-    controls.appendChild(timeContainer);
-
-    // Event listeners
-    toggle.addEventListener('change', async (e) => {
-        const enabled = toggle.checked;
-        timeInput.disabled = !enabled;
-        await Utils.setArchivingEnabled(enabled);
-    });
-    timeInput.addEventListener('change', async (e) => {
-        let val = parseFloat(timeInput.value);
-        if (isNaN(val) || val < 0.25) val = 0.25; // Minimum 15 minutes
-        timeInput.value = val.toFixed(2);
-        const minutes = Math.round(val * 60); // Convert hours to minutes
-        await Utils.setArchiveTime(minutes);
-    });
-
-    // --- End Archiving Controls ---
-
     // Manual archives remain restorable even when automatic cleanup is off.
     message.style.display = 'block';
     const allArchived = await Utils.getArchivedTabs();

@@ -44,13 +44,48 @@ function startBackground() {
     };
     runInNewContext(source, {
         chrome, console, isTrustedExtensionMessage, setTimeout, clearTimeout,
-        registerTourMessages() {}, registerBookmarkListeners() {},
+        registerTourMessages() {}, registerBookmarkListeners() {}, registerCleanTabs() {},
         enqueueBookmarkOperation: async () => ({}), copyCurrentTabUrlWithFallback: async () => {},
         SpaceStore, ownerOf, isProtectedFavorite, registerNativeFavorites, Utils, Logger, TabSwitcher,
         TabSwitcherPreviews: class { register() {} }
     });
     return () => Promise.all(chrome.alarms.onAlarm.listeners.map(fn => fn({ name: 'autoArchiveTabsAlarm' })));
 }
+
+test('a fresh profile suggests 24 hours with auto-archive disabled and saves 24 hours when enabled', async () => {
+    delete local.autoArchiveEnabled;
+    startBackground();
+    const settings = await Utils.getSettings();
+    assert.equal(settings.autoArchiveEnabled, false);
+    assert.equal(settings.autoArchiveIdleMinutes, 1440);
+    assert.equal(local.autoArchiveIdleMinutes, undefined);
+
+    await Utils.setArchivingEnabled(true);
+    assert.equal(local.autoArchiveEnabled, true);
+    assert.equal(local.autoArchiveIdleMinutes, 1440);
+});
+
+test('an enabled legacy profile without an interval keeps its prior six-hour threshold', async () => {
+    startBackground();
+    assert.equal((await Utils.getSettings()).autoArchiveIdleMinutes, 360);
+    assert.equal(local.autoArchiveIdleMinutes, undefined);
+    await Utils.setArchivingEnabled(false);
+    assert.equal(local.autoArchiveEnabled, false);
+    assert.equal(local.autoArchiveIdleMinutes, 360);
+    await Utils.setArchivingEnabled(true);
+    assert.equal((await Utils.getSettings()).autoArchiveIdleMinutes, 360);
+});
+
+test('toggling automation preserves previously saved standard and custom intervals', async () => {
+    startBackground();
+    for (const minutes of [360, 1440, 73]) {
+        await Utils.setArchiveTime(minutes);
+        await Utils.setArchivingEnabled(false);
+        assert.equal((await Utils.getSettings()).autoArchiveIdleMinutes, minutes);
+        await Utils.setArchivingEnabled(true);
+        assert.equal(local.autoArchiveIdleMinutes, minutes);
+    }
+});
 
 test('a background tab with no activity record is tracked instead of archived', async () => {
     local.tabLastActivity = {};

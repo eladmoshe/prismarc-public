@@ -17,6 +17,7 @@ registerTourMessages();
 import { SpaceStore, ownerOf } from './space-store.js';
 import { isProtectedFavorite } from './favorite-safety.js';
 import { registerBookmarkListeners } from './bookmark-events.js';
+import { registerCleanTabs } from './clean-tabs-service.js';
 import { enqueueBookmarkOperation } from './bookmark-writer.js';
 import { registerNativeFavorites } from './native-favorites.js';
 
@@ -25,6 +26,7 @@ registerNativeFavorites();
 
 const spaceStore = new SpaceStore();
 spaceStore.install();
+registerCleanTabs(chrome, spaceStore);
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isTrustedExtensionMessage(message, sender, chrome)) return;
     if (message.type !== 'spaceStore') return;
@@ -382,7 +384,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     await Utils.removeTabNameOverride(tabId);
 });
 
-// Optional: Listen for messages from options page to immediately update alarm
+// Handle requests from the extension UI.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isTrustedExtensionMessage(message, sender, chrome)) return;
 
@@ -391,11 +393,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await toggleQuickSwitcher(chrome, sender.tab?.windowId ?? message.windowId);
             return {};
         }, sendResponse, 'opening Quick Switcher');
-    } else if (message.action === 'updateAutoArchiveSettings') {
-        Logger.log("Received message to update auto-archive settings.");
-        setupAutoArchiveAlarm();
-        sendResponse({ success: true });
-        return false; // Synchronous response
     } else if (message.action === 'openNewTab') {
         chrome.tabs.create({ url: message.url });
         sendResponse({ success: true });

@@ -20,6 +20,7 @@
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="sidebar-tour.css">
     <link rel="stylesheet" href="calendar-preview.css">
+    <link rel="stylesheet" href="sidebar-clean.css">
 </head>
 
 <body>
@@ -155,10 +156,26 @@
                 </div>
                 <div class="temporary-tabs">
                     <div class="temp-header">
-                        <div class="divider-line"></div>
-                        <button class="clean-tabs-btn">Clean All</button>
+                        <span class="clean-section-label">Temporary tabs</span>
+                        <div class="divider-line" aria-hidden="true"></div>
+                        <button class="clean-tabs-btn" type="button" aria-expanded="false">Clean</button>
                     </div>
+                    <section class="clean-panel" aria-label="Clean old tabs" tabindex="-1" hidden>
+                        <div class="clean-slider-heading">
+                            <label>Clean old tabs</label>
+                            <span class="clean-cutoff" aria-hidden="true">None selected</span>
+                        </div>
+                        <input class="clean-range" type="range" min="0" max="0" step="1" value="0" disabled>
+                        <span class="clean-range-description clean-sr-only">Marks temporary tabs in this space, starting with the least recently viewed.</span>
+                        <div class="clean-axis" aria-hidden="true"><span>None</span><span>All</span></div>
+                        <div class="clean-actions">
+                            <button class="clean-cancel" type="button">Cancel</button>
+                            <button class="clean-apply" type="button" disabled>Close 0 tabs</button>
+                        </div>
+                        <div class="clean-archive-controls"></div>
+                    </section>
                     <div class="tabs-container" data-tab-type="temporary"></div>
+                    <p class="clean-outcome" role="status"></p>
                 </div>
             </div>
         </div>
