@@ -9,6 +9,9 @@ test('typed website addresses normalize safely and retain the destination compon
         ['http://example.test/a#b', 'http://example.test/a#b'],
         ['https://bücher.example/', 'https://xn--bcher-kva.example/'],
         ['127.0.0.1:8080/path', 'https://127.0.0.1:8080/path'],
+        ['chrome://extensions/shortcuts', 'chrome://extensions/shortcuts'],
+        ['CHROME://SETTINGS', 'chrome://settings/'],
+        ['chrome://history/?q=example%20tab#results', 'chrome://history/?q=example%20tab#results'],
         ['localhost:3000', 'https://localhost:3000/'],
         ['http://[::1]:8080/path', 'http://[::1]:8080/path'],
     ]) assert.equal(typedWebsiteUrl(input), href, input);
@@ -21,7 +24,10 @@ test('phrases, malformed addresses, credentials, and other protocols are ordinar
         'example.com\\path', 'exa\nmple.com', 'example.com /search', 'example.com\u200b',
         'https://user:pass@example.com', 'https://@example.com', 'user@example.com',
         'https://127.1', 'http://0x7f000001', 'javascript:alert(1)', 'data:text/plain,hello',
-        'file:///tmp/example.com', 'chrome://settings', 'ftp://example.com', '//example.com',
+        'file:///tmp/example.com', 'chrome://', 'chrome:extensions/shortcuts', 'chrome:///extensions',
+        'chrome://@extensions/shortcuts', 'chrome://extensions:/shortcuts', 'chrome://settings:80/',
+        'chrome://settings.evil.test/', 'chrome://extensions/bad%2', 'chrome://crash',
+        'chrome-extension://extension-id/', 'ftp://example.com', '//example.com',
     ]) assert.equal(typedWebsiteUrl(input), null, input);
 });
 

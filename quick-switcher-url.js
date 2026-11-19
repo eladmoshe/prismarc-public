@@ -1,8 +1,9 @@
-import { activateBrowserResult } from './quick-switcher-search.js';
+import { activateBrowserResult, searchableUrl } from './quick-switcher-search.js';
 
 export function typedWebsiteUrl(query) {
     const text = typeof query === 'string' ? query.trim() : '';
     if (!text || /[\s\p{Cc}\p{Cf}\\]/u.test(text)) return null;
+    if (/^chrome:/i.test(text)) return searchableUrl(text);
     const scheme = /^https?:\/\//i.exec(text)?.[0];
     const authority = text.slice(scheme?.length ?? 0).split(/[/?#]/, 1)[0];
     const address = /^(\[[^\]]+\]|[^:@%]+)(?::(\d+))?$/.exec(authority);

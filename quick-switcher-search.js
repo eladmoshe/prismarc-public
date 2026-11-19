@@ -6,9 +6,19 @@ const safeChromePages = new Set(['newtab', 'new-tab-page', 'settings', 'history'
 export function searchableUrl(value) {
     try {
         const url = new URL(value);
+        if (url.protocol === 'chrome:') {
+            // Non-special schemes preserve host casing. Inspect the raw authority
+            // too, so an empty credential or port delimiter cannot be normalized away.
+            if (!/^chrome:\/\/[a-z0-9-]+(?:[/?#]|$)/i.test(value) ||
+                /[\s\p{Cc}\p{Cf}\\]|%(?![\da-f]{2})/iu.test(value)) return null;
+            const host = url.hostname.toLowerCase();
+            if (!safeChromePages.has(host)) return null;
+            url.hostname = host;
+            if (!url.pathname) url.pathname = '/';
+            return url.href;
+        }
         if (['http:', 'https:', 'file:', 'ftp:'].includes(url.protocol) ||
-            (url.protocol === 'about:' && url.pathname === 'blank') ||
-            (url.protocol === 'chrome:' && safeChromePages.has(url.hostname))) return url.href;
+            (url.protocol === 'about:' && url.pathname === 'blank')) return url.href;
     } catch { /* A missing or malformed URL is not a result. */ }
     return null;
 }
