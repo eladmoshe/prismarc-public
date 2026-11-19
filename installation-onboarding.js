@@ -75,7 +75,10 @@ $('pause').addEventListener('click', () => { paused = !paused; updateMotion(); }
 document.addEventListener('visibilitychange', updateMotion);
 motion.addEventListener('change', updateMotion);
 $('appearance').addEventListener('click', () => chrome.tabs.create({ url: 'chrome://settings/appearance' }).catch(showError));
-$('customize').addEventListener('click', () => chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }).catch(showError));
+function openShortcutSettings() {
+    chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }).catch(showError);
+}
+$('customize').addEventListener('click', openShortcutSettings);
 chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes[TOUR_KEY]) render(changes[TOUR_KEY].newValue); });
 async function loadShortcuts() {
     const [commands, platform] = await Promise.all([chrome.commands.getAll(), chrome.runtime.getPlatformInfo()]);
@@ -85,7 +88,7 @@ async function loadShortcuts() {
         ['quickPinToggle', 'Pin / unpin a tab', platform.os === 'mac' ? '⌥+D' : 'Alt+D'],
         ['NextTabInSpace', 'Next tab in space', platform.os === 'mac' ? '⌥+J' : 'Alt+J'],
         ['PrevTabInSpace', 'Previous tab in space', platform.os === 'mac' ? '⌥+K' : 'Alt+K'],
-        ['copyCurrentUrl', 'Copy current URL', `${mod}+Shift+C`]
+        ['copyCurrentUrl', 'Copy current tab URL', platform.os === 'mac' ? '⌘⇧C' : 'Ctrl+Shift+C']
     ];
     $('shortcuts').replaceChildren();
     for (const [name, label, suggestion] of recommendations) {
@@ -102,8 +105,21 @@ async function loadShortcuts() {
         title.textContent = label;
         const current = document.createElement('p');
         current.className = 'shortcut-description';
-        current.textContent = `Currently set: ${commands.find(command => command.name === name)?.shortcut || 'Not assigned'}`;
+        const assigned = commands.find(command => command.name === name)?.shortcut;
+        current.textContent = `Currently set: ${assigned || 'Not assigned'}`;
         card.append(recommendation, key, title, current);
+        if (name === 'copyCurrentUrl') {
+            const instructions = document.createElement('p');
+            instructions.className = 'shortcut-description';
+            instructions.textContent = 'In Chrome, find PrismArc, edit this command, and press your shortcut.';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.id = 'setup-copy-shortcut';
+            button.className = 'secondary';
+            button.textContent = assigned ? 'Change shortcut' : `Set up ${suggestion}`;
+            button.addEventListener('click', openShortcutSettings);
+            card.append(instructions, button);
+        }
         $('shortcuts').append(card);
     }
 }
