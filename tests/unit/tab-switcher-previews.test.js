@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setTimeout as wait } from 'node:timers/promises';
-import { TabSwitcherPreviews, TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_PREVIEW_CACHE } from '../../tab-switcher-previews.js';
+import { parsePreviewDomains, TAB_SWITCHER_EXCLUDED_DOMAINS, TabSwitcherPreviews, TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_PREVIEW_CACHE } from '../../tab-switcher-previews.js';
 
 const reducedImage = 'data:image/jpeg;base64,Zml4dHVyZQ==';
 const webTab = { id: 1, windowId: 4, url: 'http://example.test/', active: true, incognito: false, status: 'complete' };
@@ -382,4 +382,24 @@ test('browser quota defers at most one retry for the same foreground visit', asy
     await flush();
     assert.equal(attempts, 2);
     assert.deepEqual(await service.get([1]), { 1: reducedImage });
+});
+
+test('excluded sites cover subdomains, keep lookalike sites eligible, and clear previous captures', async () => {
+    assert.deepEqual(parsePreviewDomains('EXAMPLE.test, example.test portal.test'), ['example.test', 'portal.test']);
+    for (const invalid of ['*', 'https://example.test', '.test', 'example.test/path']) {
+        assert.throws(() => parsePreviewDomains(invalid));
+    }
+    const f = fixture({ [TAB_SWITCHER_EXCLUDED_DOMAINS]: ['example.test'] });
+    const previews = f.worker();
+    for (const host of ['example.test', 'news.example.test', 'news.example.test.']) {
+        f.select({ url: 'https://' + host });
+        await previews.capture(f.active);
+    }
+    assert.equal(f.calls.length, 0);
+    f.select({ url: 'https://anotherexample.test/' });
+    await previews.capture(f.active);
+    assert.deepEqual(await previews.get([1]), { 1: reducedImage });
+    f.emit('storage', { [TAB_SWITCHER_EXCLUDED_DOMAINS]: { newValue: ['anotherexample.test'] } }, 'local');
+    assert.deepEqual(await previews.get([1]), {});
+    assert.equal(f.session[TAB_SWITCHER_PREVIEW_CACHE], undefined);
 });

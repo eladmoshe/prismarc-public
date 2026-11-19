@@ -4,6 +4,7 @@ import { SpaceStore, applySpacePatch, ownerOf } from '../../space-store.js';
 import { syncSpaceGroups } from '../../tab-group-sync.js';
 import { DEFAULT_SPACE_COLOR } from '../../space-colors.js';
 import { Utils } from '../../utils.js';
+import { restoreLifetime } from '../../space-restore.js';
 
 let local, session, tabs, mutations, groups;
 const area = data => ({
@@ -15,9 +16,10 @@ const area = data => ({
 });
 const space = (id, ids = []) => ({ id, spaceUuid: id, name: id, color: 'blue', bookmarkFolderId: id, spaceBookmarks: [], temporaryTabs: ids });
 beforeEach(() => {
-    local = { spaceModelVersion: 2, spaces: [space('a', [1]), space('b', [2])] };
+    local = { spaceModelVersion: 2, spaces: [space('a', [1]), space('b', [2])], arcifyBookmarkRootId: 'root' };
     session = { spaceSession: true }; mutations = []; groups = [];
-    tabs = [{ id: 1, windowId: 1, url: 'https://one.test/', groupId: -1 }, { id: 2, windowId: 1, url: 'https://two.test/', groupId: -1 }];
+    tabs = [{ id: 1, windowId: 1, index: 0, url: 'https://one.test/', groupId: -1 },
+        { id: 2, windowId: 1, index: 1, url: 'https://two.test/', groupId: -1 }];
     const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn); }, emit(...args) { this.listeners.forEach(fn => fn(...args)); } });
     globalThis.chrome = {
         runtime: { getURL: path => `chrome-extension://arcify/${path}` },
@@ -26,7 +28,8 @@ beforeEach(() => {
             group: async args => { mutations.push(['group', args]); const id = args.groupId ?? 100 + groups.length; if (!groups.some(g => g.id === id)) groups.push({ id, windowId: 1 }); tabs.filter(t => args.tabIds.includes(t.id)).forEach(t => t.groupId = id); return id; },
             move: async (...args) => mutations.push(['move', ...args]) },
         tabGroups: { onRemoved: event(), onUpdated: event(), query: async () => groups, update: async (id, attrs) => { mutations.push(['update', id, attrs]); Object.assign(groups.find(g => g.id === id), attrs); } },
-        bookmarks: { search: async () => [{ id: 'root' }], getChildren: async () => [], create: async ({ title }) => ({ id: title, title }) }
+        bookmarks: { search: async () => [{ id: 'root' }], get: async id => id === 'root' ? [{ id, title: 'Arcify' }] : [],
+            getChildren: async () => [], create: async ({ title }) => ({ id: title, title }) }
     };
 });
 test('independent default ignores group identity and order and retains empty spaces', async () => {
@@ -209,11 +212,12 @@ test('background event handlers track tab replacement and preserve window-close 
     const store = new SpaceStore(); store.install(); await store.run(() => {});
     tabs[0].id = 11;
     chrome.tabs.onReplaced.emit(11, 1); await store.run(() => {});
-    assert.equal(ownerOf(local.spaces, 11).id, 'a');
+    assert.equal(ownerOf(store.spaces, 11).id, 'a');
     tabs = tabs.filter(t => t.id !== 11);
-    chrome.tabs.onRemoved.emit(11, { isWindowClosing: true }); await store.run(() => {});
+    chrome.tabs.onRemoved.emit(11, { isWindowClosing: true }); await store.run(() => store.persist());
     assert.equal(local.spaces[0].temporaryTabs.length, 0);
-    assert.equal(local.spaceTabSnapshot.find(t => t.url === 'https://one.test/').spaceId, 'a');
+    assert.equal(local.spaceTabSnapshot.some(t => t.url === 'https://one.test/'), false);
+    assert.equal(session.spaceRestoreQueue.find(t => t.url === 'https://one.test/').spaceId, 'a');
 });
 test('extension pages are removed when a blank helper tab finishes navigating', async () => {
     const store = new SpaceStore(); await store.dispatch({ action: 'get' });
@@ -308,4 +312,179 @@ test('space order follows the order of space folders under Arcify', async () => 
     const after = await store.dispatch({ action: 'get' });
     assert.deepEqual(after.map(s => s.id), ['a', 'b']);
     assert.deepEqual(local.spaces.map(s => s.id), ['a', 'b']);
+});
+
+test('restart uses positions and unique window anchors for duplicate URLs', async () => {
+    delete session.spaceSession;
+    local.spaces = [space('a', [1, 3]), space('b', [2, 4, 5])];
+    const duplicate = 'https://duplicate.test/';
+    local.spaceTabSnapshot = [
+        { tabId: 1, spaceId: 'a', section: 'temporaryTabs', order: 0, windowId: 1, index: 0, url: duplicate },
+        { tabId: 2, spaceId: 'b', section: 'temporaryTabs', order: 0, windowId: 2, index: 0, url: duplicate },
+        { tabId: 3, spaceId: 'a', section: 'temporaryTabs', order: 1, windowId: 1, index: 1, url: 'https://one.test/' },
+        { tabId: 4, spaceId: 'b', section: 'temporaryTabs', order: 1, windowId: 2, index: 1, url: 'https://two.test/' },
+        { tabId: 5, spaceId: 'b', section: 'temporaryTabs', order: 2, windowId: 2, index: 2, url: duplicate }
+    ];
+    tabs = [
+        { id: 24, windowId: 11, index: 2, url: duplicate },
+        { id: 22, windowId: 11, index: 0, url: duplicate },
+        { id: 21, windowId: 12, index: 0, url: duplicate },
+        { id: 23, windowId: 12, index: 1, url: 'https://one.test/' },
+        { id: 25, windowId: 11, index: 1, url: 'https://two.test/' }
+    ];
+    const store = new SpaceStore();
+    await store.dispatch({ action: 'get' });
+    assert.deepEqual(local.spaces.map(space => space.temporaryTabs), [[21, 23], [22, 25, 24]]);
+});
+
+test('restart leaves ambiguous duplicates and legacy closed records unassigned', async () => {
+    delete session.spaceSession;
+    const duplicate = 'https://duplicate.test/';
+    local.spaceTabSnapshot = [
+        { tabId: 1, spaceId: 'a', section: 'temporaryTabs', order: 0, windowId: 1, index: 0, url: duplicate },
+        { tabId: 2, spaceId: 'b', section: 'temporaryTabs', order: 0, windowId: 2, index: 0, url: duplicate },
+        { tabId: 9, spaceId: 'b', section: 'temporaryTabs', order: 1, url: 'https://legacy-closed.test/' }
+    ];
+    tabs = [
+        { id: 11, windowId: 12, index: 0, url: duplicate },
+        { id: 12, windowId: 13, index: 0, url: duplicate },
+        { id: 13, windowId: 13, index: 1, url: 'https://legacy-closed.test/' }
+    ];
+    const store = new SpaceStore();
+    await store.dispatch({ action: 'get' });
+    assert.deepEqual(local.spaces.map(space => space.temporaryTabs), [[11, 12, 13], []]);
+    assert.equal(session.spaceRestoreQueue.some(record => record.tabId === 9), false);
+});
+
+test('unmatched startup entries do not take over an ordinary tab created later', async () => {
+    delete session.spaceSession;
+    local.spaceTabSnapshot = [{
+        tabId: 2, spaceId: 'b', section: 'temporaryTabs', order: 0,
+        windowId: 1, index: 1, url: 'https://missing.test/'
+    }];
+    tabs = [{ id: 11, windowId: 12, index: 0, url: 'https://one.test/' }];
+    const store = new SpaceStore();
+    store.install();
+    await store.run(() => {});
+    const ordinaryTab = { id: 12, windowId: 12, index: 1, url: 'https://missing.test/' };
+    tabs.push(ordinaryTab);
+    chrome.tabs.onCreated.emit(ordinaryTab);
+    await store.run(() => store.persist());
+    assert.equal(ownerOf(store.spaces, 12).id, 'a');
+});
+
+test('window-close recovery is session-local, position-matched, and expires', async t => {
+    let now = 10_000;
+    t.mock.method(Date, 'now', () => now);
+    tabs[1].windowId = 2;
+    tabs[1].index = 0;
+    const store = new SpaceStore();
+    store.install();
+    await store.run(() => {});
+    tabs.pop();
+    chrome.tabs.onRemoved.emit(2, { windowId: 2, isWindowClosing: true });
+    await store.run(() => store.persist());
+    assert.equal(local.spaceTabSnapshot.some(record => record.tabId === 2), false);
+    assert.equal(session.spaceRestoreQueue[0].expiresAt, now + restoreLifetime);
+    const blank = { id: 14, windowId: 6, index: 0, url: 'chrome://newtab/' };
+    tabs.push(blank);
+    chrome.tabs.onCreated.emit(blank);
+    await store.run(() => {});
+    const navigated = { ...blank, url: 'https://two.test/' };
+    tabs[tabs.length - 1] = navigated;
+    chrome.tabs.onUpdated.emit(14, { url: navigated.url }, navigated);
+    await store.run(() => {});
+    assert.equal(ownerOf(store.spaces, 14).id, 'a');
+    assert.equal(store.restoreQueue.length, 1);
+    for (const tab of [
+        { id: 3, windowId: 1, index: 0, url: 'https://two.test/' },
+        { id: 4, windowId: 3, index: 1, url: 'https://two.test/' },
+        { id: 5, windowId: 4, index: 0, url: 'https://two.test/' }
+    ]) {
+        tabs.push(tab);
+        chrome.tabs.onCreated.emit(tab);
+    }
+    await store.run(() => store.persist());
+    assert.deepEqual(local.spaces.map(space => space.temporaryTabs), [[1, 14, 3, 4], [5]]);
+    assert.equal(session.spaceRestoreQueue.length, 0);
+
+    tabs.pop();
+    chrome.tabs.onRemoved.emit(5, { windowId: 4, isWindowClosing: true });
+    await store.run(() => store.persist());
+    now += restoreLifetime;
+    const late = { id: 6, windowId: 5, index: 0, url: 'https://two.test/' };
+    tabs.push(late);
+    chrome.tabs.onCreated.emit(late);
+    await store.run(() => store.persist());
+    assert.equal(ownerOf(store.spaces, 6).id, 'a');
+    assert.equal(session.spaceRestoreQueue.length, 0);
+});
+
+test('durable snapshot caps entries and skips oversize URLs without dropping live membership', async () => {
+    tabs = [{ id: 1, windowId: 1, index: 0, url: `data:text/plain,${'x'.repeat(9000)}` },
+        ...Array.from({ length: 520 }, (_, index) => ({
+            id: index + 2, windowId: 1, index: index + 1, url: `https://many.test/${index}`
+        }))];
+    const store = new SpaceStore();
+    await store.dispatch({ action: 'get' });
+    assert.equal(local.spaces.flatMap(space => space.temporaryTabs).length, 521);
+    assert.equal(local.spaceTabSnapshot.length, 500);
+    assert.equal(local.spaceTabSnapshot.some(record => record.tabId === 1), false);
+});
+
+test('tab event bursts coalesce and explicit assignments await storage', async () => {
+    const store = new SpaceStore();
+    store.install();
+    await store.run(() => {});
+    const write = chrome.storage.local.set;
+    let snapshotWrites = 0;
+    let resolveSnapshot;
+    const afterWrite = new Promise(resolve => { resolveSnapshot = resolve; });
+    chrome.storage.local.set = async values => {
+        await write(values);
+        if (values.spaces) {
+            snapshotWrites++;
+            resolveSnapshot();
+        }
+    };
+    for (const tab of [
+        { id: 3, windowId: 1, index: 2, url: 'https://three.test/' },
+        { id: 4, windowId: 1, index: 3, url: 'https://four.test/' },
+        { id: 5, windowId: 1, index: 4, url: 'https://five.test/' }
+    ]) {
+        tabs.push(tab);
+        chrome.tabs.onCreated.emit(tab);
+    }
+    await store.run(() => {});
+    assert.equal(ownerOf(store.spaces, 5).id, 'a');
+    assert.equal(snapshotWrites, 0);
+    await afterWrite;
+    await store.run(() => {});
+    assert.equal(snapshotWrites, 1);
+    assert.equal(ownerOf(local.spaces, 5).id, 'a');
+
+    chrome.tabs.onActivated.emit({ tabId: 1, windowId: 1 });
+    await store.dispatch({ action: 'assign', tabId: 5, spaceId: 'b', pinned: true });
+    assert.equal(snapshotWrites, 2);
+    assert.deepEqual(local.spaces[1].spaceBookmarks, [5]);
+});
+
+test('storage failure reaches callers and exposes only a status code to sidebars', async () => {
+    const store = new SpaceStore();
+    await store.dispatch({ action: 'get' });
+    const notices = [];
+    chrome.runtime.sendMessage = async message => notices.push(message);
+    const write = chrome.storage.local.set;
+    chrome.storage.local.set = async () => { throw new Error('QUOTA_BYTES exceeded'); };
+    await assert.rejects(store.dispatch({ action: 'assign', tabId: 2, spaceId: 'a' }), {
+        code: 'space_storage_unavailable', message: 'Space storage is unavailable.'
+    });
+    assert.equal(ownerOf(local.spaces, 2).id, 'b');
+    chrome.storage.local.set = write;
+    await store.dispatch({ action: 'get' });
+    assert.equal(ownerOf(local.spaces, 2).id, 'a');
+    assert.deepEqual(notices, [
+        { type: 'spaceStoreStatus', code: 'space_storage_unavailable' },
+        { type: 'spaceStoreStatus', code: null }
+    ]);
 });

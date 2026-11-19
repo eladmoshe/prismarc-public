@@ -1,3 +1,4 @@
+import setupAnimationUrl from './assets/chrometutorial.gif';
 import { TOUR_KEY, tourAction } from './tour-state.js';
 import { readBookmarkSpaces } from './onboarding-bookmarks.js';
 const $ = id => document.getElementById(id);
@@ -29,7 +30,7 @@ function updateMotion() {
     $('setup-gif').hidden = stopped;
     // Remove the animated source while stopped, so the GIF does not keep decoding.
     if (stopped) $('setup-gif').removeAttribute('src');
-    else if (!$('setup-gif').hasAttribute('src')) $('setup-gif').src = 'assets/chrometutorial.gif';
+    else if (!$('setup-gif').hasAttribute('src')) $('setup-gif').src = setupAnimationUrl;
     $('motion-still').hidden = !stopped;
     $('pause').textContent = motion.matches ? 'Motion reduced' : paused ? 'Play animation' : 'Pause animation';
     $('pause').disabled = motion.matches;
@@ -114,17 +115,17 @@ async function loadBookmarkSpaces() {
             ? `We found ${names.length === 1 ? 'an existing space' : `${names.length} existing spaces`}.`
             : 'Bring your bookmarks along.';
         $('bookmark-copy').textContent = names.length
-            ? "The folders in your Arcify bookmark folder are ready to become spaces, with their bookmarks as pinned tabs. Copy more folders into the Arcify folder anytime."
-            : "In Chrome's bookmark manager, copy folders into the Arcify folder. Each folder becomes a space, and the bookmarks inside become pinned tabs.";
-        if (!folderId) $('bookmark-copy').textContent += ' Create a folder named Arcify first if it is missing.';
+            ? "The folders in your PrismArc bookmark folder are ready to become spaces, with their bookmarks as pinned tabs. Copy more folders into the PrismArc bookmark folder anytime."
+            : "In Chrome's bookmark manager, copy folders into the PrismArc bookmark folder. Each folder becomes a space, and the bookmarks inside become pinned tabs.";
+        if (!folderId) $('bookmark-copy').textContent += ' Open the sidebar once to set up the folder if you haven’t already.';
         $('bookmark-detected').hidden = !names.length;
         $('bookmark-detected').textContent = names.slice(0, 3).join(' · ') + (names.length > 3 ? ` · and ${names.length - 3} more` : '');
-        $('bookmarks').textContent = folderId ? 'Open Arcify bookmarks ↗' : 'Open bookmark manager ↗';
+        $('bookmarks').textContent = folderId ? 'Open PrismArc bookmarks ↗' : 'Open bookmark manager ↗';
     } catch {
         // Optional discovery must not block setup or claim spaces were detected.
         bookmarkFolderId = undefined;
         $('bookmark-title').textContent = 'Bring your bookmarks along.';
-        $('bookmark-copy').textContent = "Open Chrome's bookmark manager and copy folders into the Arcify folder. Each folder becomes a space, and its bookmarks become pinned tabs. If Arcify isn't there yet, create a folder named Arcify first.";
+        $('bookmark-copy').textContent = "Open Chrome's bookmark manager and copy folders into the PrismArc bookmark folder. Each folder becomes a space, and its bookmarks become pinned tabs. Open the sidebar once to set up the folder if needed.";
         $('bookmark-detected').hidden = true;
         $('bookmarks').textContent = 'Open bookmark manager ↗';
     }

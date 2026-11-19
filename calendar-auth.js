@@ -1,4 +1,4 @@
-import { BUNDLED_CALENDAR_CLIENT_ID, CALENDAR_CLIENT_KEY, CALENDAR_READ_SCOPE, CALENDAR_SESSION_KEY, isCalendarClientId } from './calendar-config.js';
+import { BUNDLED_CALENDAR_CLIENT_ID, CALENDAR_CLIENT_KEY, CALENDAR_READ_SCOPE, CALENDAR_REVOKE_ENDPOINT, CALENDAR_SESSION_KEY, isCalendarClientId } from './calendar-config.js';
 
 const CALLBACK_PATH = 'google-calendar';
 const PERMISSION = { permissions: ['identity'] };
@@ -120,8 +120,25 @@ export function handleCalendarPermissionRemoval() {
 
 export function disconnectCalendar() {
     return navigator.locks.request(STATE_LOCK, async () => {
-        await chrome.permissions.remove(PERMISSION);
+        const { [CALENDAR_SESSION_KEY]: session } = await chrome.storage.session.get(CALENDAR_SESSION_KEY);
         await clearCalendarSession();
+        try {
+            if (!session?.token) return false;
+            const response = await fetch(CALENDAR_REVOKE_ENDPOINT, {
+                method: 'POST',
+                body: new URLSearchParams({ token: session.token }),
+                credentials: 'omit',
+                redirect: 'error',
+                cache: 'no-store',
+                referrerPolicy: 'no-referrer',
+                signal: AbortSignal.timeout(5000)
+            });
+            return response.ok;
+        } catch {
+            return false;
+        } finally {
+            await chrome.permissions.remove(PERMISSION);
+        }
     });
 }
 

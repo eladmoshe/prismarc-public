@@ -1,0 +1,20 @@
+PrismArc modification notice
+
+PrismArc is a modified version of Arcify by Nisarg Kolhe and the Arcify
+contributors. It is licensed under the GNU General Public License v3.0.
+See LICENSE for the license and the original project's copyright notices.
+
+2026-11-16: PrismArc contributors began this fork from Arcify 5.2.0
+(e565122217c2c106faa6dccdc4f8ced3ec5b423c). Fork changes include local
+extension storage, restricted runtime permissions and communication, and
+tab and history search through Quick Switcher.
+
+2026-11-17 through 2026-11-18: The fork expanded tab and bookmark
+organization, added a recent-tab picker and optional Google Calendar
+preview, and updated onboarding and the PrismArc interface.
+
+2026-11-19: The fork revised session recovery, archive and bookmark
+handling, and packaged extension build and release verification.
+
+Original source: https://github.com/nisargkolhe/arcify
+PrismArc source snapshots: https://github.com/eladmoshe/prismark-public

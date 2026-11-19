@@ -22,6 +22,26 @@ const MAX_ARCHIVED_TABS = 100;
 const ARCHIVED_TABS_KEY = 'archivedTabs';
 const DEFAULT_ARCHIVE_IDLE_MINUTES = 24 * 60;
 const LEGACY_ARCHIVE_IDLE_MINUTES = 6 * 60;
+let archiveWrites = Promise.resolve();
+
+function updateArchive(operation) {
+    const locks = globalThis.navigator?.locks;
+    if (locks) return locks.request('prismarc-archive', operation);
+    const pending = archiveWrites.then(operation);
+    archiveWrites = pending.catch(() => {});
+    return pending;
+}
+
+const archiveKey = ({ url, spaceId }) => JSON.stringify([spaceId, url]);
+const newestArchive = (added, existing) =>
+    [...added, ...existing].sort((a, b) => b.archivedAt - a.archivedAt).slice(0, MAX_ARCHIVED_TABS);
+async function readArchive() {
+    const result = await chrome.storage.local.get(ARCHIVED_TABS_KEY);
+    return result[ARCHIVED_TABS_KEY] || [];
+}
+function writeArchive(tabs) {
+    return chrome.storage.local.set({ [ARCHIVED_TABS_KEY]: tabs });
+}
 
 const Utils = {
 
@@ -219,7 +239,7 @@ const Utils = {
     },
 
     getSpaceColor: async function (groupName, fallback = DEFAULT_SPACE_COLOR) {
-        const { spaces = [] } = await chrome.storage.local.get('spaces');
+        const spaces = await spaceRequest('get', { discoverBookmarks: false });
         return spaces.find(s => s.name === groupName)?.color || fallback;
     },
 
@@ -230,62 +250,57 @@ const Utils = {
     },
 
     // Get all archived tabs
-    getArchivedTabs: async function () {
-        const result = await chrome.storage.local.get(ARCHIVED_TABS_KEY);
-        return result[ARCHIVED_TABS_KEY] || [];
-    },
+    getArchivedTabs: () => updateArchive(readArchive),
 
-    // Save all archived tabs
-    saveArchivedTabs: async function (tabs) {
-        await chrome.storage.local.set({ [ARCHIVED_TABS_KEY]: tabs });
-    },
-
-    // Add a tab to the archive
-    addArchivedTab: async function (tabData) { // tabData = { url, name, spaceId, archivedAt }
-        if (!tabData || !tabData.url || !tabData.name || !tabData.spaceId) return;
-
-        const archivedTabs = await this.getArchivedTabs();
-
-        // Check if URL already exists in archive (regardless of space)
-        const existingTab = archivedTabs.find(t => t.url === tabData.url);
-        if (existingTab) {
-            Logger.log(`Tab with URL already archived: ${tabData.name} (${tabData.url})`);
-            return; // Don't add duplicates based on URL
-        }
-
-        // Add new tab with timestamp
-        const newArchiveEntry = { ...tabData, archivedAt: Date.now() };
-        archivedTabs.push(newArchiveEntry);
-
-        // Sort by timestamp (newest first for potential slicing, though FIFO means oldest removed)
-        archivedTabs.sort((a, b) => b.archivedAt - a.archivedAt);
-
-        // Enforce limit (remove oldest if over limit - FIFO)
-        if (archivedTabs.length > MAX_ARCHIVED_TABS) {
-            archivedTabs.splice(MAX_ARCHIVED_TABS); // Remove items from the end (oldest)
-        }
-
-        await this.saveArchivedTabs(archivedTabs);
-        Logger.log(`Archived tab: ${tabData.name} from space ${tabData.spaceId}`);
+    archiveTabs: function (tabs, removeTabs) {
+        return updateArchive(async () => {
+            const existing = await readArchive();
+            const seen = new Set(existing.map(archiveKey));
+            const candidates = tabs.filter(tab => tab?.url && tab.name && tab.spaceId);
+            const additions = [];
+            const archivedAt = Date.now();
+            for (const { url, name, spaceId } of candidates) {
+                const record = { url, name, spaceId, archivedAt };
+                const key = archiveKey(record);
+                if (seen.has(key)) continue;
+                additions.push(record);
+                seen.add(key);
+            }
+            const staged = additions.length ? newestArchive(additions, existing) : existing;
+            const retained = new Set(staged.map(archiveKey));
+            const stagedAdditions = additions.filter(record => retained.has(archiveKey(record)));
+            // Each removal must already have a durable record in its space.
+            if (stagedAdditions.length) await writeArchive(staged);
+            const closed = new Set();
+            try {
+                await removeTabs(candidates.filter(tab => retained.has(archiveKey(tab))),
+                    tab => closed.add(archiveKey(tab)));
+            } finally {
+                const completed = stagedAdditions.filter(record => closed.has(archiveKey(record)));
+                if (completed.length !== stagedAdditions.length) {
+                    // Recover earlier records displaced by a tab that remained open.
+                    await writeArchive(newestArchive(completed, existing));
+                }
+            }
+        });
     },
 
     // Function to archive a tab (likely called from context menu)
     archiveTab: async function (tabId) {
         try {
             const tab = await chrome.tabs.get(tabId);
-            const spaces = await spaceRequest('get');
+            const spaces = await spaceRequest('get', { discoverBookmarks: false });
             const space = spaces.find(s => [...s.spaceBookmarks, ...s.temporaryTabs].includes(tabId));
             if (!tab || !space) return;
 
-            const tabData = {
-                url: tab.url,
-                name: tab.title,
-                spaceId: space.id
-            };
-
-            await this.addArchivedTab(tabData);
-            await chrome.tabs.remove(tabId); // Close the original tab
-            // Optionally: Refresh sidebar view if needed, though handleTabRemove should cover it
+            const wanted = { id: tabId, url: tab.url, name: tab.title || tab.url, spaceId: space.id };
+            await this.archiveTabs([wanted], async ([candidate], markClosed) => {
+                if (!candidate) return;
+                const current = await chrome.tabs.get(candidate.id).catch(() => null);
+                if (!current || (current.pendingUrl || current.url) !== candidate.url) return;
+                await chrome.tabs.remove(candidate.id);
+                markClosed(candidate);
+            });
 
         } catch (error) {
             Logger.error(`Error archiving tab ${tabId}:`, error);
@@ -296,9 +311,11 @@ const Utils = {
     removeArchivedTab: async function (url, spaceId) {
         if (!url || !spaceId) return;
 
-        let archivedTabs = await this.getArchivedTabs();
-        archivedTabs = archivedTabs.filter(tab => !(tab.url === url && tab.spaceId === spaceId));
-        await this.saveArchivedTabs(archivedTabs);
+        await updateArchive(async () => {
+            const archivedTabs = await readArchive();
+            const remaining = archivedTabs.filter(tab => !(tab.url === url && tab.spaceId === spaceId));
+            if (remaining.length !== archivedTabs.length) await writeArchive(remaining);
+        });
         Logger.log(`Removed archived tab: ${url} from space ${spaceId}`);
     },
 
@@ -380,44 +397,15 @@ const Utils = {
             ? (currentIndex + 1) % allTabs.length
             : (currentIndex - 1 + allTabs.length) % allTabs.length;
 
-        chrome.tabs.update(allTabs[nextIndex], { active: true });
+        await chrome.tabs.update(allTabs[nextIndex], { active: true });
     },
 
-    movToNextTabInSpace: async function (tabId, sourceSpace) {
+    moveToNextTabInSpace: async function (tabId, sourceSpace) {
         return this._navigateTabInSpace(tabId, sourceSpace, 'next');
     },
 
-    movToPrevTabInSpace: async function (tabId, sourceSpace) {
+    moveToPrevTabInSpace: async function (tabId, sourceSpace) {
         return this._navigateTabInSpace(tabId, sourceSpace, 'prev');
-    },
-    findActiveSpaceAndTab: async function () {
-        Logger.log("[TabNavigation] finding space");
-        const spacesResult = await chrome.storage.local.get('spaces');
-        const spaces = spacesResult.spaces || [];
-        Logger.log("[TabNavigation] Loaded spaces from storage:", spaces);
-        const foundTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (foundTabs.length === 0) {
-            Logger.log("[TabNavigation] No active tab found!:");
-            return undefined;
-        }
-        const foundTab = foundTabs[0];
-        const spaceWithTempTab = spaces.find(space =>
-            space.temporaryTabs.includes(foundTab.id)
-        );
-        if (spaceWithTempTab) {
-            Logger.log(`[TabNavigation] Tab ${foundTab.id} is a temporary tab in space "${spaceWithTempTab.name}".`);
-            return { space: spaceWithTempTab, tab: foundTab };
-        }
-
-        const spaceWithBookmark = spaces.find(space =>
-            space.spaceBookmarks.includes(foundTab.id)
-        );
-        if (spaceWithBookmark) {
-            Logger.log(`[TabNavigation] Tab ${foundTab.id} is a bookmarked tab in space "${spaceWithBookmark.name}".`);
-            return { space: spaceWithBookmark, tab: foundTab };
-        }
-
-        return undefined
     },
 
     // Helper function to adjust menu position to keep it within viewport

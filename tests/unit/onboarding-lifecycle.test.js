@@ -8,7 +8,8 @@ import { TabSwitcher } from '../../tab-switcher.js';
 const source = readFileSync(new URL('../../background.js', import.meta.url), 'utf8')
     .replace(/^import .*;\s*$/gm, '');
 function background(completed = false, onboardingVersion = undefined, version = '5.1.0') {
-    const installed = [], messages = [], opened = [];
+    const installed = [], messages = [], commands = [], opened = [];
+    const commandFailures = [];
     const event = { addListener() {} };
     const chrome = {
         runtime: {
@@ -20,21 +21,27 @@ function background(completed = false, onboardingVersion = undefined, version = 
             getManifest: () => ({ version })
         },
         sidePanel: { setPanelBehavior: async () => {} },
-        commands: { onCommand: event },
+        commands: { onCommand: { addListener: listener => commands.push(listener) } },
         alarms: { onAlarm: event, clear: async () => {} },
+        bookmarks: { onCreated: event, onMoved: event, onChanged: event, onRemoved: event },
         storage: { onChanged: event, local: { get: async () => ({ onboardingCompleted: completed, onboardingVersion }) } },
         tabs: { create: async tab => opened.push(tab), onActivated: event, onUpdated: event, onRemoved: event }
     };
     runInNewContext(source, {
-        chrome, console, isTrustedExtensionMessage, TabSwitcher, registerTourMessages() {},
+        chrome, console, isTrustedExtensionMessage, TabSwitcher, dispatchTourMessage: async () => 'tour',
         TabSwitcherPreviews: class { register() {} },
-        registerBookmarkListeners() {}, registerNativeFavorites() {}, registerCleanTabs() {},
-        enqueueBookmarkOrder: async () => [],
+        registerBookmarkListeners() {}, createCleanTabsHandler: () => () => {},
+        NativeFavorites: class { install() {} async dispatch() { return []; } },
+        enqueueBookmarkOperation: async () => ({ orders: {} }),
         SpaceStore: class { install() {} async dispatch() { return [{ id: 'home' }]; } },
-        Utils: { getSettings: async () => ({ autoArchiveEnabled: false }) },
-        Logger: { log() {}, error() {} }
+        Utils: {
+            getSettings: async () => ({ autoArchiveEnabled: false }),
+            moveToPrevTabInSpace: async () => { throw new Error('Tab closed during shortcut'); }
+        },
+        ownerOf: (_spaces, tabId) => tabId === 1 ? { id: 'home' } : undefined,
+        Logger: { log() {}, error: (...args) => commandFailures.push(args), context: value => value }
     });
-    return { installed, messages, opened };
+    return { installed, messages, commands, opened, commandFailures, chrome };
 }
 
 test('a fresh install opens the onboarding guide once', async () => {
@@ -66,6 +73,7 @@ test('a completed install sees the onboarding once when this extension version c
 test('space-store replies are not intercepted by unrelated Promise listeners', async () => {
     const app = background();
     const replies = [];
+    assert.equal(app.messages.length, 1);
     const claims = app.messages.map(listener => listener({ type: 'spaceStore', action: 'get' }, { id: 'arcify' }, reply => replies.push(reply)));
     assert.equal(claims.filter(claim => claim === true).length, 1);
     assert.equal(claims.some(claim => typeof claim?.then === 'function'), false);
@@ -79,7 +87,8 @@ test('privileged background listeners ignore untrusted senders before reading or
     const app = background();
     for (const sender of [{}, { id: 'other-extension' }, { id: 'arcify', url: 'https://example.com/' }]) {
         for (const message of [null, { type: 'spaceStore', action: 'get' },
-            { type: 'bookmarkOrder', operation: {} }, { action: 'searchBookmarks', query: '' },
+            { type: 'bookmarkOrder', operation: {} }, { type: 'nativeFavorites', action: 'pin' },
+            { type: 'sidebarTour', action: 'start' }, { action: 'searchBookmarks', query: '' },
             { action: 'openNewTab', url: 'https://example.com' }, { type: 'openTabSwitcher', action: 'commit' }]) {
             for (const listener of app.messages) {
                 assert.equal(listener(message, sender, () => assert.fail('untrusted sender received a reply')), undefined);
@@ -87,4 +96,25 @@ test('privileged background listeners ignore untrusted senders before reading or
         }
     }
     assert.deepEqual(app.opened, []);
+});
+
+test('a single trusted router dispatches Favorites and tour and ignores unrelated messages', async () => {
+    const { messages: [listen] } = background();
+    const sender = { id: 'arcify', url: 'chrome-extension://arcify/sidebar.html' };
+    assert.equal(listen({ target: 'offscreen', type: 'copyToClipboard' }, sender, () => assert.fail('Unowned response')), undefined);
+    const request = message => new Promise(resolve => assert.equal(listen(message, sender, resolve), true));
+    assert.equal((await request({ type: 'nativeFavorites', action: 'get' })).tabs.length, 0);
+    assert.equal((await request({ type: 'sidebarTour', action: 'start' })).state, 'tour');
+    assert.equal((await request({ type: 'bookmarkOrder', operation: {} })).success, true);
+});
+
+test('adjacent-tab shortcuts tolerate no active or owned tab and report navigation failures', async () => {
+    const { commands: [command], commandFailures, chrome } = background();
+    chrome.tabs.query = async () => [];
+    await command('NextTabInSpace');
+    await command('NextTabInSpace', { id: 2 });
+    assert.equal(commandFailures.length, 0);
+    await command('PrevTabInSpace', { id: 1 });
+    assert.equal(commandFailures.length, 1);
+    assert.equal(commandFailures[0][1].message, 'Tab closed during shortcut');
 });

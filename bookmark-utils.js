@@ -1,4 +1,5 @@
 import { getSpaceTabs, spaceRequest } from './space-client.js';
+import { LocalStorage } from './localstorage.js';
 /**
  * Bookmark Utils - Consolidated bookmark operations for Arcify Chrome Extension
  * 
@@ -7,7 +8,7 @@ import { getSpaceTabs, spaceRequest } from './space-client.js';
  * Architecture: Static utility class with consistent error handling and Chrome API abstraction
  * 
  * Critical Notes:
- * - Uses robust 3-method fallback approach for finding Arcify folder
+ * - Reads the registered bookmark folder
  * - Provides unified recursive traversal with flexible options
  * - Centralizes URL matching logic with normalization
  * - Ensures consistent error handling across all bookmark operations
@@ -18,65 +19,14 @@ import { Logger } from './logger.js';
 
 export const BookmarkUtils = {
 
-    /**
-     * Robust method to find the Arcify folder in Chrome bookmarks
-     * Uses 3-method fallback approach for maximum reliability across browsers/locales
-     * @returns {Promise<Object|null>} The Arcify folder object or null if not found
-     */
     async findArcifyFolder() {
         try {
-            // Method 1: Try the standard search first (most common case)
-            const searchResults = await chrome.bookmarks.search({ title: 'Arcify' });
-            const arcifyViaSearch = searchResults?.find(result => !result.url);
-            if (arcifyViaSearch) {
-                Logger.log('[BookmarkUtils] Found Arcify folder via search:', arcifyViaSearch.id);
-                return arcifyViaSearch;
-            }
-
-            // Method 2: Traverse the bookmark tree manually
-            const rootChildren = await chrome.bookmarks.getChildren('0');
-            for (const rootFolder of rootChildren) {
-                try {
-                    const children = await chrome.bookmarks.getChildren(rootFolder.id);
-                    const arcifyFolder = children.find(child => child.title === 'Arcify' && !child.url);
-                    if (arcifyFolder) {
-                        Logger.log('[BookmarkUtils] Found Arcify folder in', rootFolder.title);
-                        return arcifyFolder;
-                    }
-                } catch {
-                    continue;
-                }
-            }
-
-            // Method 3: Check "Other Bookmarks" specifically (handles locale variations)
-            const otherBookmarksFolder = rootChildren.find(folder =>
-                folder.id === '2' ||
-                folder.title.toLowerCase().includes('other') ||
-                folder.title.toLowerCase().includes('bookmark')
-            );
-
-            if (otherBookmarksFolder) {
-                try {
-                    const children = await chrome.bookmarks.getChildren(otherBookmarksFolder.id);
-                    const arcifyFolder = children.find(child => child.title === 'Arcify' && !child.url);
-                    if (arcifyFolder) {
-                        Logger.log('[BookmarkUtils] Found Arcify folder in Other Bookmarks');
-                        return arcifyFolder;
-                    }
-                } catch {
-                    // Ignore error
-                }
-            }
-
-            Logger.log('[BookmarkUtils] Arcify folder not found');
-            return null;
-
+            return await LocalStorage.getArcifyFolder();
         } catch (error) {
-            Logger.error('[BookmarkUtils] Error in findArcifyFolder:', error);
+            Logger.error(Logger.context('Could not read the bookmark root.'), error);
             return null;
         }
     },
-
 
     /**
      * Recursively get all bookmarks from a folder and its subfolders
@@ -239,49 +189,46 @@ export const BookmarkUtils = {
      */
     async matchTabsWithBookmarks(folder, spaceId, setTabNameOverride = null, setPinnedTabState = null, claimedTabIds = null, getUrlKey = null, windowId = null) {
         const bookmarks = [];
-        const items = await chrome.bookmarks.getChildren(folder.id);
-        const { spaces = [] } = await chrome.storage.local.get('spaces');
-        const pinnedIds = new Set(spaces.find(s => s.id === spaceId)?.spaceBookmarks || []);
-        const tabs = (await getSpaceTabs(spaceId)).filter(tab => !tab.pinned && pinnedIds.has(tab.id) && (windowId === null || tab.windowId === windowId));
+        const [spaces, liveTabs, { pinnedTabStatesById = {} }] = await Promise.all([
+            spaceRequest('get', { discoverBookmarks: false }),
+            chrome.tabs.query({ pinned: false, ...(windowId === null ? {} : { windowId }) }),
+            chrome.storage.local.get('pinnedTabStatesById')
+        ]);
+        const liveById = new Map(liveTabs.map(tab => [tab.id, tab]));
+        const tabs = (spaces.find(space => space.id === spaceId)?.spaceBookmarks || [])
+            .map(id => liveById.get(id)).filter(Boolean);
         const claimed = claimedTabIds || new Set();
-        const { pinnedTabStatesById = {} } = await chrome.storage.local.get('pinnedTabStatesById');
 
-        for (const item of items) {
-            if (item.url) {
-                // This is a bookmark. Pick the first matching tab that hasn't already
-                // been bound to another bookmark in this run, so URL twins don't both
-                // get claimed by a single bookmark.
-                const available = tabs.filter(t => !claimed.has(t.id));
-                let tab = available.find(t => pinnedTabStatesById[t.id]?.bookmarkId === item.id)
-                    || available.find(t => t.url === item.url && !pinnedTabStatesById[t.id]?.bookmarkId);
+        async function visit(folderId) {
+            for (const item of await chrome.bookmarks.getChildren(folderId)) {
+                if (!item.url) {
+                    await visit(item.id);
+                    continue;
+                }
+
                 // Legacy recovery is limited to already-pinned members without a binding.
                 // Ordinary temporary tabs must never be promoted by a matching URL.
+                const available = tabs.filter(tab => !claimed.has(tab.id));
+                let tab = available.find(tab => pinnedTabStatesById[tab.id]?.bookmarkId === item.id)
+                    || available.find(tab => tab.url === item.url && !pinnedTabStatesById[tab.id]?.bookmarkId);
                 if (!tab && getUrlKey) {
                     const targetKey = getUrlKey(item.url);
-                    tab = available.find(t => !pinnedTabStatesById[t.id]?.bookmarkId && getUrlKey(t.url) === targetKey);
+                    tab = available.find(tab => !pinnedTabStatesById[tab.id]?.bookmarkId && getUrlKey(tab.url) === targetKey);
                 }
-                if (tab) {
-                    claimed.add(tab.id);
-                    bookmarks.push(tab.id);
-                    // Set tab name override with the bookmark's title if needed
-                    if (item.title && item.title !== tab.title && setTabNameOverride) {
-                        await setTabNameOverride(tab.id, tab.url, item.title);
-                        Logger.log(`[BookmarkUtils] Override set for tab ${tab.id} from bookmark: ${item.title}`);
-                    }
-                    // Persist tab->bookmark binding so the renderer's primary matcher
-                    // (byBookmarkId) survives across sessions and isn't displaced by
-                    // newly opened URL twins.
-                    if (setPinnedTabState) {
-                        await setPinnedTabState(tab.id, { pinnedUrl: item.url, bookmarkId: item.id });
-                    }
+                if (!tab) continue;
+
+                claimed.add(tab.id);
+                bookmarks.push(tab.id);
+                if (item.title && item.title !== tab.title && setTabNameOverride) {
+                    await setTabNameOverride(tab.id, tab.url, item.title);
                 }
-            } else {
-                // This is a folder, recursively process it
-                const subFolderBookmarks = await this.matchTabsWithBookmarks(item, spaceId, setTabNameOverride, setPinnedTabState, claimed, getUrlKey, windowId);
-                bookmarks.push(...subFolderBookmarks);
+                if (setPinnedTabState) {
+                    await setPinnedTabState(tab.id, { pinnedUrl: item.url, bookmarkId: item.id });
+                }
             }
         }
 
+        await visit(folder.id);
         return bookmarks;
     },
 

@@ -6,12 +6,13 @@ const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn);
 test('bookmark listeners ignore unrelated edits and coalesce Arcify subtree changes', async () => {
     const events = { onCreated: event(), onRemoved: event(), onMoved: event(), onChanged: event(), onChildrenReordered: event(), onImportBegan: event(), onImportEnded: event() };
     const nodes = {
-        root: { id: 'root', title: 'Arcify' }, space: { id: 'space', parentId: 'root' }, favorite: { id: 'favorite', parentId: 'space', url: 'https://one.test/' },
+        root: { id: 'root', title: 'Renamed bookmark root' }, space: { id: 'space', parentId: 'root' }, favorite: { id: 'favorite', parentId: 'space', url: 'https://one.test/' },
         other: { id: 'other', parentId: 'outside' }
     };
     const messages = [];
     globalThis.chrome = {
-        bookmarks: { ...events, search: async () => [nodes.root], get: async id => nodes[id] ? [nodes[id]] : [] },
+        storage: { local: { get: async () => ({ arcifyBookmarkRootId: 'root' }) } },
+        bookmarks: { ...events, get: async id => nodes[id] ? [nodes[id]] : [] },
         runtime: { sendMessage: async message => messages.push(message) }
     };
     const { registerBookmarkListeners } = await import(`../../bookmark-events.js?test=${Date.now()}`);

@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { NativeFavorites, getFavoriteDropTarget, registerNativeFavorites } from '../../native-favorites.js';
+import { NativeFavorites, getFavoriteDropTarget } from '../../native-favorites.js';
 
 let local, session, tabs, updates;
 const area = data => ({
@@ -117,24 +117,6 @@ test('existing native pins above the Arcify limit remain accessible', async () =
     tabs.push({ id: 17, index: 16, windowId: 1, url: 'https://site.test/new', pinned: false });
     await assert.rejects(reloaded.dispatch({ action: 'pin', tabIds: [17] }), /up to 12/);
     assert.equal(tabs.filter(tab => tab.pinned).length, 16);
-    assert.equal(updates.length, 0);
-});
-
-test('Favorites messages accept only this extension and leave unrelated replies alone', async () => {
-    chrome.runtime = { id: 'arcify', getURL: path => `chrome-extension://arcify/${path}`, onMessage: event() };
-    registerNativeFavorites();
-    const [listener] = chrome.runtime.onMessage.listeners;
-    for (const sender of [{}, { id: 'other' }, { id: 'arcify', url: 'https://website.test/' }]) {
-        assert.equal(listener({ type: 'nativeFavorites', action: 'pin', tabIds: [1] }, sender,
-            () => assert.fail('Untrusted sender received a reply')), undefined);
-    }
-    assert.equal(listener({ type: 'spaceStore', action: 'get' }, { id: 'arcify' },
-        () => assert.fail('Unrelated message intercepted')), undefined);
-    const reply = await new Promise(resolve => {
-        assert.equal(listener({ type: 'nativeFavorites', action: 'get' },
-            { id: 'arcify', url: 'chrome-extension://arcify/sidebar.html' }, resolve), true);
-    });
-    assert.deepEqual(reply, { success: true, tabs: [] });
     assert.equal(updates.length, 0);
 });
 

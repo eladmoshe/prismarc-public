@@ -26,18 +26,20 @@ import { beginSidebarContextMenu } from './sidebar-context-menu.js';
  */
 
 import { ChromeHelper } from './chromeHelper.js';
-import { spaceRequest } from './space-client.js';
+import { spaceRequest as requestSpace } from './space-client.js';
 import { SpacePatchQueue } from './space-patch-queue.js';
 import { RefreshCoordinator } from './refresh-coordinator.js';
 import { EditSessionRegistry } from './edit-sessions.js';
 import { setupCleanPreview, closeCleanPreview, reconcileCleanPreview, removeCleanCandidate } from './sidebar-clean.js';
 import { setupCleanArchiveControls } from './sidebar-auto-archive.js';
 import { favoriteRequest, getFavoriteDropTarget } from './native-favorites.js';
-import { selectWindowSpaceTabs, mergeVisibleOrder, mergeCapturedTemporaryOrder, canonicalOrderFromDisplay, saveBookmarkOperation } from './sidebar-tabs.js';
+import { selectWindowSpaceTabs, mergeVisibleOrder, mergeCapturedTemporaryOrder, saveBookmarkOperation } from './sidebar-tabs.js';
 import { ownerOf } from './space-store.js';
 import { canCreateFolder, canMoveFolder, createFolder } from './folder-policy.js';
 import { loadFolderCollapsed, saveFolderCollapsed } from './folder-state.js';
-import { FOLDER_CLOSED_ICON, FOLDER_CLOSED_DOTS_ICON, FOLDER_OPEN_ICON } from './icons.js';
+import { collapsedFolderShownTabs, projectCollapsedFolder, removeProjectedAnchor, updateFolderPlaceholder } from './sidebar-folder-projection.js';
+import { bookmarkOrderBaselines, bookmarkParentIdForContent, getFlattenedPinnedSectionTabIds, getTempSectionTabIds,
+    makeBookmarkDropOperation, uniqPreserveOrder } from './sidebar-drop-order.js';
 import { getContextTabIds, getTabSelectionRange } from './tab-selection.js';
 import { LocalStorage } from './localstorage.js';
 import { Utils } from './utils.js';
@@ -55,8 +57,6 @@ import {
     getSpaceElement,
     getContainers,
     getTabElement,
-    getPinnedContainer,
-    getTempContainer,
     clearAllActiveStates,
     hideAllDropIndicators,
     showDropIndicator,
@@ -150,12 +150,6 @@ function getOrderedTabElementsById(tabIds) {
     const ids = new Set(tabIds);
     return getSelectableTabElements().filter(element => ids.has(Number(element.dataset.tabId)));
 }
-// Arc-like behavior: track which tabs have been active in each collapsed folder.
-// These tabs stay visible until user manually opens/closes the folder.
-// WeakMap<HTMLElement (folder), Set<number (tabId)>>
-const collapsedFolderShownTabs = new WeakMap();
-const bookmarkOrderBaselines = new Map();
-
 async function switchSpaceBy(delta) {
     const currentIndex = spaces.findIndex(space => space.id === activeSpaceId);
     if (currentIndex === -1 || spaces.length === 0) {
@@ -179,9 +173,51 @@ function disposeEditorsInElement(element) {
 
 chrome.runtime.onMessage.addListener((message, sender) => {
     if (!isTrustedExtensionMessage(message, sender, chrome)) return;
+    if (message.type === 'spaceStoreStatus') {
+        setSpaceStoreStatus(message.code);
+        return;
+    }
     if (message.action !== 'arcifyBookmarksChanged') return;
     scheduleBookmarkRefresh();
 });
+
+function setSpaceStoreStatus(code) {
+    const notice = document.getElementById('spaceStoreStatus');
+    notice.textContent = code === 'bookmark_folder_unavailable'
+        ? 'Chrome could not access the space bookmark folders. Try again or reopen the sidebar.'
+        : code === 'space_storage_unavailable'
+            ? 'Chrome could not save or read your spaces. Try again or reopen the sidebar.'
+            : '';
+    notice.hidden = !notice.textContent;
+}
+
+function showSpaceStoreError(error, fallback = 'space_storage_unavailable') {
+    let code = fallback;
+    if (error?.code === 'bookmark_folder_unavailable' || error?.code === 'space_storage_unavailable') {
+        code = error.code;
+    } else if (/quota/i.test(error?.message)) {
+        code = 'space_storage_unavailable';
+    }
+    setSpaceStoreStatus(code);
+}
+
+async function spaceRequest(action, payload) {
+    try {
+        return await requestSpace(action, payload);
+    } catch (error) {
+        showSpaceStoreError(error);
+        throw error;
+    }
+}
+
+async function getSidebarBookmarkRoot() {
+    try {
+        return await LocalStorage.getOrCreateArcifyFolder();
+    } catch (error) {
+        showSpaceStoreError(error, 'bookmark_folder_unavailable');
+        throw error;
+    }
+}
 
 function scheduleBookmarkRefresh() {
     refreshCoordinator.invalidateBookmarks();
@@ -671,7 +707,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    await initSidebar();
+    try {
+        await initSidebar();
+    } catch (error) {
+        showSpaceStoreError(error);
+        Logger.error(Logger.context('Sidebar initialization failed.'), error);
+        return;
+    }
     setupSidebarPreviewHint(currentWindow).catch(() => {});
     document.addEventListener('click', event => {
         if (event.target.closest('.tab, #tab-context-menu')) return;
@@ -764,10 +806,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 const spaceSaveQueue = new SpacePatchQueue(
     (before, after) => spaceRequest('patch', { before, after }),
-    async () => {
+    async error => {
         const current = await spaceRequest('get');
         await adoptStoredSpaces(current);
-        alert('Your last change could not be saved. The current saved state has been restored. Please retry.');
+        showSpaceStoreError(error);
         return current;
     }
 );
@@ -1095,13 +1137,14 @@ function createSpaceElement(space) {
 
 async function moveSpaceFolderBefore(space, nextSpace) {
     try {
-        const arcifyFolder = await LocalStorage.getOrCreateArcifyFolder();
+        const arcifyFolder = await getSidebarBookmarkRoot();
         const children = await chrome.bookmarks.getChildren(arcifyFolder.id);
         if (!children.some(node => node.id === space.bookmarkFolderId)) return;
         const nextIndex = children.findIndex(node => node.id === nextSpace?.bookmarkFolderId);
         const index = nextIndex < 0 ? children.length : nextIndex;
         await chrome.bookmarks.move(space.bookmarkFolderId, { parentId: arcifyFolder.id, index });
     } catch (error) {
+        showSpaceStoreError(error, 'bookmark_folder_unavailable');
         Logger.warn('Could not reorder space folder:', error);
     }
 }
@@ -1210,7 +1253,7 @@ async function updateSpaceSwitcher() {
     });
 
     // Inactive space from bookmarks
-    const arcifyFolder = await LocalStorage.getOrCreateArcifyFolder();
+    const arcifyFolder = await getSidebarBookmarkRoot();
     const spaceFolders = await chrome.bookmarks.getChildren(arcifyFolder.id);
     spaceFolders.forEach(spaceFolder => {
         if (spaces.find(space => space.name == spaceFolder.title)) {
@@ -1410,7 +1453,7 @@ async function createSpaceFromInactive(spaceName, tabToMove) {
     Logger.log(`Creating inactive space "${spaceName}" with tab:`, tabToMove);
     isCreatingSpace = true;
     try {
-        const arcifyFolder = await LocalStorage.getOrCreateArcifyFolder();
+        const arcifyFolder = await getSidebarBookmarkRoot();
         const spaceFolders = await chrome.bookmarks.getChildren(arcifyFolder.id);
         const spaceFolder = spaceFolders.find(f => f.title === spaceName);
 
@@ -1469,6 +1512,7 @@ async function createSpaceFromInactive(spaceName, tabToMove) {
         await setActiveSpace(space.id);
         updateSpaceSwitcher();
     } catch (error) {
+        showSpaceStoreError(error, 'bookmark_folder_unavailable');
         Logger.error(`Error creating space from inactive bookmark:`, error);
     } finally {
         isCreatingSpace = false;
@@ -1779,122 +1823,8 @@ async function closeSelectedTabs(tabIds) {
     }));
 }
 
-// Helper function to manage folder placeholder state
-function updateFolderPlaceholder(folderElement) {
-    if (!folderElement) return;
-
-    const folderContent = folderElement.querySelector('.folder-content');
-    const placeholder = folderElement.querySelector('.tab-placeholder');
-
-    if (!folderContent || !placeholder) return;
-
-    // Count actual tab elements (not placeholders)
-    const tabElements = folderContent.querySelectorAll(':scope > .tab:not(.tab-placeholder), :scope > .folder');
-    const isEmpty = tabElements.length === 0;
-
-    if (isEmpty) {
-        placeholder.classList.remove('hidden');
-        Logger.log('Showing placeholder for empty folder');
-    } else {
-        placeholder.classList.add('hidden');
-        Logger.log('Hiding placeholder for populated folder');
-    }
-}
-
-function updateFolderIcon(folderElement) {
-    if (!folderElement) return;
-    const folderIcon = folderElement.querySelector('.folder-icon');
-    if (!folderIcon) return;
-    const isCollapsed = folderElement.classList.contains('collapsed');
-    const hasOpenTabs = folderElement.classList.contains('has-open-tabs');
-    folderIcon.innerHTML = isCollapsed
-        ? (hasOpenTabs ? FOLDER_CLOSED_DOTS_ICON : FOLDER_CLOSED_ICON)
-        : FOLDER_OPEN_ICON;
-}
-
-// Arc-like: when a folder is collapsed, show open bookmark tabs (active Chrome tabs) for that folder.
-// Implementation detail: we MOVE the existing open tab elements between containers (no duplicates),
-// so tab updates/active highlighting continue to work consistently.
-const projectedTabAnchors = new WeakMap();
-function restoreProjectedTab(tab, content) {
-    const anchor = projectedTabAnchors.get(content)?.get(tab.dataset.bookmarkId || tab.dataset.tabId);
-    if (anchor?.parentNode === content) anchor.replaceWith(tab);
-    else content.appendChild(tab);
-    projectedTabAnchors.get(content)?.delete(tab.dataset.bookmarkId || tab.dataset.tabId);
-}
-function projectFolderTab(tab, target) {
-    const anchor = document.createComment('pinned tab position');
-    anchor.bookmarkKey = tab.dataset.bookmarkId || tab.dataset.tabId;
-    const content = tab.parentElement;
-    if (!projectedTabAnchors.has(content)) projectedTabAnchors.set(content, new Map());
-    projectedTabAnchors.get(content).set(tab.dataset.bookmarkId || tab.dataset.tabId, anchor);
-    tab.before(anchor);
-    target.appendChild(tab);
-}
-
 function syncCollapsedFolderTabs(folderElement) {
-    if (!folderElement) return;
-    const collapsedContainer = folderElement.querySelector('.folder-collapsed-tabs');
-    const folderContent = folderElement.querySelector('.folder-content');
-    if (!collapsedContainer || !folderContent) return;
-
-    const isCollapsed = folderElement.classList.contains('collapsed');
-
-    if (isCollapsed) {
-        // If any bookmark-only tabs ended up in the collapsed container (e.g., tab got closed while collapsed),
-        // move them back into the real folder content so the collapsed view only shows open tabs.
-        Array.from(collapsedContainer.querySelectorAll('.tab.bookmark-only')).forEach(el => {
-            restoreProjectedTab(el, folderContent);
-        });
-
-        // Always clear any previously projected open tabs back into folder content first.
-        Array.from(collapsedContainer.querySelectorAll('.tab:not(.bookmark-only)')).forEach(el => {
-            restoreProjectedTab(el, folderContent);
-        });
-
-        if (showAllOpenTabsInCollapsedFolders) {
-            // Arcify mode: show all open (non-bookmark-only) tabs even when folder is collapsed.
-            const openTabs = Array.from(folderContent.querySelectorAll(':scope > .tab'))
-                .filter(t => !t.classList.contains('bookmark-only') && t.dataset.tabId);
-            openTabs.forEach(t => projectFolderTab(t, collapsedContainer));
-        } else {
-            // Arc mode: show tabs that are active OR were previously active while folder was collapsed.
-            // This list resets when user manually opens/closes the folder.
-            let shownTabIds = collapsedFolderShownTabs.get(folderElement);
-            
-            // Also seed the currently active tab if it's in this folder (handles initialization case).
-            if (activeChromeTabId) {
-                const activeTabEl = folderContent.querySelector(`:scope > .tab[data-tab-id="${activeChromeTabId}"]:not(.bookmark-only)`);
-                if (activeTabEl) {
-                    if (!shownTabIds) {
-                        shownTabIds = new Set();
-                        collapsedFolderShownTabs.set(folderElement, shownTabIds);
-                    }
-                    shownTabIds.add(activeChromeTabId);
-                }
-            }
-            
-            if (shownTabIds && shownTabIds.size > 0) {
-                shownTabIds.forEach(tabId => {
-                    const tabEl = folderContent.querySelector(`:scope > .tab[data-tab-id="${tabId}"]:not(.bookmark-only)`);
-                    if (tabEl) {
-                        projectFolderTab(tabEl, collapsedContainer);
-                    }
-                });
-            }
-        }
-    } else {
-        // Expanded: move everything back into the folder content.
-        Array.from(collapsedContainer.querySelectorAll(':scope > .tab')).forEach(t => restoreProjectedTab(t, folderContent));
-    }
-
-    // Arc-like: indicate collapsed folder contains an open tab (in Arc mode this only happens for active tab).
-    const hasOpenTabs = isCollapsed && Boolean(collapsedContainer.querySelector('.tab:not(.bookmark-only)'));
-    folderElement.classList.toggle('has-open-tabs', hasOpenTabs);
-    updateFolderIcon(folderElement);
-
-    // Recompute placeholder visibility now that DOM contents may have changed.
-    updateFolderPlaceholder(folderElement);
+    projectCollapsedFolder(folderElement, activeChromeTabId, showAllOpenTabsInCollapsedFolders);
 }
 
 function syncCollapsedFoldersInActiveSpace() {
@@ -2135,97 +2065,6 @@ async function handleBookmarkOperations(event, draggingElement, container, targe
     return { orderHandled: false };
 }
 
-function uniqPreserveOrder(ids) {
-    const out = [];
-    const seen = new Set();
-    for (const id of ids) {
-        if (!id) continue;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        out.push(id);
-    }
-    return out;
-}
-
-/**
- * Flatten visual order of pinned section for a space:
- * - root-level `.tab[data-tab-id]` in order
- * - then folder contents (per folder in DOM order), `.tab[data-tab-id]` in order
- *
- * Bookmark-only items (no tabId) are skipped since they don't exist in Chrome.
- */
-function orderedBookmarkElements(content) {
-    const folder = content.parentElement;
-    const projected = folder.classList.contains('folder')
-        ? [...folder.querySelector(':scope > .folder-collapsed-tabs').children] : [];
-    return [...content.childNodes].map(node => {
-        if (node.nodeType === Node.COMMENT_NODE && node.bookmarkKey) {
-            return projected.find(el => (el.dataset.bookmarkId || el.dataset.tabId) === node.bookmarkKey);
-        }
-        return node.nodeType === Node.ELEMENT_NODE ? node : null;
-    }).filter(el => el?.dataset.bookmarkId);
-}
-
-function orderedBookmarkKeys(content, pendingElement = null) {
-    const folder = content.parentElement;
-    const projected = folder?.classList.contains('folder')
-        ? [...folder.querySelector(':scope > .folder-collapsed-tabs').children] : [];
-    return [...content.childNodes].map(node => {
-        if (node.nodeType === Node.COMMENT_NODE && node.bookmarkKey) {
-            return projected.find(el => (el.dataset.bookmarkId || el.dataset.tabId) === node.bookmarkKey);
-        }
-        return node.nodeType === Node.ELEMENT_NODE ? node : null;
-    }).filter(el => el?.classList.contains('folder') || el?.classList.contains('tab')).map(el => {
-        if (el === pendingElement && !el.dataset.bookmarkId) return '$new';
-        return el.dataset.bookmarkId || null;
-    }).filter(Boolean).map(String);
-}
-
-function bookmarkParentIdForContent(content, rootId) {
-    return String(content.closest('.folder')?.dataset.bookmarkId || rootId);
-}
-
-function makeBookmarkDropOperation({ sourceContent, targetContent, draggingElement, rootId, tab }) {
-    const bookmarkId = draggingElement.dataset.bookmarkId || null;
-    const sourceParentId = bookmarkId ? bookmarkParentIdForContent(sourceContent, rootId) : null;
-    const targetParentId = bookmarkParentIdForContent(targetContent, rootId);
-    const parentIds = [...new Set([sourceParentId, targetParentId].filter(Boolean))];
-    const parents = parentIds.map(parentId => {
-        const content = parentId === targetParentId ? targetContent : sourceContent;
-        const displayIds = orderedBookmarkKeys(content, draggingElement);
-        const desiredCanonicalIds = canonicalOrderFromDisplay(displayIds, false);
-        const expectedCanonicalIds = bookmarkOrderBaselines.get(parentId);
-        if (!expectedCanonicalIds) throw new Error('The bookmark order baseline is unavailable. Refresh and retry.');
-        return { parentId, expectedCanonicalIds: [...expectedCanonicalIds], desiredCanonicalIds };
-    });
-    let relocation = null;
-    if (!bookmarkId) {
-        relocation = { kind: 'create', parentId: targetParentId, title: tab.title, url: draggingElement.dataset.pinnedUrl || tab.url };
-    } else if (sourceParentId !== targetParentId) {
-        relocation = { kind: 'move', bookmarkId, parentId: targetParentId };
-    }
-    return { parents, relocation };
-}
-
-function getFlattenedPinnedSectionTabIds(spaceElement) {
-    const pinnedContainer = getPinnedContainer(spaceElement);
-    if (!pinnedContainer) return [];
-    const walk = content => orderedBookmarkElements(content).flatMap(child =>
-        child.classList.contains('folder')
-            ? walk(child.querySelector(':scope > .folder-content'))
-            : child.dataset.tabId ? [Number(child.dataset.tabId)] : []
-    );
-    return uniqPreserveOrder(walk(pinnedContainer));
-}
-
-function getTempSectionTabIds(spaceElement) {
-    const tempContainer = getTempContainer(spaceElement);
-    if (!tempContainer) return [];
-    return uniqPreserveOrder(
-        Array.from(tempContainer.querySelectorAll('.tab[data-tab-id]')).map(el => parseInt(el.dataset.tabId))
-    );
-}
-
 // Order belongs to extension data; Chrome's tab-strip order is irrelevant.
 async function persistSpaceTabOrder(spaceId) {
     const space = spaces.find(s => s.id === spaceId);
@@ -2408,12 +2247,7 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
                     const sourceFolder = element.classList.contains('folder')
                         ? element.parentElement.closest('.folder') : element.closest('.folder');
                     const sourceContent = sourceFolder?.querySelector(':scope > .folder-content');
-                    const anchorKey = element.dataset.bookmarkId || element.dataset.tabId;
-                    const sourceAnchor = sourceContent && projectedTabAnchors.get(sourceContent)?.get(anchorKey);
-                    if (sourceAnchor) {
-                        sourceAnchor.remove();
-                        projectedTabAnchors.get(sourceContent).delete(anchorKey);
-                    }
+                    removeProjectedAnchor(sourceContent, element);
                     targetContainer.insertBefore(element, insertBefore);
                     const dropIntent = container.dataset.tabType === 'temporary'
                         ? { temporaryDisplayOrder: getTempSectionTabIds(spaceElement), inverted: dropInverted, offerUndo: draggingElements.length === 1 }
@@ -3362,7 +3196,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
             : isPinned;
         const session = beginSidebarContextMenu(tabElement);
         try {
-            const arcifyFolder = await LocalStorage.getOrCreateArcifyFolder();
+            const arcifyFolder = await getSidebarBookmarkRoot();
             const allBookmarkSpaceFolders = await chrome.bookmarks.getChildren(arcifyFolder.id);
             showTabContextMenu(
                 session,
@@ -3473,7 +3307,10 @@ async function createNewSpace() {
         spaceSwitcher.style.opacity = '1';
         spaceSwitcher.style.visibility = 'visible';
     } catch (error) {
+        showSpaceStoreError(error, 'bookmark_folder_unavailable');
         Logger.error('Error creating new space:', error);
+    } finally {
+        isCreatingSpace = false;
     }
 }
 
@@ -3985,14 +3822,6 @@ async function getTabsBoundToBookmark(space, bookmarkId) {
     return space.spaceBookmarks.filter(id => liveTabIds.has(id) && String(bindings[id]?.bookmarkId) === String(bookmarkId));
 }
 
-// Tab navigation functions delegate to Utils to avoid code duplication
-async function movToNextTabInSpace(tabId, sourceSpace) {
-    return Utils.movToNextTabInSpace(tabId, sourceSpace);
-}
-
-async function movToPrevTabInSpace(tabId, sourceSpace) {
-    return Utils.movToPrevTabInSpace(tabId, sourceSpace);
-}
 // Reusable function to set up folder context menu
 function setupFolderContextMenu(folderElement, space) {
     folderElement.addEventListener('contextmenu', async (e) => {

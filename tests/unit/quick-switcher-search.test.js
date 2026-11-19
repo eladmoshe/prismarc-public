@@ -105,10 +105,15 @@ test('native queries run on demand, with explicit history bounds, and never pers
             getRecent: async count => { calls.push(['recent', count]); return []; },
         },
         history: { search: async query => { calls.push(['history', query]); return history; } },
-        storage: { local: { get: async () => ({}), set: () => assert.fail('Search must not write an index') } },
+        runtime: { sendMessage: async message => {
+            calls.push(['message', message]);
+            return { success: true, spaces: [{ id: 's', name: 'Project', temporaryTabs: [1] }] };
+        } },
+        storage: { local: { get: () => assert.fail('Search must read through SpaceStore'), set: () => assert.fail('Search must not write an index') } },
     };
     const initial = await searchBrowser('', context, api);
     assert.equal(initial.results.length, 2);
+    assert.deepEqual(calls.find(call => call[0] === 'message')[1], { type: 'spaceStore', action: 'get', discoverBookmarks: false });
     assert.ok(calls.some(call => call[0] === 'recent' && call[1] === 30));
     assert.ok(calls.find(call => call[0] === 'history')[1].startTime > 0);
     history = [];
@@ -216,7 +221,7 @@ test('unavailable data sources leave other results usable and incognito never qu
         tabs: { query: async () => [tab(1, 'https://regular.test/'), { ...tab(2, 'https://private.test/'), incognito: true }] },
         bookmarks: { search: async () => { throw new Error('Bookmarks unavailable'); }, getRecent: async () => [] },
         history: { search: async () => { historyCalls++; throw new Error('Permission unavailable'); } },
-        storage: { local: { get: async () => ({}) } },
+        runtime: { sendMessage: async () => ({ success: true, spaces: [] }) },
     };
     const normal = await searchBrowser('Project', context, api);
     assert.deepEqual(normal.unavailable, ['Bookmarks', 'History']);
@@ -256,7 +261,7 @@ test('switching to an already-active tab explicitly reveals its owning Arcify sp
         return { success: true, spaces: [{ id: 'research', temporaryTabs: [10] }] };
     };
     await activateBrowserResult({ tabId: 10, url: 'https://open.test/' }, context, false, f.api);
-    assert.deepEqual(messages, [{ type: 'spaceStore', action: 'get' },
+    assert.deepEqual(messages, [{ type: 'spaceStore', action: 'get', discoverBookmarks: false },
         { type: 'spaceStore', action: 'activate', spaceId: 'research', windowId: 2 }]);
 });
 

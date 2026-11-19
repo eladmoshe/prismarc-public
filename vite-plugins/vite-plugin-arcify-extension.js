@@ -12,7 +12,7 @@ function calendarBuildClientId() {
 }
 
 /**
- * Get shared input configuration for Arcify Chrome Extension
+ * Get shared input configuration for PrismArc
  */
 function getExtensionInputs() {
   return {
@@ -20,12 +20,10 @@ function getExtensionInputs() {
     'tutorial-practice': resolve(process.cwd(), 'tutorial-practice.html'),
     options: resolve(process.cwd(), 'options.html'),
     'calendar-settings': resolve(process.cwd(), 'calendar-settings.html'),
-    onboarding: resolve(process.cwd(), 'onboarding.html'),
     'installation-onboarding': resolve(process.cwd(), 'installation-onboarding.html'),
     background: resolve(process.cwd(), 'background.js'),
     'sidebar-script': resolve(process.cwd(), 'sidebar.js'),
     'options-script': resolve(process.cwd(), 'options.js'),
-    'onboarding-script': resolve(process.cwd(), 'onboarding.js'),
     'installation-onboarding-script': resolve(process.cwd(), 'installation-onboarding.js'),
     offscreen: resolve(process.cwd(), 'offscreen.html'),
     'quick-switcher': resolve(process.cwd(), 'quick-switcher.html'),
@@ -34,16 +32,15 @@ function getExtensionInputs() {
 }
 
 /**
- * Get shared output configuration for Arcify Chrome Extension
+ * Get shared output configuration for PrismArc
  */
 function getExtensionOutput(isDev = false) {
   return {
     entryFileNames: (chunkInfo) => {
-      const mainScripts = ['background', 'sidebar-script', 'options-script', 'onboarding-script', 'installation-onboarding-script'];
+      const mainScripts = ['background', 'sidebar-script', 'options-script', 'installation-onboarding-script'];
       if (mainScripts.includes(chunkInfo.name)) {
         if (chunkInfo.name === 'sidebar-script') return 'sidebar.js';
         if (chunkInfo.name === 'options-script') return 'options.js';
-        if (chunkInfo.name === 'onboarding-script') return 'onboarding.js';
         if (chunkInfo.name === 'installation-onboarding-script') return 'installation-onboarding.js';
         return `${chunkInfo.name}.js`;
       }
@@ -63,43 +60,40 @@ function getExtensionOutput(isDev = false) {
 }
 
 /**
- * Get Arcify extension build plugins
+ * Get PrismArc build plugins
  */
 function getExtensionPlugins(isDev = false) {
   const outDir = isDev ? 'dist-dev' : 'dist';
+  // Manifest and runtime code load these by their original URLs.
+  const staticFiles = [
+    'manifest.json',
+    'styles.css',
+    'LICENSE',
+    'NOTICE',
+    'assets/default_icon.png',
+    'assets/icon.png',
+    'assets/icon-16.png',
+    'assets/icon-24.png',
+    'assets/icon-32.png',
+    'assets/icon-48.png',
+    'assets/varela-round.ttf',
+    'assets/varela-round-LICENSE.txt',
+  ];
 
   return [
     // Main extension build plugin
     {
-      name: 'arcify-extension-main',
+      name: 'prismarc-extension-main',
       writeBundle: async () => {
-        // Copy static files
-        await fs.copy('manifest.json', `${outDir}/manifest.json`);
-
-        if (await fs.pathExists('assets')) {
-          await fs.copy('assets', `${outDir}/assets`);
-        }
-
-        if (await fs.pathExists('styles.css')) {
-          await fs.copy('styles.css', `${outDir}/styles.css`);
-        }
-
-        if (await fs.pathExists('LICENSE')) {
-          await fs.copy('LICENSE', `${outDir}/LICENSE`);
-        }
-        if (await fs.pathExists('README.md')) {
-          await fs.copy('README.md', `${outDir}/README.md`);
-        }
-
-        console.log(`✅ Main extension files built to ${outDir}/`);
-        console.log(`🎉 Arcify extension build complete!`);
+        await Promise.all(staticFiles.map(file => fs.copy(file, resolve(outDir, file))));
+        console.log(`✅ PrismArc extension built to ${outDir}/`);
       }
     }
   ];
 }
 
 /**
- * Create complete Vite configuration for Arcify Chrome Extension
+ * Create complete Vite configuration for PrismArc
  */
 export function createArcifyConfig(options = {}) {
   const { isDev = false } = options;

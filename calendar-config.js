@@ -1,5 +1,6 @@
 export const CALENDAR_ORIGIN = 'https://calendar.google.com';
 export const CALENDAR_EVENTS_ENDPOINT = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+export const CALENDAR_REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
 export const CALENDAR_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.events.owned.readonly';
 export const CALENDAR_CLIENT_KEY = 'googleCalendarClientId';
 export const CALENDAR_SESSION_KEY = 'googleCalendarSession';

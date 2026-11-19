@@ -63,3 +63,60 @@ test('does not expose a URL to clipboard contexts when no active tab exists', as
     };
     assert.equal(await copyCurrentTabUrlWithFallback({ chromeApi, logger }), false);
 });
+
+test('rapid copy commands serialize create, send and close, and close on a rejected copy', async () => {
+    const calls = [];
+    let open = false;
+    const chromeApi = {
+        runtime: {
+            getURL: path => `chrome-extension://arcify/${path}`,
+            getContexts: async () => open ? [{}] : [],
+            sendMessage(message, reply) {
+                if (message.action === 'urlCopySuccess') return Promise.resolve();
+                if (message.command === 'copyCurrentUrl') {
+                    calls.push(['fallback', message.url]);
+                    reply({ success: true });
+                    return;
+                }
+                calls.push(['offscreen', message.text]);
+                return Promise.resolve({ success: !message.text.includes('/first') });
+            }
+        },
+        offscreen: {
+            async createDocument() {
+                assert.equal(open, false);
+                open = true;
+                calls.push(['create']);
+            },
+            async closeDocument() {
+                assert.equal(open, true);
+                open = false;
+                calls.push(['close']);
+            }
+        }
+    };
+    const run = (id, path) => copyCurrentTabUrlWithFallback({ chromeApi, logger, tab: { id, url: `https://test.example/${path}` } });
+    assert.deepEqual(await Promise.all([run(1, 'first'), run(2, 'second')]), [true, true]);
+    assert.deepEqual(calls, [
+        ['create'], ['offscreen', 'https://test.example/first'], ['close'], ['fallback', 'https://test.example/first'],
+        ['create'], ['offscreen', 'https://test.example/second'], ['close']
+    ]);
+});
+
+test('a clipboard document close failure does not repeat a completed copy', async () => {
+    const chromeApi = {
+        runtime: {
+            getURL: path => `chrome-extension://arcify/${path}`,
+            getContexts: async () => [{}],
+            async sendMessage(message) {
+                assert.equal(message.command, undefined);
+                return { success: true };
+            }
+        },
+        offscreen: {
+            createDocument: async () => assert.fail('Existing context should be reused'),
+            closeDocument: async () => { throw new Error('Could not close'); }
+        }
+    };
+    assert.equal(await copyCurrentTabUrlWithFallback({ chromeApi, logger, tab: { id: 1, url: 'https://test.example/' } }), true);
+});

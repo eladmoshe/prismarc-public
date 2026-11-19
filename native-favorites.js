@@ -1,4 +1,3 @@
-import { isTrustedExtensionMessage } from './message-security.js';
 import { Logger } from './logger.js';
 
 export const MAX_FAVORITES = 12;
@@ -109,19 +108,6 @@ export class NativeFavorites {
         }));
         this.run(() => {}).catch(Logger.error);
     }
-}
-
-export function registerNativeFavorites() {
-    const favorites = new NativeFavorites();
-    favorites.install();
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (!isTrustedExtensionMessage(message, sender, chrome) || message.type !== 'nativeFavorites') return;
-        favorites.dispatch(message).then(
-            tabs => sendResponse({ success: true, tabs }),
-            error => sendResponse({ success: false, error: error.message })
-        );
-        return true;
-    });
 }
 
 export async function favoriteRequest(action, payload = {}) {

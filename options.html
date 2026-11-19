@@ -93,6 +93,12 @@
                 <div><button type="button" id="tabSwitcherCaptureOnVisit" class="options-input options-page-preview-action"
                     disabled aria-describedby="tabSwitcherCaptureOnVisitDescription">Enable previews as I browse</button></div>
             </div>
+            <div class="options-setting-item">
+                <label class="options-label" for="tabSwitcherExcludedDomains">Never preview these sites</label>
+                <p id="previewDomainsHelp" class="options-description">Enter domains separated by commas or spaces. Each entry also excludes its subdomains.</p>
+                <textarea class="options-input" id="tabSwitcherExcludedDomains" rows="2" maxlength="16000" disabled aria-describedby="previewDomainsHelp"></textarea>
+                <button type="button" id="savePreviewDomains" class="options-input" disabled>Save excluded sites</button>
+            </div>
         </section>
 
         <section class="options-section" aria-labelledby="archiveHeading">

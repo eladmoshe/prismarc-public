@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reduceTour, TOUR_STEPS, registerTourMessages, TOUR_KEY } from '../../tour-state.js';
+import { reduceTour, TOUR_STEPS, dispatchTourMessage, TOUR_KEY } from '../../tour-state.js';
 const start = (step = 0, runId = 'first') => reduceTour(undefined, { action: 'start', windowId: 7, step, runId });
 test('tour ignores stale and repeated next events, preserving the current step', () => {
     const state = start();
@@ -30,20 +30,16 @@ test('only observed achievements mark a feature tried; revisiting does not dupli
     assert.equal(start(-10).step, 0);
     assert.equal(start(100).step, TOUR_STEPS.length - 1);
 });
-test('background serializes competing sidebar and page events without stealing unrelated messages', async () => {
-    let listener; const local = {};
-    globalThis.chrome = { runtime: { id: 'arcify', onMessage: { addListener(fn) { listener = fn; } }, getManifest: () => ({ version: '5.1.0' }) }, storage: {
+test('the tour writer serializes competing sidebar and page events', async () => {
+    const local = {};
+    globalThis.chrome = { runtime: { getManifest: () => ({ version: '5.1.0' }) }, storage: {
         local: { async get() { return { ...local }; }, async set(data) { Object.assign(local, data); } }
     } };
-    registerTourMessages();
-    assert.equal(listener({ type: 'spaceStore' }, { id: 'arcify' }, () => assert.fail('stole response')), undefined);
-    const send = message => new Promise(resolve => {
-        assert.equal(listener({ type: 'sidebarTour', ...message }, { id: 'arcify' }, resolve), true);
-    });
-    await send({ action: 'start', runId: 'a', windowId: 7, step: 0 });
-    await Promise.all([send({ action: 'next', runId: 'a', step: 0 }), send({ action: 'achieved', runId: 'a', step: 0 })]);
+    await dispatchTourMessage({ action: 'start', runId: 'a', windowId: 7, step: 0 });
+    await Promise.all([dispatchTourMessage({ action: 'next', runId: 'a', step: 0 }),
+        dispatchTourMessage({ action: 'achieved', runId: 'a', step: 0 })]);
     assert.equal(local[TOUR_KEY].step, 1);
-    await send({ action: 'stop', runId: 'a' });
+    await dispatchTourMessage({ action: 'stop', runId: 'a' });
     assert.equal(local.onboardingCompleted, true);
     assert.equal(local.onboardingVersion, '5.1.0');
     delete globalThis.chrome;

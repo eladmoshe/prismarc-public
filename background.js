@@ -1,449 +1,379 @@
-import { isTrustedExtensionMessage } from './message-security.js';
-import { registerTourMessages } from './tour-state.js';
-registerTourMessages();
-/**
- * Background Service Worker (Manifest V3) - Core extension orchestrator
- *
- * Purpose: Manages extension lifecycle, message passing, and system integrations
- * Key Functions: Auto-archive system, tab activity tracking, Chrome API access
- * Architecture: Service worker that handles all Chrome API calls and coordinates between content scripts
- *
- * Critical Notes:
- * - Only context with full Chrome API access (tabs, storage, etc.)
- * - Manages tab activity tracking for auto-archive functionality
- * - All content script Chrome API requests must route through here via message passing
- */
-
-import { SpaceStore, ownerOf } from './space-store.js';
-import { isProtectedFavorite } from './favorite-safety.js';
 import { registerBookmarkListeners } from './bookmark-events.js';
-import { registerCleanTabs } from './clean-tabs-service.js';
+import { createCleanTabsHandler } from './clean-tabs-service.js';
 import { enqueueBookmarkOperation } from './bookmark-writer.js';
-import { registerNativeFavorites } from './native-favorites.js';
-
-registerBookmarkListeners();
-registerNativeFavorites();
-
-const spaceStore = new SpaceStore();
-spaceStore.install();
-registerCleanTabs(chrome, spaceStore);
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!isTrustedExtensionMessage(message, sender, chrome)) return;
-    if (message.type !== 'spaceStore') return;
-    spaceStore.dispatch(message).then(spaces => sendResponse({ success: true, spaces }), error => sendResponse({ success: false, error: error.message }));
-    return true;
-});
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!isTrustedExtensionMessage(message, sender, chrome)) return;
-    if (message.type !== 'bookmarkOrder') return;
-    enqueueBookmarkOperation(message.operation).then(
-        result => sendResponse({ success: true, ...result }),
-        error => sendResponse({ success: false, error: error.message, code: error.code,
-            observedOrders: error.observedOrders, moved: error.moved })
-    );
-    return true;
-});
-
-import { Utils } from './utils.js';
+import { isProtectedFavorite } from './favorite-safety.js';
+import { LocalStorage } from './localstorage.js';
 import { Logger } from './logger.js';
-import { copyCurrentTabUrlWithFallback } from './url-copy.js';
+import { isTrustedExtensionMessage } from './message-security.js';
+import { NativeFavorites } from './native-favorites.js';
 import { toggleQuickSwitcher } from './quick-switcher-window.js';
+import { SpaceStore, ownerOf } from './space-store.js';
 import { TabSwitcher } from './tab-switcher.js';
 import { TabSwitcherPreviews } from './tab-switcher-previews.js';
-
-const tabSwitcherPreviews = new TabSwitcherPreviews(chrome);
-tabSwitcherPreviews.register();
-const tabSwitcher = new TabSwitcher(chrome, tabSwitcherPreviews);
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    const operation = tabSwitcher.receive(message, sender);
-    if (!operation) return;
-    operation.then(result => sendResponse({ success: true, ...result }), error => {
-        Logger.error('[Tab Switcher] Picker action failed:', error);
-        sendResponse({ success: false });
-    });
-    return true;
-});
-chrome.windows?.onRemoved?.addListener(() => tabSwitcher.removeWindow().catch(Logger.error));
-chrome.windows?.onFocusChanged?.addListener(windowId => tabSwitcher.windowFocused(windowId).catch(Logger.error));
+import { dispatchTourMessage } from './tour-state.js';
+import { copyCurrentTabUrlWithFallback } from './url-copy.js';
+import { Utils } from './utils.js';
 
 const AUTO_ARCHIVE_ALARM_NAME = 'autoArchiveTabsAlarm';
-const TAB_ACTIVITY_STORAGE_KEY = 'tabLastActivity'; // Key to store timestamps
+const TAB_ACTIVITY_STORAGE_KEY = 'tabLastActivity';
+const TAB_ACTIVITY_SESSION_KEY = 'tabActivitySessionInitialized';
 const ONBOARDING_VERSION_KEY = 'onboardingVersion';
+// Chrome stores custom assignments by this manifest ID.
+const QUICK_SWITCHER_COMMAND = 'mockQuickSwitcher';
+let archiveSafetyRevision = 0;
+const reviseArchiveSafety = () => { archiveSafetyRevision++; };
 
-// Helper to handle async message responses with consistent error handling
-function handleAsyncMessage(handler, sendResponse, errorContext, defaultErrorData = {}) {
-    (async () => {
-        try {
-            const result = await handler();
-            sendResponse({ success: true, ...result });
-        } catch (error) {
-            Logger.error(`[Background] Error ${errorContext}:`, error);
-            sendResponse({ success: false, error: error.message, ...defaultErrorData });
+const spaceStore = new SpaceStore();
+const favorites = new NativeFavorites();
+const tabSwitcherPreviews = new TabSwitcherPreviews(chrome);
+const tabSwitcher = new TabSwitcher(chrome, tabSwitcherPreviews);
+registerBookmarkListeners();
+for (const event of [chrome.bookmarks.onCreated, chrome.bookmarks.onMoved,
+    chrome.bookmarks.onChanged, chrome.bookmarks.onRemoved]) {
+    event?.addListener(reviseArchiveSafety);
+}
+favorites.install();
+spaceStore.install();
+const handleCleanTabs = createCleanTabsHandler(chrome, spaceStore);
+tabSwitcherPreviews.register();
+
+function respond(operation, sendResponse, context, mapFailure = () => ({})) {
+    operation.then(
+        result => sendResponse({ success: true, ...result }),
+        error => {
+            Logger.error(Logger.context(context), error);
+            sendResponse({ success: false, ...mapFailure(error) });
         }
-    })();
-    return true; // Indicates async response
+    );
+    return true;
 }
 
-// Configure Chrome side panel behavior
-chrome.sidePanel.setPanelBehavior({
-    openPanelOnActionClick: true
-}).catch(error => Logger.error(error));
-
-// Listen for extension installation
-chrome.runtime.onInstalled.addListener(async (details) => {
-    const { name, version } = chrome.runtime.getManifest();
-    const result = await chrome.storage.local.get(['onboardingCompleted', ONBOARDING_VERSION_KEY]);
-    const firstInstall = details.reason === 'install' && !result.onboardingCompleted;
-    const newVersion = details.reason === 'update' && result[ONBOARDING_VERSION_KEY] !== version;
-    if (firstInstall || newVersion) {
-        chrome.tabs.create({ url: 'installation-onboarding.html', active: true });
-    }
-
-    if (chrome.contextMenus) {
-        chrome.contextMenus.create({
-            id: "openArcify",
-            title: name,
-            contexts: ["all"]
-        });
-    }
-});
-
-// Handle context menu clicks
-if (chrome.contextMenus) {
-    chrome.contextMenus.onClicked.addListener((info, tab) => {
-        info.menuItemId === "openArcify" && chrome.sidePanel.open({
-            windowId: tab.windowId
-        })
-    });
+function messageError(error) {
+    return { error: error?.message, code: error?.code };
 }
 
-// Listen for messages from the content script (sidebar)
-// Do not return a Promise for unrelated messages: it can win the response race
-// against the asynchronous space-store handler on Chrome versions with Promise replies.
-chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
-    if (!isTrustedExtensionMessage(request, sender, chrome)) return;
-    // Forward the pin toggle command to the sidebar
-    if (request.command === "toggleSpacePin") {
-        chrome.runtime.sendMessage({ command: "toggleSpacePin", tabId: request.tabId });
-    }
-});
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!isTrustedExtensionMessage(message, sender, chrome)) return;
 
-chrome.commands.onCommand.addListener(async function (command, tab) {
-    if (command === "cycleOpenTabs") {
-        try {
-            await tabSwitcher.invoke(tab);
-        } catch (error) {
-            Logger.error('[Tab Switcher] Could not cycle tabs:', error);
-        }
-    } else if (command === "mockQuickSwitcher") {
-        try {
-            await toggleQuickSwitcher(chrome, tab?.windowId);
-        } catch (error) {
-            Logger.error('[Quick Switcher] Could not open search:', error);
-        }
-    } else if (command === "quickPinToggle") {
-        // Send a message to the sidebar
-        chrome.runtime.sendMessage({ command: "quickPinToggle" });
-    } else if (command === "NextTabInSpace") {
-        Utils.findActiveSpaceAndTab().then(async ({ space, tab }) => {
-            if (space) {
-                await Utils.movToNextTabInSpace(tab.id, space);
-            }
-        });
+    switch (message.type) {
+        case 'cleanTabs':
+            return handleCleanTabs(message, sender, sendResponse);
+        case 'spaceStore':
+            return respond(spaceStore.dispatch(message).then(spaces => ({ spaces })),
+                sendResponse, 'Could not complete the space operation.', messageError);
+        case 'bookmarkOrder':
+            return respond(enqueueBookmarkOperation(message.operation), sendResponse, 'Could not save bookmark order.',
+                error => ({ ...messageError(error), observedOrders: error.observedOrders, moved: error.moved }));
+        case 'nativeFavorites':
+            return respond(favorites.dispatch(message).then(tabs => ({ tabs })),
+                sendResponse, 'Could not complete the Favorites operation.', messageError);
+        case 'sidebarTour':
+            return respond(dispatchTourMessage(message).then(state => ({ state })),
+                sendResponse, 'Could not save the sidebar tour.', messageError);
     }
-    else if (command === "PrevTabInSpace") {
-        Utils.findActiveSpaceAndTab().then(async ({ space, tab }) => {
-            if (space) {
-                await Utils.movToPrevTabInSpace(tab.id, space);
-            }
-        });
-        Logger.log("sending");
-        // Send a message to the sidebar
-        chrome.runtime.sendMessage({ command: "PrevTabInSpace" });
-    } else if (command === "copyCurrentUrl") {
-        await copyCurrentTabUrlWithFallback();
-    }
-});
 
-// --- Helper: Update Last Activity Timestamp ---
-async function updateTabLastActivity(tabId) {
-    if (!tabId) return;
-    try {
-        // Wait for store init so this read-modify-write cannot undo the new-session reset.
-        await spaceStore.run(() => {});
-        const result = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
-        const activityData = result[TAB_ACTIVITY_STORAGE_KEY] || {};
-        activityData[tabId] = Date.now();
-        // Optional: Prune old entries if the storage grows too large
-        await chrome.storage.local.set({ [TAB_ACTIVITY_STORAGE_KEY]: activityData });
-    } catch (error) {
-        Logger.error("Error updating tab activity:", error);
-    }
-}
+    const pickerOperation = tabSwitcher.receive(message, sender);
+    if (pickerOperation) return respond(pickerOperation, sendResponse, 'Could not complete the tab picker action.');
 
-// --- Helper: Remove Activity Timestamp ---
-async function removeTabLastActivity(tabId) {
-    if (!tabId) return;
-    try {
-        await spaceStore.run(() => {});
-        const result = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
-        const activityData = result[TAB_ACTIVITY_STORAGE_KEY] || {};
-        delete activityData[tabId];
-        await chrome.storage.local.set({ [TAB_ACTIVITY_STORAGE_KEY]: activityData });
-    } catch (error) {
-        Logger.error("Error removing tab activity:", error);
-    }
-}
-
-
-// --- Alarm Creation ---
-async function setupAutoArchiveAlarm() {
-    try {
-        const settings = await Utils.getSettings();
-        if (settings.autoArchiveEnabled && settings.autoArchiveIdleMinutes > 0) {
-            // Create the alarm to fire periodically
-            // Note: Chrome alarms are not exact, they fire *at least* this often.
-            // Minimum period is 1 minute.
-            const period = Math.max(1, settings.autoArchiveIdleMinutes / 2); // Check more frequently than the idle time
-            await chrome.alarms.create(AUTO_ARCHIVE_ALARM_NAME, {
-                periodInMinutes: period
-            });
-        } else {
-            // If disabled, clear any existing alarm
-            await chrome.alarms.clear(AUTO_ARCHIVE_ALARM_NAME);
-        }
-    } catch (error) {
-        Logger.error("Error setting up auto-archive alarm:", error);
-    }
-}
-
-// --- Alarm Listener ---
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-    if (alarm.name === AUTO_ARCHIVE_ALARM_NAME) {
-        await runAutoArchiveCheck();
-    }
-});
-
-// --- Archiving Logic ---
-async function runAutoArchiveCheck() {
-    const settings = await Utils.getSettings();
-    if (!settings.autoArchiveEnabled || settings.autoArchiveIdleMinutes <= 0) {
+    if (message.command === 'toggleSpacePin') {
+        // The sending sidebar does not receive its own runtime message.
+        chrome.runtime.sendMessage({ command: 'toggleSpacePin', tabId: message.tabId }).catch(Logger.error);
         return;
     }
 
-    const idleThresholdMillis = settings.autoArchiveIdleMinutes * 60 * 1000;
-    const now = Date.now();
+    switch (message.action) {
+        case 'openQuickSwitcher':
+            return respond(toggleQuickSwitcher(chrome, sender.tab?.windowId ?? message.windowId),
+                sendResponse, 'Could not open Quick Switcher.');
+        case 'updateAutoArchiveSettings':
+            return respond(setupAutoArchiveAlarm(), sendResponse, 'Could not update the auto-archive alarm.');
+        case 'openNewTab':
+            return respond(chrome.tabs.create({ url: message.url }).then(() => ({})), sendResponse, 'Could not open the tab.');
+        case 'switchToTab':
+            return respond((async () => {
+                await chrome.tabs.update(message.tabId, { active: true });
+                await chrome.windows.update(message.windowId, { focused: true });
+            })(), sendResponse, 'Could not switch to the tab.');
+        case 'searchTabs':
+            return respond(searchTabs(message.query), sendResponse, 'Could not search open tabs.');
+        case 'getRecentTabs':
+            return respond(getRecentTabs(message.limit), sendResponse, 'Could not read recent tabs.');
+        case 'searchBookmarks':
+            return respond(chrome.bookmarks.search(message.query).then(bookmarks => ({ bookmarks: bookmarks.filter(b => b.url) })),
+                sendResponse, 'Could not search bookmarks.');
+        case 'activatePinnedTab':
+            // Sidebar contexts already receive the original runtime message.
+            sendResponse({ success: true });
+            return false;
+    }
+});
 
+async function searchTabs(query) {
+    const tabs = await chrome.tabs.query({});
+    const text = query?.toLowerCase() || '';
+    return { tabs: tabs.filter(tab => tab.title && tab.url &&
+        (tab.title.toLowerCase().includes(text) || tab.url.toLowerCase().includes(text))) };
+}
+
+async function getRecentTabs(limit) {
+    const [tabs, activity] = await Promise.all([
+        chrome.tabs.query({}),
+        enqueueActivityOperation(readTabActivity)
+    ]);
+    return { tabs: tabs
+        .filter(tab => tab.url && tab.title)
+        .map(tab => ({ ...tab, lastActivity: activity[tab.id] || 0 }))
+        .sort((a, b) => b.lastActivity - a.lastActivity)
+        .slice(0, limit || 5) };
+}
+
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(Logger.error);
+chrome.windows?.onRemoved?.addListener(() => tabSwitcher.removeWindow().catch(Logger.error));
+chrome.windows?.onFocusChanged?.addListener(windowId => tabSwitcher.windowFocused(windowId).catch(Logger.error));
+
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
     try {
-        // --- Build the protected favorite set from the durable Arcify bookmark tree ---
-        // NOTE: space.spaceBookmarks holds ephemeral tab-IDs (not URLs), so the old
-        // check here was always empty and never protected favorites from archiving.
-        // The Arcify bookmark folder is the durable record of favorites; collect its
-        // URLs normalized with the same pinned-URL key the renderer uses (origin+path).
-        const protectedUrlKeys = new Set();
-        try {
-            const arcifyFolder = (await chrome.bookmarks.search({ title: 'Arcify' })).find(node => !node.url);
-            if (arcifyFolder) {
-                const [subTree] = await chrome.bookmarks.getSubTree(arcifyFolder.id);
-                const collectUrls = (node) => {
-                    if (!node) return;
-                    if (node.url) {
-                        protectedUrlKeys.add(Utils.getPinnedUrlKey(node.url));
-                    }
-                    if (node.children) node.children.forEach(collectUrls);
-                };
-                collectUrls(subTree);
-            }
-        } catch (bookmarkError) {
-            Logger.warn('Auto-archive: could not read Arcify bookmark tree for protection:', bookmarkError);
-            return;
+        const { version } = chrome.runtime.getManifest();
+        const settings = await chrome.storage.local.get(['onboardingCompleted', ONBOARDING_VERSION_KEY]);
+        if ((reason === 'install' && !settings.onboardingCompleted) ||
+            (reason === 'update' && settings[ONBOARDING_VERSION_KEY] !== version)) {
+            await chrome.tabs.create({ url: 'installation-onboarding.html', active: true });
         }
-
-        const currentSpaces = await spaceStore.dispatch({ action: 'get' });
-        // Read activity only after init, which clears previous-session records.
-        const activityResult = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
-        const tabActivity = activityResult[TAB_ACTIVITY_STORAGE_KEY] || {};
-        const protectedIds = new Set(currentSpaces.flatMap(space => space.spaceBookmarks));
-        const bindings = await Utils.getPinnedTabStates();
-
-        // Get all non-pinned tabs across all windows
-        const tabs = await chrome.tabs.query({ pinned: false });
-        const tabsToArchive = [];
-
-        for (const tab of tabs) {
-            // Skip audible, active, or recently active tabs
-            if (tab.audible || tab.active) {
-                await updateTabLastActivity(tab.id); // Update activity for active/audible tabs
-                continue;
-            }
-
-            // Protect Arcify favorites: never archive a tab whose URL matches a bookmark
-            // in the Arcify tree (compared by origin+pathname to tolerate query/hash drift).
-            if (isProtectedFavorite(tab, protectedIds, bindings, protectedUrlKeys)) {
-                // Refresh activity so protected favorites aren't re-checked repeatedly.
-                await updateTabLastActivity(tab.id);
-                continue;
-            }
-
-            const lastActivity = tabActivity[tab.id];
-
-            // Start tracking tabs with no record (opened in the background, or restored with a
-            // new id after restart) instead of treating them as idle.
-            if (!lastActivity) {
-                await updateTabLastActivity(tab.id);
-                continue;
-            }
-
-            if (now - lastActivity > idleThresholdMillis) {
-                // Check if tab still exists before archiving
-                try {
-                    await chrome.tabs.get(tab.id); // Throws error if tab closed
-                    tabsToArchive.push(tab);
-                } catch (e) {
-                    await removeTabLastActivity(tab.id); // Clean up record for closed tab
-                }
-            }
-        }
-
-
-        for (const tab of tabsToArchive) {
-            const tabData = {
-                url: tab.url,
-                name: tab.title || tab.url, // Use URL if title is empty
-                spaceId: ownerOf(await spaceStore.dispatch({ action: 'get' }), tab.id)?.id
-            };
-
-            // Archive only tabs owned by an extension space.
-            if (tabData.spaceId) {
-                await Utils.addArchivedTab(tabData);
-                await chrome.tabs.remove(tab.id); // Close the tab after archiving
-                await removeTabLastActivity(tab.id); // Remove activity timestamp after archiving
-            } else {
-                // Decide if you want to update its activity or leave it for next check
-                // await updateTabLastActivity(tab.id);
-            }
-        }
-
     } catch (error) {
-        Logger.error("Error during auto-archive check:", error);
+        Logger.error(Logger.context('Could not open the setup guide.'), error);
+    }
+});
+chrome.runtime.onInstalled.addListener(refreshAutoArchiveAlarm);
+chrome.runtime.onStartup.addListener(refreshAutoArchiveAlarm);
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if ('pinnedTabStatesById' in changes || 'arcifyBookmarkRootId' in changes) reviseArchiveSafety();
+    if ('autoArchiveEnabled' in changes || 'autoArchiveIdleMinutes' in changes) {
+        reviseArchiveSafety();
+        return refreshAutoArchiveAlarm();
+    }
+});
+
+chrome.commands.onCommand.addListener(async (command, tab) => {
+    try {
+        switch (command) {
+            case 'cycleOpenTabs':
+                await tabSwitcher.invoke(tab);
+                break;
+            case QUICK_SWITCHER_COMMAND:
+                await toggleQuickSwitcher(chrome, tab?.windowId);
+                break;
+            case 'quickPinToggle':
+                await chrome.runtime.sendMessage({ command: 'quickPinToggle' });
+                break;
+            case 'NextTabInSpace':
+            case 'PrevTabInSpace': {
+                const activeTab = tab ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+                if (!activeTab?.id) break;
+                const space = ownerOf(await spaceStore.dispatch({ action: 'get', discoverBookmarks: false }), activeTab.id);
+                if (!space) break;
+                if (command === 'NextTabInSpace') await Utils.moveToNextTabInSpace(activeTab.id, space);
+                else await Utils.moveToPrevTabInSpace(activeTab.id, space);
+                break;
+            }
+            case 'copyCurrentUrl':
+                await copyCurrentTabUrlWithFallback({ tab });
+                break;
+        }
+    } catch (error) {
+        Logger.error(Logger.context('Could not complete a keyboard command.'), error);
+    }
+});
+
+let activityQueue = Promise.resolve();
+let activitySessionReady = false;
+const activityInFlight = new Map();
+const unsavedActivity = new Map();
+
+function enqueueActivityOperation(operation) {
+    const pending = activityQueue.then(async () => {
+        if (!activitySessionReady) {
+            const session = await chrome.storage.session.get(TAB_ACTIVITY_SESSION_KEY);
+            if (!session[TAB_ACTIVITY_SESSION_KEY]) {
+                // A new Chrome session may reuse numeric IDs. Start timing
+                // tabs again before any alarm or event can observe an old ID.
+                await chrome.storage.local.set({ [TAB_ACTIVITY_STORAGE_KEY]: {} });
+                await chrome.storage.session.set({ [TAB_ACTIVITY_SESSION_KEY]: true });
+            }
+            activitySessionReady = true;
+        }
+        return operation();
+    });
+    activityQueue = pending.catch(() => {});
+    return pending;
+}
+
+async function readTabActivity() {
+    const { [TAB_ACTIVITY_STORAGE_KEY]: activity = {} } = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
+    for (const [id, timestamp] of unsavedActivity) applyActivityChange(activity, id, timestamp);
+    return activity;
+}
+
+function applyActivityChange(activity, tabId, timestamp) {
+    if (timestamp === undefined) delete activity[tabId];
+    else activity[tabId] = Math.max(activity[tabId] || 0, timestamp);
+}
+
+async function saveTabActivity(activity, changes) {
+    try {
+        await chrome.storage.local.set({ [TAB_ACTIVITY_STORAGE_KEY]: activity });
+        unsavedActivity.clear();
+    } catch (error) {
+        for (const [id, timestamp] of changes) unsavedActivity.set(id, timestamp);
+        throw error;
     }
 }
 
-// --- Event Listeners to Track Activity and Setup Alarm ---
+function setTabActivity(tabId, timestamp) {
+    if (!tabId) return;
+    const update = { timestamp };
+    activityInFlight.set(tabId, update);
+    return enqueueActivityOperation(async () => {
+        const activity = await readTabActivity();
+        if (timestamp === undefined && !unsavedActivity.size && !Object.hasOwn(activity, tabId)) return;
+        applyActivityChange(activity, tabId, timestamp);
+        await saveTabActivity(activity, new Map([[tabId, timestamp]]));
+    }).catch(error => {
+        unsavedActivity.set(tabId, timestamp);
+        Logger.error(Logger.context('Could not save tab activity.'), error);
+    }).finally(() => {
+        if (activityInFlight.get(tabId) === update) activityInFlight.delete(tabId);
+    });
+}
 
-// Run setup when the extension is installed or updated
-chrome.runtime.onInstalled.addListener(() => {
-    setupAutoArchiveAlarm();
-    // Initialize activity for all existing tabs? Maybe too much overhead.
-    // Better to let the alarm handle it over time.
+chrome.tabs.onActivated.addListener(info => {
+    tabSwitcher.tabActivated(info);
+    return setTabActivity(info.tabId, Date.now());
 });
-
-// Run setup when Chrome starts
-chrome.runtime.onStartup.addListener(() => {
-    setupAutoArchiveAlarm();
-});
-
-// Listen for changes in storage (e.g., settings updated from options page)
-chrome.storage.onChanged.addListener((changes, areaName) => {
-    // Check if any of the auto-archive settings changed
-    const settingsChanged = ['autoArchiveEnabled', 'autoArchiveIdleMinutes'].some(key => key in changes);
-
-    if (areaName === 'local' && settingsChanged) {
-        setupAutoArchiveAlarm(); // Re-create or clear the alarm based on new settings
-    }
-
-    // Clean up activity data if a tab is removed
-    if (areaName === 'local' && TAB_ACTIVITY_STORAGE_KEY in changes) {
-        // This might be less reliable than using tab removal events
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+    if ((change.status === 'complete' || change.audible !== undefined) && (tab.active || tab.audible)) {
+        return setTabActivity(tabId, Date.now());
     }
 });
-
-// Track tab activation
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-    tabSwitcher.tabActivated(activeInfo);
-    await updateTabLastActivity(activeInfo.tabId);
-});
-
-// Track tab updates (e.g., audible status changes)
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    // If a tab becomes active (e.g., navigation finishes) or audible, update its timestamp
-    if (changeInfo.status === 'complete' || changeInfo.audible !== undefined) {
-        if (tab.active || tab.audible) {
-            await updateTabLastActivity(tabId);
-        }
-    }
-});
-
-// Clean up timestamp when a tab is closed
-chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+chrome.tabs.onRemoved.addListener(async tabId => {
     tabSwitcher.removeTab(tabId).catch(Logger.error);
-    await removeTabLastActivity(tabId);
-
-    // Clean up tab name override for closed tab
-    await Utils.removeTabNameOverride(tabId);
+    await setTabActivity(tabId);
+    await Utils.removeTabNameOverride(tabId).catch(Logger.error);
 });
 
-// Handle requests from the extension UI.
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!isTrustedExtensionMessage(message, sender, chrome)) return;
-
-    if (message.action === 'openQuickSwitcher') {
-        return handleAsyncMessage(async () => {
-            await toggleQuickSwitcher(chrome, sender.tab?.windowId ?? message.windowId);
-            return {};
-        }, sendResponse, 'opening Quick Switcher');
-    } else if (message.action === 'openNewTab') {
-        chrome.tabs.create({ url: message.url });
-        sendResponse({ success: true });
-        return false; // Synchronous response
-    } else if (message.action === 'switchToTab') {
-        return handleAsyncMessage(async () => {
-            await chrome.tabs.update(message.tabId, { active: true });
-            await chrome.windows.update(message.windowId, { focused: true });
-            return {};
-        }, sendResponse, 'switching to tab');
-
-    } else if (message.action === 'searchTabs') {
-        return handleAsyncMessage(async () => {
-            const tabs = await chrome.tabs.query({});
-            const query = message.query?.toLowerCase() || '';
-            const filteredTabs = tabs.filter(tab => {
-                if (!tab.title || !tab.url) return false;
-                if (!query) return true;
-                return tab.title.toLowerCase().includes(query) ||
-                    tab.url.toLowerCase().includes(query);
-            });
-            return { tabs: filteredTabs };
-        }, sendResponse, 'searching tabs');
-
-    } else if (message.action === 'getRecentTabs') {
-        return handleAsyncMessage(async () => {
-            const tabs = await chrome.tabs.query({});
-            const storage = await chrome.storage.local.get([TAB_ACTIVITY_STORAGE_KEY]);
-            const activityData = storage[TAB_ACTIVITY_STORAGE_KEY] || {};
-
-            const tabsWithActivity = tabs
-                .filter(tab => tab.url && tab.title)
-                .map(tab => ({ ...tab, lastActivity: activityData[tab.id] || 0 }))
-                .sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0))
-                .slice(0, message.limit || 5);
-
-            return { tabs: tabsWithActivity };
-        }, sendResponse, 'getting recent tabs');
-
-    } else if (message.action === 'searchBookmarks') {
-        return handleAsyncMessage(async () => {
-            const bookmarks = await chrome.bookmarks.search(message.query);
-            return { bookmarks: bookmarks.filter(b => b.url) };
-        }, sendResponse, 'searching bookmarks');
-        
-    } else if (message.action === 'activatePinnedTab') {
-        // The original runtime message is already delivered to every extension
-        // context, including the sidebar. A second send can duplicate activation.
-        sendResponse({ success: true });
-        return false; // Synchronous response
+async function setupAutoArchiveAlarm() {
+    const settings = await Utils.getSettings();
+    if (settings.autoArchiveEnabled && settings.autoArchiveIdleMinutes > 0) {
+        await chrome.alarms.create(AUTO_ARCHIVE_ALARM_NAME, {
+            periodInMinutes: Math.max(1, settings.autoArchiveIdleMinutes / 2)
+        });
+    } else {
+        await chrome.alarms.clear(AUTO_ARCHIVE_ALARM_NAME);
     }
+}
 
-    return false; // No async response needed
+function refreshAutoArchiveAlarm() {
+    return setupAutoArchiveAlarm().catch(error => Logger.error(Logger.context('Could not update the auto-archive alarm.'), error));
+}
+
+chrome.alarms.onAlarm.addListener(alarm => {
+    if (alarm.name !== AUTO_ARCHIVE_ALARM_NAME) return;
+    return enqueueActivityOperation(runAutoArchiveCheck)
+        .catch(error => Logger.error(Logger.context('Could not check for idle tabs.'), error));
 });
+
+async function archivedFavoriteUrls() {
+    const root = await LocalStorage.getArcifyFolder();
+    if (!root) throw new Error('Bookmark root unavailable for auto-archive protection.');
+    const [tree] = await chrome.bookmarks.getSubTree(root.id);
+    if (!tree) throw new Error('Bookmark subtree unavailable for auto-archive protection.');
+    const protectedUrlKeys = new Set();
+    const nodes = [tree];
+    while (nodes.length) {
+        const node = nodes.pop();
+        if (node.url) protectedUrlKeys.add(Utils.getPinnedUrlKey(node.url));
+        for (const child of node.children || []) nodes.push(child);
+    }
+    return protectedUrlKeys;
+}
+
+function collectArchiveMembership(spaces) {
+    const protectedIds = new Set();
+    const spaceByTab = new Map();
+    for (const space of spaces) {
+        for (const id of space.spaceBookmarks) protectedIds.add(id);
+        for (const id of space.temporaryTabs) spaceByTab.set(id, space.id);
+    }
+    return { protectedIds, spaceByTab };
+}
+
+function unchangedIdleTab(tab, url, idleBefore) {
+    return tab?.url && tab.url === url && (!tab.pendingUrl || tab.pendingUrl === url)
+        && tab.status !== 'loading' && !tab.active && !tab.audible && !tab.pinned && !tab.incognito
+        && (!Number.isFinite(tab.lastAccessed) || tab.lastAccessed < idleBefore)
+        && !activityInFlight.has(tab.id);
+}
+
+async function runAutoArchiveCheck() {
+    const revision = archiveSafetyRevision;
+    const settings = await Utils.getSettings();
+    if (!settings.autoArchiveEnabled || settings.autoArchiveIdleMinutes <= 0) return;
+    const now = Date.now();
+    const idleBefore = now - settings.autoArchiveIdleMinutes * 60 * 1000;
+    const [activity, tabs] = await Promise.all([
+        readTabActivity(),
+        chrome.tabs.query({ pinned: false })
+    ]);
+    const changes = new Map();
+    const recordActivity = (id, timestamp) => {
+        applyActivityChange(activity, id, timestamp);
+        changes.set(id, timestamp);
+    };
+    try {
+        const idleTabs = [];
+        for (const tab of tabs) {
+            if (!tab.id || tab.incognito || activityInFlight.has(tab.id)) continue;
+            if (tab.active || tab.audible || !activity[tab.id]) {
+                recordActivity(tab.id, now);
+            } else if (activity[tab.id] < idleBefore && unchangedIdleTab(tab, tab.url, idleBefore)) {
+                idleTabs.push(tab);
+            }
+        }
+        if (!idleTabs.length) return;
+        const spaces = await spaceStore.dispatch({ action: 'get', discoverBookmarks: false });
+        const { protectedIds, spaceByTab } = collectArchiveMembership(spaces);
+        const [bindings, protectedUrlKeys] = await Promise.all([Utils.getPinnedTabStates(), archivedFavoriteUrls()]);
+        if (revision !== archiveSafetyRevision) return;
+        const candidates = [];
+        for (const tab of idleTabs) {
+            if (isProtectedFavorite(tab, protectedIds, bindings, protectedUrlKeys)) {
+                recordActivity(tab.id, now);
+            } else if (spaceByTab.has(tab.id)) {
+                candidates.push({ id: tab.id, url: tab.url, name: tab.title || tab.url, spaceId: spaceByTab.get(tab.id) });
+            }
+        }
+        if (!candidates.length) return;
+        await Utils.archiveTabs(candidates, (staged, markClosed) => spaceStore.run(async () => {
+            // Wait for membership writes queued during save, then protect that
+            // model while removing tabs. Bookmark and settings changes can
+            // still arrive independently and invalidate this pass.
+            const current = collectArchiveMembership(spaceStore.spaces);
+            for (const candidate of staged) {
+                if (revision !== archiveSafetyRevision) return;
+                const { id, url, spaceId } = candidate;
+                if (current.spaceByTab.get(id) !== spaceId || current.protectedIds.has(id)) continue;
+                const latest = await chrome.tabs.get(id).catch(() => null);
+                if (revision !== archiveSafetyRevision || !unchangedIdleTab(latest, url, idleBefore)) continue;
+                try {
+                    await chrome.tabs.remove(id);
+                    markClosed(candidate);
+                    recordActivity(id, undefined);
+                } catch (error) {
+                    Logger.warn(Logger.context('Could not close an archived tab.'), error);
+                }
+            }
+        }));
+    } finally {
+        if (changes.size || unsavedActivity.size) await saveTabActivity(activity, changes);
+    }
+}

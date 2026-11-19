@@ -40,13 +40,17 @@ async function verifyBuild() {
     ...(manifest.content_scripts ?? []).flatMap(entry => [...(entry.js ?? []), ...(entry.css ?? [])]),
     // These pages are opened from runtime code rather than declared in the manifest.
     'installation-onboarding.html',
-    'onboarding.html',
     'tutorial-practice.html',
     'offscreen.html',
     'quick-switcher.html',
     'tab-switcher.html',
     'calendar-settings.html',
+    // Runtime-generated URLs and the required distribution notices.
+    'assets/default_icon.png',
+    'assets/icon-48.png',
+    'assets/varela-round-LICENSE.txt',
     'LICENSE',
+    'NOTICE',
   ];
   for (const file of declaredFiles) await requireFile(file);
 

@@ -3,6 +3,17 @@ export const TAB_SWITCHER_PREVIEW_CACHE = 'tabSwitcherPreviewCache';
 export const TAB_SWITCHER_CAPTURE_ON_VISIT = 'tabSwitcherCaptureOnVisit';
 export const TAB_SWITCHER_VISIT_PERMISSION = { origins: ['<all_urls>'] };
 
+export const TAB_SWITCHER_EXCLUDED_DOMAINS = 'tabSwitcherExcludedDomains';
+
+export function parsePreviewDomains(value) {
+    const domains = value.toLowerCase().split(/[\s,]+/).filter(Boolean);
+    if (domains.length > 250 || domains.some(domain => domain.length > 253 ||
+        !domain.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)))) {
+        throw new Error('Enter up to 250 domain names, such as example.com, without paths or wildcards.');
+    }
+    return [...new Set(domains)];
+}
+
 const JPEG = 'data:image/jpeg;base64,';
 const HANDOFF_BUDGET_MS = 35;
 const PREVIEW_WAIT_MS = 300;
@@ -67,6 +78,8 @@ export class TabSwitcherPreviews {
         this.enabled = false;
         this.permitted = true;
         this.revision = 0;
+        this.domainRevision = 0;
+        this.excludedDomains = [];
         this.visitRevision = 0;
         this.captureOnVisit = false;
         this.visitAllowed = false;
@@ -85,10 +98,16 @@ export class TabSwitcherPreviews {
     register() {
         const revision = this.revision;
         const visitRevision = this.visitRevision;
+        const domainRevision = this.domainRevision;
         this.chrome.storage.onChanged?.addListener((changes, area) => {
             if (area !== 'local') return;
             const preview = changes[TAB_SWITCHER_PAGE_PREVIEWS];
             const visit = changes[TAB_SWITCHER_CAPTURE_ON_VISIT];
+            if (changes[TAB_SWITCHER_EXCLUDED_DOMAINS]) {
+                this.domainRevision++;
+                this.excludedDomains = changes[TAB_SWITCHER_EXCLUDED_DOMAINS].newValue ?? [];
+                this.clear();
+            }
             if (preview) {
                 this.revision++;
                 this.enabled = preview.newValue !== false;
@@ -101,8 +120,9 @@ export class TabSwitcherPreviews {
             else if (visit || preview) this.queueCurrentVisit();
         });
         this.ready = Promise.resolve().then(() => this.chrome.storage.local.get([
-            TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_CAPTURE_ON_VISIT,
+            TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_EXCLUDED_DOMAINS,
         ])).then(settings => {
+            if (domainRevision === this.domainRevision) this.excludedDomains = settings[TAB_SWITCHER_EXCLUDED_DOMAINS] ?? [];
             if (revision === this.revision) this.enabled = settings[TAB_SWITCHER_PAGE_PREVIEWS] !== false;
             if (visitRevision === this.visitRevision) this.captureOnVisit = settings[TAB_SWITCHER_CAPTURE_ON_VISIT] === true;
         }).catch(() => {});
@@ -295,9 +315,15 @@ export class TabSwitcherPreviews {
         return active?.windowId === windowId && (tabId === undefined || active.id === tabId) ? active : null;
     }
 
+    allowsUrl(url) {
+        if (!Array.isArray(this.excludedDomains)) return false;
+        const host = new URL(url).hostname.toLowerCase().replace(/\.$/, '');
+        return !this.excludedDomains.some(domain => host === domain || host.endsWith('.' + domain));
+    }
+
     async isForeground(source) {
         const tab = await this.foregroundTab(source.windowId, source.id);
-        return validSource(tab) && tab.url === source.url;
+        return validSource(tab) && tab.url === source.url && this.allowsUrl(tab.url);
     }
 
     async capture(source, visit = false) {
@@ -394,7 +420,7 @@ export class TabSwitcherPreviews {
         return Object.fromEntries(records
             .filter(([id, record], index) => this.enabled && this.permitted && this.previews.get(id) === record &&
                 record.expiresAt > this.now() && (record.visit !== true || this.canCaptureVisit()) &&
-                tabs[index]?.id === id && eligiblePage(tabs[index]))
+                tabs[index]?.id === id && eligiblePage(tabs[index]) && this.allowsUrl(tabs[index].url))
             .map(([id, record]) => [id, record.data]));
     }
 }

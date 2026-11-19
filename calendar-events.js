@@ -11,7 +11,8 @@ export function getLocalCalendarDay(now = new Date()) {
 }
 
 function toPreviewEvent(event, day) {
-    if (!event || event.status === 'cancelled') return null;
+    if (!event || event.status === 'cancelled' ||
+        event.attendees?.some(attendee => attendee?.self && attendee.responseStatus === 'declined')) return null;
     const title = typeof event.summary === 'string' && event.summary.trim()
         ? event.summary.trim().slice(0, 300)
         : 'Untitled event';
@@ -96,7 +97,8 @@ export async function listCalendarEvents(token, day, signal) {
         timeMax: day.end.toISOString(),
         singleEvents: 'true',
         orderBy: 'startTime',
-        fields: 'nextPageToken,items(summary,start(date,dateTime),end(date,dateTime),status)',
+        fields: 'nextPageToken,items(summary,start(date,dateTime),end(date,dateTime),status,attendees(self,responseStatus))',
+        maxAttendees: '1',
         maxResults: '250'
     });
 

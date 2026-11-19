@@ -31,7 +31,7 @@ const states = {
     },
     connected: {
         title: 'Google Calendar connected',
-        description: 'Disconnect to remove this browser’s access to your events.',
+        description: 'Disconnect to remove local Calendar access and ask Google to revoke this app’s grant. Other installations using the same Google project may need to sign in again.',
         action: 'Disconnect'
     },
     expired: {
@@ -100,8 +100,9 @@ back.addEventListener('click', () => {
 change.addEventListener('click', () => show('copy', true));
 
 async function disconnect() {
-    await disconnectCalendar();
+    const revoked = await disconnectCalendar();
     show('ready', true);
+    if (!revoked) status.textContent = 'Disconnected locally. To confirm removal of Google access, open your Google Account and review third-party connections.';
 }
 
 const actions = {

@@ -1,4 +1,3 @@
-import { isTrustedExtensionMessage } from './message-security.js';
 import { cleanupPracticeTabs, preparePractice } from './tour-practice.js';
 export const TOUR_KEY = 'sidebarTourV2';
 export const TOUR_STEPS = [
@@ -70,36 +69,33 @@ export function reduceTour(previous, action) {
     return previous;
 }
 
-export function registerTourMessages() {
-    let queue = Promise.resolve();
-    chrome.runtime.onMessage.addListener((message, sender, reply) => {
-        if (!isTrustedExtensionMessage(message, sender, chrome)) return;
-        if (message.type !== 'sidebarTour') return;
-        const operation = queue.catch(() => {}).then(async () => {
-            const previous = normalizeTour((await chrome.storage.local.get(TOUR_KEY))[TOUR_KEY]);
-            let state;
-            if (message.action === 'practice') {
-                state = await preparePractice(previous, message, TOUR_STEPS);
-            } else if (message.action === 'finish') {
-                state = reduceTour(previous, message);
-                if (state !== previous && state.status === 'completed') await cleanupPracticeTabs(previous);
-            } else {
-                state = reduceTour(previous, message);
-            }
-            if (state) {
-                await chrome.storage.local.set({ [TOUR_KEY]: state });
-                if (state.status !== 'active') await chrome.storage.local.set({
-                    onboardingCompleted: true,
-                    onboardingVersion: chrome.runtime.getManifest().version
-                });
-            }
-            return state;
-        });
-        queue = operation;
-        operation.then(state => reply({ success: true, state }), error => reply({ success: false, error: error.message }));
-        return true;
+let queue = Promise.resolve();
+
+export function dispatchTourMessage(message) {
+    const operation = queue.catch(() => {}).then(async () => {
+        const previous = normalizeTour((await chrome.storage.local.get(TOUR_KEY))[TOUR_KEY]);
+        let state;
+        if (message.action === 'practice') {
+            state = await preparePractice(previous, message, TOUR_STEPS);
+        } else if (message.action === 'finish') {
+            state = reduceTour(previous, message);
+            if (state !== previous && state.status === 'completed') await cleanupPracticeTabs(previous);
+        } else {
+            state = reduceTour(previous, message);
+        }
+        if (state) {
+            await chrome.storage.local.set({ [TOUR_KEY]: state });
+            if (state.status !== 'active') await chrome.storage.local.set({
+                onboardingCompleted: true,
+                onboardingVersion: chrome.runtime.getManifest().version
+            });
+        }
+        return state;
     });
+    queue = operation;
+    return operation;
 }
+
 export async function tourAction(action) {
     const response = await chrome.runtime.sendMessage({ type: 'sidebarTour', ...action });
     if (!response?.success) throw new Error(response?.error || 'Tour could not be saved');

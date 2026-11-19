@@ -2,7 +2,7 @@
  * Logger - Centralized logging utility with debug flag support
  * 
  * Purpose: Provides controlled logging that respects the debugLoggingEnabled setting
- * Key Functions: log(), error(), warn(), info(), debug() - all check cached debug setting
+ * Errors and warnings always appear. Details are available with debug logging enabled.
  * Architecture: Singleton pattern with cached setting value and storage change listener
  * 
  * Critical Notes:
@@ -40,9 +40,9 @@ async function initializeLogger() {
             });
             
             isInitialized = true;
-        } catch (error) {
+        } catch {
             // If we can't access storage, default to disabled
-            console.error('[Logger] Failed to initialize:', error);
+            console.error('[PrismArc] Debug logging settings could not be loaded.');
             debugLoggingEnabled = false;
             isInitialized = true;
         }
@@ -73,11 +73,17 @@ function shouldLog() {
     return false;
 }
 
-/**
- * Logger object with methods matching console API
- * All methods check the cached debugLoggingEnabled value, handling race conditions
- */
+const diagnosticContext = Symbol('diagnosticContext');
+
+function report(method, defaultMessage, args) {
+    const context = args[0]?.[diagnosticContext];
+    // Only an explicit, source-defined context can appear without debug logging.
+    // Error messages, stack traces and other arguments can contain user data.
+    console[method](`[PrismArc] ${context || defaultMessage}`, ...(shouldLog() ? (context ? args.slice(1) : args) : []));
+}
+
 const Logger = {
+    context: message => ({ [diagnosticContext]: message }),
     /**
      * Log a message (only if debug logging is enabled)
      */
@@ -87,25 +93,14 @@ const Logger = {
         }
     },
     
-    /**
-     * Log an error (only if debug logging is enabled)
-     * Note: Errors are critical but we respect the debug flag to avoid console spam
-     */
     error: function(...args) {
-        if (shouldLog()) {
-            console.error(...args);
-        }
+        report('error', 'An extension operation failed.', args);
     },
-    
-    /**
-     * Log a warning (only if debug logging is enabled)
-     */
+
     warn: function(...args) {
-        if (shouldLog()) {
-            console.warn(...args);
-        }
+        report('warn', 'An extension operation reported a warning.', args);
     },
-    
+
     /**
      * Log an info message (only if debug logging is enabled)
      */

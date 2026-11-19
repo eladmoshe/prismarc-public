@@ -176,12 +176,16 @@ export async function searchBrowser(query, context, chromeApi = globalThis.chrom
         Promise.resolve().then(() => context.incognito ? [] : chromeApi.history.search({
             text, startTime: text ? 0 : now - 30 * DAY, maxResults: 100,
         })),
-        Promise.resolve().then(() => chromeApi.storage.local.get('spaces')),
+        Promise.resolve().then(async () => {
+            const response = await chromeApi.runtime.sendMessage({ type: 'spaceStore', action: 'get', discoverBookmarks: false });
+            if (!response?.success) throw new Error('Could not read tab spaces');
+            return response.spaces;
+        }),
     ]);
     const value = (index, fallback) => responses[index].status === 'fulfilled' ? responses[index].value : fallback;
     return {
         results: mergeSearchResults({ tabs: value(0, []), bookmarks: value(1, []), history: value(2, []),
-            spaces: value(3, {}).spaces || [] }, text, context, now),
+            spaces: value(3, []) || [] }, text, context, now),
         unavailable: responses.flatMap((response, index) => response.status === 'rejected' && index < 3 ? [names[index]] : []),
     };
 }
@@ -202,7 +206,7 @@ export async function activateBrowserResult(item, context, newTab = false, chrom
             const tab = await chromeApi.tabs.update(matches[0].id, { active: true });
             // An already-active tab in another window may emit no activation event.
             // Explicitly reveal its owner through the existing authoritative writer.
-            const response = await chromeApi.runtime.sendMessage({ type: 'spaceStore', action: 'get' });
+            const response = await chromeApi.runtime.sendMessage({ type: 'spaceStore', action: 'get', discoverBookmarks: false });
             if (!response?.success) throw new Error('Could not read tab spaces');
             const owner = response.spaces.find(space =>
                 [...(space.spaceBookmarks || []), ...(space.temporaryTabs || [])].includes(tab.id));

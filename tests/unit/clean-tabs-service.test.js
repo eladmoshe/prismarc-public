@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { registerCleanTabs } from '../../clean-tabs-service.js';
+import { createCleanTabsHandler } from '../../clean-tabs-service.js';
 
 function fixture() {
     const runtime = { id: 'test', getURL: path => 'chrome-extension://test/' + path };
@@ -12,15 +12,14 @@ function fixture() {
     const tree = { ...folder, children: [{ id: 'nested', children: [{ url: 'https://local.test/protected' }] }] };
     let listener;
     const chrome = {
-        runtime: { ...runtime, onMessage: { addListener: fn => { listener = fn; } } },
+        runtime,
         bookmarks: {
-            get: async () => [folder],
-            search: async () => [{ id: 'arcify' }],
+            get: async id => [id === 'arcify' ? { id } : folder],
             getSubTree: async () => [tree],
             onCreated: { addListener: fn => favoriteEvents.push(fn) },
         },
         storage: {
-            local: { get: async () => ({ pinnedTabStatesById: { 6: { bookmarkId: 'saved' } } }) },
+            local: { get: async () => ({ arcifyBookmarkRootId: 'arcify', pinnedTabStatesById: { 6: { bookmarkId: 'saved' } } }) },
             session: { get: async () => ({ openTabFocusTimes: { 3: 300 } }) },
         },
         windows: { get: async id => ({ id, type: 'normal', incognito: false }) },
@@ -36,7 +35,7 @@ function fixture() {
     globalThis.chrome = chrome;
     const space = { id: 'home', bookmarkFolderId: folder.id, spaceBookmarks: [8], temporaryTabs: [] };
     const store = { spaces: [space], active: { 1: 'home' }, run: operation => Promise.resolve().then(operation) };
-    registerCleanTabs(chrome, store);
+    listener = createCleanTabsHandler(chrome, store);
     const tab = (id, overrides = {}) => {
         const result = { id, windowId: 1, incognito: false, lastAccessed: 100, url: 'https://local.test/' + id, ...overrides };
         tabs.set(id, result);

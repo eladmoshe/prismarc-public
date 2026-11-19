@@ -27,7 +27,7 @@ function tabUrl(tab) {
     return tab.pendingUrl || tab.url || '';
 }
 
-export function registerCleanTabs(chromeApi, store) {
+export function createCleanTabsHandler(chromeApi, store) {
     let protectionRevision = 0;
     const reviseProtection = () => { protectionRevision++; };
     for (const event of [chromeApi.bookmarks.onCreated, chromeApi.bookmarks.onMoved,
@@ -37,7 +37,7 @@ export function registerCleanTabs(chromeApi, store) {
     chromeApi.storage.onChanged?.addListener((changes, area) => {
         if (area === 'local' && changes.pinnedTabStatesById) reviseProtection();
     });
-    chromeApi.runtime.onMessage.addListener((message, sender, respond) => {
+    return (message, sender, respond) => {
         if (!isTrustedExtensionMessage(message, sender, chromeApi) || message.type !== 'cleanTabs'
             || sender.url !== chromeApi.runtime.getURL('sidebar.html')) return;
         const { windowId, spaceId, action } = message;
@@ -92,5 +92,5 @@ export function registerCleanTabs(chromeApi, store) {
         }).then(result => respond({ success: true, ...result }),
             () => respond({ success: false }));
         return true;
-    });
+    };
 }

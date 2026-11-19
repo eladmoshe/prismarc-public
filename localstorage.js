@@ -6,13 +6,68 @@
  * Architecture: Static utility object for bookmark-based data persistence
  * 
  * Critical Notes:
- * - Creates and manages "Arcify" bookmark folder for space persistence
+ * - Tracks PrismArc’s bookmark root by Chrome bookmark ID
  * - Provides bookmark-based storage as alternative to chrome.storage
  * - Used for space bookmark functionality (separate from main space data in chrome.storage)
  * - Handles bookmark folder creation and organization automatically
  */
 
-import { Logger } from './logger.js';
+export const BOOKMARK_ROOT_KEY = 'arcifyBookmarkRootId';
+let rootWork;
+
+async function bookmarkRootStorage(operation) {
+    try {
+        return await operation();
+    } catch (error) {
+        throw Object.assign(new Error('Could not read or save the PrismArc bookmark folder ID.', { cause: error }),
+            { code: 'space_storage_unavailable' });
+    }
+}
+
+async function readBookmarkRoot() {
+    const { [BOOKMARK_ROOT_KEY]: savedId } = await bookmarkRootStorage(() => chrome.storage.local.get(BOOKMARK_ROOT_KEY));
+    return { savedId, folder: await discoverBookmarkRoot(savedId) };
+}
+
+async function discoverBookmarkRoot(savedId) {
+    if (typeof savedId === 'string') {
+        const node = await chrome.bookmarks.get(savedId).then(([folder]) => folder, () => null);
+        if (node && !node.url) return node;
+    }
+
+    // The previous installation stored the IDs of its space folders, but not
+    // their root. Match the parent using durable IDs, independent of its title.
+    const { spaces = [], spaceRegistry = {} } = await bookmarkRootStorage(() => chrome.storage.local.get(['spaces', 'spaceRegistry']));
+    const knownIds = new Set([...Object.keys(spaceRegistry),
+        ...spaces.flatMap(space => space.bookmarkFolderId ? [String(space.bookmarkFolderId)] : [])]);
+    const legacyNames = new Set(spaces.map(space => space.name));
+    if (!savedId && !knownIds.size && !legacyNames.size) return null;
+
+    const roots = await chrome.bookmarks.getTree();
+    const candidates = new Set();
+    const legacyCandidates = new Set();
+    const folders = [...roots];
+    for (const folder of folders) {
+        if (folder.id === savedId && !folder.url) return folder;
+        const children = folder.children || [];
+        const childFolders = children.filter(child => !child.url);
+        if (folder.parentId && folder.parentId !== '0' && !folder.folderType && childFolders.some(child => knownIds.has(child.id))) {
+            candidates.add(folder);
+        }
+        // Legacy, pre-registry models stored names only. The old create call
+        // used Other Bookmarks as parent. Require corroborating space names.
+        if (!savedId && !knownIds.size && (folder.folderType === 'other' || folder.id === '2')) {
+            for (const child of childFolders) {
+                if (child.title === 'Arcify' && child.children?.some(node => !node.url && legacyNames.has(node.title))) {
+                    legacyCandidates.add(child);
+                }
+            }
+        }
+        folders.push(...childFolders);
+    }
+    if (candidates.size === 1) return [...candidates][0];
+    return candidates.size === 0 && legacyCandidates.size === 1 ? [...legacyCandidates][0] : null;
+}
 
 const LocalStorage = {
     // Durable space IDs anchored to bookmark folders. SpaceStore owns live membership;
@@ -95,12 +150,33 @@ const LocalStorage = {
         });
     },
 
-    getOrCreateArcifyFolder: async function () {
-        let folder = (await chrome.bookmarks.search({ title: 'Arcify' })).find(node => !node.url);
-        if (!folder) {
-            folder = await chrome.bookmarks.create({ title: 'Arcify' });
-        }
-        return folder;
+    getArcifyFolder: async function () {
+        return (await readBookmarkRoot()).folder;
+    },
+
+    getOrCreateArcifyFolder: function () {
+        if (rootWork) return rootWork;
+        const ensureRoot = async () => {
+            const { savedId, folder } = await readBookmarkRoot();
+            const root = folder || await chrome.bookmarks.create({ title: 'PrismArc' });
+            if (root.id !== savedId) {
+                try {
+                    await bookmarkRootStorage(() => chrome.storage.local.set({ [BOOKMARK_ROOT_KEY]: root.id }));
+                } catch (error) {
+                    if (!folder) await chrome.bookmarks.remove(root.id).catch(() => {});
+                    throw error;
+                }
+            }
+            return root;
+        };
+        const locks = globalThis.navigator?.locks;
+        const work = locks ? locks.request('prismarc-bookmark-root', ensureRoot) : ensureRoot();
+        rootWork = work.catch(error => {
+            if (error.code === 'space_storage_unavailable') throw error;
+            throw Object.assign(new Error('Could not access the PrismArc bookmark folder.', { cause: error }),
+                { code: 'bookmark_folder_unavailable' });
+        }).finally(() => { rootWork = undefined; });
+        return rootWork;
     },
     getOrCreateSpaceFolder: async function (spaceName) {
         const arcifyFolder = await this.getOrCreateArcifyFolder();
@@ -116,32 +192,11 @@ const LocalStorage = {
         return spaceFolder;
     },
 
-    // Get all space names from Arcify bookmark folders (source of truth)
-    getSpaceNames: async function () {
-        let spaceNames = new Set(); // Use Set to automatically deduplicate
-
-        try {
-            // Get the Arcify folder
-            const arcifyFolder = await this.getOrCreateArcifyFolder();
-            if (arcifyFolder) {
-                // Get all children of the Arcify folder
-                const children = await chrome.bookmarks.getChildren(arcifyFolder.id);
-
-                // Filter for folders only (not bookmarks) and extract names
-                const folders = children.filter(item => !item.url);
-                folders.forEach(folder => {
-                    spaceNames.add(folder.title);
-                });
-
-                Logger.log('Found spaces from Arcify bookmark folders:', spaceNames.size);
-            }
-        } catch (bookmarkError) {
-            Logger.log('Could not get spaces from bookmark folders:', bookmarkError);
-        }
-
-        // Return sorted array of unique space names
-        return Array.from(spaceNames).sort();
+    async getSpaceNames() {
+        const root = await this.getOrCreateArcifyFolder();
+        const children = await chrome.bookmarks.getChildren(root.id);
+        return [...new Set(children.filter(node => !node.url).map(node => node.title))].sort();
     }
-}
+};
 
 export { LocalStorage };

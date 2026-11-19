@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { calendarRedirectUrl, createCalendarAuthUrl, parseCalendarAuthResponse } from '../../calendar-auth.js';
+import { disconnectCalendar, calendarRedirectUrl, createCalendarAuthUrl, parseCalendarAuthResponse } from '../../calendar-auth.js';
 import { CALENDAR_EVENTS_ENDPOINT, CALENDAR_READ_SCOPE, calendarCreateUrl, calendarFavoriteUrl } from '../../calendar-config.js';
 import { HOUR, getLocalCalendarDay, listCalendarEvents, placeCalendarEvents } from '../../calendar-events.js';
 
@@ -92,7 +92,8 @@ test('Calendar events query stays on Google, requests only today, and projects s
         if (requests.length === 1) return Response.json({
             nextPageToken: 'next synthetic page',
             items: [
-                { summary: 'All day', start: { date: '2026-11-17' }, end: { date: '2026-11-19' } },
+                { summary: 'Declined', attendees: [{ self: true, responseStatus: 'declined' }], start: { date: day.date }, end: { date: '2026-11-19' } },
+                { summary: 'All day', attendees: [{ responseStatus: 'declined' }], start: { date: '2026-11-17' }, end: { date: '2026-11-19' } },
                 { summary: 'Tomorrow', start: { date: '2026-11-19' }, end: { date: '2026-11-20' } },
                 { status: 'cancelled', summary: 'Cancelled', start: { date: day.date }, end: { date: '2026-11-19' } }
             ]
@@ -141,4 +142,38 @@ test('Calendar query bounds pagination and rejects malformed and oversized respo
     }
     mode = 'unauthorized';
     await assert.rejects(run, { code: 'expired' });
+});
+
+test('Disconnect clears local access and posts the token only to the revocation endpoint, including offline failures', async t => {
+    const stored = {};
+    let removed = 0;
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: async (_key, callback) => callback() } });
+    t.after(() => { delete navigator.locks; });
+    globalThis.chrome = {
+        storage: { session: {
+            get: async () => ({ ...stored }),
+            set: async values => Object.assign(stored, values),
+            remove: async key => { delete stored[key]; }
+        } },
+        permissions: { remove: async () => { removed++; } }
+    };
+    t.after(() => { delete globalThis.chrome; });
+    let online = true;
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+        assert.equal(url, 'https://oauth2.googleapis.com/revoke');
+        assert.equal(options.method, 'POST');
+        assert.equal(options.body.get('token'), token);
+        assert.equal(options.credentials, 'omit');
+        assert.equal(options.redirect, 'error');
+        assert.equal(stored.googleCalendarSession, undefined);
+        if (!online) throw new TypeError('Offline');
+        return new Response();
+    });
+    for (const expected of [true, false]) {
+        online = expected;
+        stored.googleCalendarSession = { token };
+        assert.equal(await disconnectCalendar(), expected);
+        assert.equal(stored.googleCalendarSession, undefined);
+    }
+    assert.equal(removed, 2);
 });

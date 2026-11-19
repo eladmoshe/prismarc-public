@@ -8,10 +8,13 @@ function mock() {
         { id: 'first', title: 'Twin', url: 'https://saved.test/' }, { id: 'bound', title: 'Saved', url: 'https://saved.test/' }
     ] };
     const pins = { 1: { bookmarkId: 'bound', pinnedUrl: 'https://saved.test/' } };
-    globalThis.chrome = { storage: { local: { async get() { return { pinnedTabStatesById: pins, spaces: [{ id: 's', spaceBookmarks: [1], temporaryTabs: [2] }] }; } } },
+    globalThis.chrome = {
+        storage: { local: { async get() { return { arcifyBookmarkRootId: 'root', pinnedTabStatesById: pins }; } } },
+        runtime: { async sendMessage() { return { success: true, spaces: [{ id: 's', spaceBookmarks: [1], temporaryTabs: [2] }] }; } },
         tabs: { async query() { return [{ id: 1, url: 'https://navigated.test/' }, { id: 2, url: 'https://saved.test/' }]; } },
-        bookmarks: { async search() { return [{ id: 'url-twin', url: 'https://arcify.io' }, { id: 'root', title: 'Arcify' }]; },
-            async get(id) { return Object.values(tree).flat().filter(node => node.id === id); }, async getChildren(id) { return tree[id] || []; }, async remove(id) { removed.push(id); } } };
+        bookmarks: { async get(id) {
+            return id === 'root' ? [{ id, title: 'PrismArc' }] : Object.values(tree).flat().filter(node => node.id === id);
+        }, async getChildren(id) { return tree[id] || []; }, async remove(id) { removed.push(id); } } };
     return { removed, tree };
 }
 test('unpin removes the bound nested bookmark after navigation, preserving URL twins', async () => {

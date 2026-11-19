@@ -68,7 +68,7 @@ h3 {
 }
 
 .sidebar-container.updating-space-color :is(
-    .folder, .tab, .tab-drag-preview-row, .space-switcher button, .add-space-toggle,
+    .space-content, .pinned-tabs, .folder, .tab, .tab-drag-preview-row, .space-switcher button, .add-space-toggle,
     #newSpaceName, #createSpaceBtn
 ) {
     transition-property: none;
@@ -2253,3 +2253,11 @@ h3 {
 }
 .tab-group-import p { margin: 0 0 8px; }
 .tab-group-import button { margin-right: 8px; padding: 6px 10px; cursor: pointer; }
+
+.space-store-status {
+    padding: 8px 10px;
+    margin: 4px 8px;
+    border: 1px solid var(--border-color, #8886);
+    border-radius: 8px;
+    font-size: 13px;
+}

@@ -14,7 +14,7 @@
 import { Utils } from './utils.js';
 import { LocalStorage } from './localstorage.js';
 import { Logger } from './logger.js';
-import { TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_VISIT_PERMISSION } from './tab-switcher-previews.js';
+import { parsePreviewDomains, TAB_SWITCHER_EXCLUDED_DOMAINS, TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_VISIT_PERMISSION } from './tab-switcher-previews.js';
 import { enableVisitPreviews, setPreviewPreferences } from './tab-switcher-preview-settings.js';
 
 // Default color values (must be 6-digit hex for color picker compatibility)
@@ -233,6 +233,39 @@ function setupAutoSave() {
   });
 }
 
+async function setupPreviewDomains() {
+  const field = document.getElementById(TAB_SWITCHER_EXCLUDED_DOMAINS);
+  const save = document.getElementById('savePreviewDomains');
+  try {
+    const settings = await chrome.storage.local.get(TAB_SWITCHER_EXCLUDED_DOMAINS);
+    field.value = (settings[TAB_SWITCHER_EXCLUDED_DOMAINS] ?? []).join(', ');
+    field.disabled = save.disabled = false;
+  } catch {
+    showToast('Could not load excluded sites.');
+    return;
+  }
+  save.addEventListener('click', async () => {
+    let domains;
+    try {
+      domains = parsePreviewDomains(field.value);
+    } catch (error) {
+      showToast(error.message);
+      field.focus();
+      return;
+    }
+    save.disabled = true;
+    try {
+      await setPreviewPreferences(chrome, { [TAB_SWITCHER_EXCLUDED_DOMAINS]: domains });
+      field.value = domains.join(', ');
+      showToast();
+    } catch {
+      showToast('Could not save excluded sites.');
+    } finally {
+      save.disabled = false;
+    }
+  });
+}
+
 function setupPagePreviews() {
   const checkbox = document.getElementById(TAB_SWITCHER_PAGE_PREVIEWS);
   const visitButton = document.getElementById(TAB_SWITCHER_CAPTURE_ON_VISIT);
@@ -322,4 +355,5 @@ document.addEventListener('DOMContentLoaded', () => {
   setupAdvancedOptions();
   setupAutoSave();
   setupPagePreviews();
+  setupPreviewDomains();
 });

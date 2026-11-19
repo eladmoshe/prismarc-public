@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { isTrustedExtensionMessage } from '../../message-security.js';
 import { Utils } from '../../utils.js';
-import { CALENDAR_EVENTS_ENDPOINT } from '../../calendar-config.js';
+import { CALENDAR_EVENTS_ENDPOINT, CALENDAR_REVOKE_ENDPOINT } from '../../calendar-config.js';
 
 const root = new URL('../../', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('manifest.json', root), 'utf8'));
@@ -37,10 +37,10 @@ test('manifest denies outside messaging and public resources without page inject
         assert.equal(manifest.permissions.includes(permission), false);
     }
     const csp = manifest.content_security_policy.extension_pages;
-    for (const directive of [`connect-src ${CALENDAR_EVENTS_ENDPOINT}`, "script-src 'self'", "img-src 'self' data:", "font-src 'self'", "object-src 'none'", "form-action 'none'"]) {
+    for (const directive of [`connect-src ${CALENDAR_EVENTS_ENDPOINT} ${CALENDAR_REVOKE_ENDPOINT}`, "script-src 'self'", "img-src 'self' data:", "font-src 'self'", "object-src 'none'", "form-action 'none'"]) {
         assert.ok(csp.split(';').map(value => value.trim()).includes(directive));
     }
-    assert.doesNotMatch(csp.replace(CALENDAR_EVENTS_ENDPOINT, ''), /https?:|script-src[^;]*(unsafe-inline|unsafe-eval)/);
+    assert.doesNotMatch(csp.replace(CALENDAR_EVENTS_ENDPOINT, '').replace(CALENDAR_REVOKE_ENDPOINT, ''), /https?:|script-src[^;]*(unsafe-inline|unsafe-eval)/);
 });
 
 test('preferences read and write local storage even if synced data differs', async () => {
@@ -72,7 +72,7 @@ test('runtime sources restrict remote requests to the Calendar integration and d
     for (const name of readdirSync(root).filter(name => /\.(js|html|css)$/.test(name) && !name.startsWith('vite.') && name !== 'jest.config.js')) {
         const source = readFileSync(new URL(name, root), 'utf8');
         if (name !== 'tab-switcher-previews.js') assert.doesNotMatch(source, /\bcaptureVisibleTab\s*\(/, name);
-        if (name !== 'calendar-events.js') assert.doesNotMatch(source, /\bfetch\s*\(/, name);
+        if (!['calendar-events.js', 'calendar-auth.js'].includes(name)) assert.doesNotMatch(source, /\bfetch\s*\(/, name);
         assert.doesNotMatch(source, /chrome\.storage\.sync|(?:XMLHttpRequest|WebSocket|EventSource)\s*\(|sendBeacon\s*\(|scripting\.executeScript/, name);
         assert.doesNotMatch(source, /(?:src|href)\s*=\s*["']https?:\/\/|\.src\s*=\s*tab\.favIconUrl/, name);
         assert.doesNotMatch(source, /\bhistory\.(?:addUrl|deleteAll|deleteRange)\s*\(/, name);

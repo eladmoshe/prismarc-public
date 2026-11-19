@@ -1,5 +1,6 @@
 import { isTrustedExtensionMessage } from './message-security.js';
 import { DEFAULT_SPACE_COLOR } from './space-colors.js';
+import { spaceRequest } from './space-client.js';
 import { setSidebarFavicon, wrapSidebarFavicon } from './sidebar-favicon.js';
 /**
  * DOMManager - Sidebar DOM manipulation and UI component management
@@ -529,53 +530,22 @@ export function setupQuickPinListener(moveTabToSpace, moveTabToPinned, moveTabTo
     chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
         if (!isTrustedExtensionMessage(request, sender, chrome)) return;
         if (request.command === "quickPinToggle" || request.command === "toggleSpacePin") {
-            Logger.log(`[QuickPin] Received command: ${request.command}`, { request });
-            chrome.storage.local.get('spaces', function (result) {
-                const spaces = result.spaces || [];
-                Logger.log("[QuickPin] Loaded spaces from storage:", spaces);
+            const toggle = async () => {
+                const tab = request.command === "quickPinToggle"
+                    ? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]
+                    : request.tabId && await chrome.tabs.get(request.tabId);
+                if (!tab || tab.windowId !== (await chrome.windows.getCurrent()).id) return;
 
-                const getTabAndToggle = async (tabToToggle) => {
-                    const sidebarWindow = await chrome.windows.getCurrent();
-                    if (tabToToggle?.windowId !== sidebarWindow.id) return;
-                    if (!tabToToggle) {
-                        Logger.error("[QuickPin] No tab found to toggle.");
-                        return;
-                    }
-                    Logger.log("[QuickPin] Toggling pin state for tab:", tabToToggle);
-
-                    const spaceWithTempTab = spaces.find(space =>
-                        space.temporaryTabs.includes(tabToToggle.id)
-                    );
-
-                    if (spaceWithTempTab) {
-                        Logger.log(`[QuickPin] Tab ${tabToToggle.id} is a temporary tab in space "${spaceWithTempTab.name}". Pinning it.`);
-                        await moveTabToPinned(spaceWithTempTab, tabToToggle);
-                    } else {
-                        const spaceWithBookmark = spaces.find(space =>
-                            space.spaceBookmarks.includes(tabToToggle.id)
-                        );
-
-                        if (spaceWithBookmark) {
-                            Logger.log(`[QuickPin] Tab ${tabToToggle.id} is a bookmarked tab in space "${spaceWithBookmark.name}". Unpinning it.`);
-                            await moveTabToTemp(spaceWithBookmark, tabToToggle);
-                        } else {
-                            Logger.warn(`[QuickPin] Tab ${tabToToggle.id} not found in any space as temporary or bookmarked.`);
-                        }
-                    }
-                };
-
-                if (request.command === "quickPinToggle") {
-                    Logger.log("[QuickPin] Handling quickPinToggle for active tab.");
-                    chrome.tabs.query({ active: true, lastFocusedWindow: true }, function (tabs) {
-                        getTabAndToggle(tabs[0]);
-                    });
-                } else if (request.command === "toggleSpacePin" && request.tabId) {
-                    Logger.log(`[QuickPin] Handling toggleSpacePin for tabId: ${request.tabId}`);
-                    chrome.tabs.get(request.tabId, function (tab) {
-                        getTabAndToggle(tab);
-                    });
+                const spaces = await spaceRequest('get', { discoverBookmarks: false });
+                const temporary = spaces.find(space => space.temporaryTabs.includes(tab.id));
+                if (temporary) {
+                    await moveTabToPinned(temporary, tab);
+                    return;
                 }
-            });
+                const bookmark = spaces.find(space => space.spaceBookmarks.includes(tab.id));
+                if (bookmark) await moveTabToTemp(bookmark, tab);
+            };
+            void toggle().catch(error => Logger.error(Logger.context('Could not toggle the space pin.'), error));
         } else if (request.command === "copyCurrentUrl") {
             // SIDEBAR FALLBACK: Handle URL copy when sidebar is focused
             Logger.log(`[URLCopy] Sidebar fallback - copying URL: ${request.url}`);
