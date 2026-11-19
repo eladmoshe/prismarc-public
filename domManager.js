@@ -1,5 +1,5 @@
 import { isTrustedExtensionMessage } from './message-security.js';
-import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR } from './space-colors.js';
+import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR, spacePaletteColor } from './space-colors.js';
 import { spaceRequest } from './space-client.js';
 import { setSidebarFavicon, wrapSidebarFavicon } from './sidebar-favicon.js';
 /**
@@ -36,22 +36,8 @@ export function setupDOMElements(createNewSpace) {
     // mouse couldn't scroll the chips at all. This handler translates vertical
     // wheel ticks into horizontal scrollLeft to fix that.
     //
-    // Why it used to break chip scrolling: a later "swipe gesture" feature
-    // added a wheel listener on #sidebar-container that switches the active
-    // space whenever |deltaX| > 25. Because the chip strip lives inside
-    // #sidebar-container, every wheel event here also bubbled into that
-    // handler. Result: horizontal trackpad swipes that were meant to scroll
-    // the chips would instead switch spaces mid-gesture, and the original
-    // version of this handler (which preventDefault'd everything and only
-    // read deltaY) killed native momentum and ignored deltaX, making
-    // trackpad scroll feel slow and unpredictable.
-    //
-    // Two guards make the fix robust:
-    //   1. If the gesture is primarily horizontal, do nothing — let the
-    //      browser's native overflow-x scrolling handle it (this keeps
-    //      momentum and the correct direction on trackpads).
-    //   2. Always stopPropagation so the outer space-switch handler never
-    //      sees chip-strip gestures, regardless of axis.
+    // Native horizontal scrolling retains trackpad momentum. Stop bubbling in
+    // both directions so chip scrolling never turns into a Space switch.
     spaceSwitcher.addEventListener('wheel', (event) => {
         if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
             event.stopPropagation();
@@ -137,8 +123,9 @@ export function applySpaceColor(color = DEFAULT_SPACE_COLOR, { refresh = false }
     if (sidebar.dataset.spaceColor === color && !refresh) return;
     sidebar.classList.add('updating-space-color');
     sidebar.dataset.spaceColor = color;
-    sidebar.style.setProperty('--space-bg-color', `var(--chrome-${color}-color, rgba(255, 255, 255, 0.1))`);
-    sidebar.style.setProperty('--space-bg-color-dark', `var(--chrome-${color}-color-dark, rgba(255, 255, 255, 0.1))`);
+    sidebar.dataset.spaceTheme = color;
+    sidebar.style.setProperty('--space-base-color', spacePaletteColor(color));
+    sidebar.style.setProperty('--space-base-color-dark', spacePaletteColor(color, true));
     // Commit the new palette together, then restore transitions for hover and selection.
     void sidebar.offsetWidth;
     sidebar.classList.remove('updating-space-color');

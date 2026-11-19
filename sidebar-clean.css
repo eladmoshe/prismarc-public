@@ -8,14 +8,14 @@
 }
 
 @media (prefers-color-scheme: dark) {
-    :where(.sidebar-container:not([data-space-color="prismarc-light"])) .temporary-tabs {
+    :where(.sidebar-container:not([data-space-theme="prismarc-light"])) .temporary-tabs {
         --clean-accent: #bfcbff;
         --clean-accent-text: #182641;
         --clean-surface: color-mix(in srgb, var(--space-bg-color, #2b3444) 36%, #252d3b);
     }
 }
 
-[data-space-color="prismarc"] .temporary-tabs {
+[data-space-theme="prismarc"] .temporary-tabs {
     --clean-accent: #bfcbff;
     --clean-accent-text: #182641;
     --clean-surface: #2b3444;

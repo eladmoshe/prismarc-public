@@ -27,7 +27,7 @@
 #arcify-tour #coach-feedback:empty { display: none; }
 #arcify-tour #coach-retry { margin-top: 8px; }
 @media (prefers-color-scheme: dark) {
-    #sidebar-container:not([data-space-color="prismarc-light"]) {
+    #sidebar-container:not([data-space-theme="prismarc-light"]) {
         --tour-border: color-mix(in srgb, var(--tour-accent) 85%, white);
         --tour-surface: color-mix(in srgb, var(--tour-accent) 16%, #19212b);
         --tour-text: #f4f7fb;

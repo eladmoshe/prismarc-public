@@ -7,6 +7,7 @@ import { getSpaceBookmarkById, getSpaceBookmarkFolder, getSpaceBookmarkTree,
     isFolderInBookmarkRoot, removeSpacePin } from './space-bookmarks.js';
 import { initSidebarTour } from './sidebar-tour.js';
 import { setupSidebarPreviewHint } from './sidebar-preview-hint.js';
+import { setupSpaceSwipe } from './sidebar-space-swipe.js';
 import { CalendarPreview } from './calendar-preview.js';
 import { calendarFavoriteUrl } from './calendar-config.js';
 import { DEFAULT_SPACE_COLOR } from './space-colors.js';
@@ -87,6 +88,7 @@ let draggedSpaceSwitcherButton = null;
 let pendingMutationCount = 0;
 let currentWindow = null;
 let calendarPreview;
+let spaceSwipe;
 let defaultSpaceName = 'Home';
 let showAllOpenTabsInCollapsedFolders = false; // default Arc behavior is false (active-only)
 let activeChromeTabId = null;
@@ -153,14 +155,10 @@ function getOrderedTabElementsById(tabIds) {
     const ids = new Set(tabIds);
     return getSelectableTabElements().filter(element => ids.has(Number(element.dataset.tabId)));
 }
-async function switchSpaceBy(delta) {
+function spaceAtOffset(offset) {
     const currentIndex = spaces.findIndex(space => space.id === activeSpaceId);
-    if (currentIndex === -1 || spaces.length === 0) {
-        return;
-    }
-
-    const nextIndex = (currentIndex + delta + spaces.length) % spaces.length;
-    await setActiveSpace(spaces[nextIndex].id);
+    if (currentIndex === -1 || (offset && spaces.length < 2)) return;
+    return spaces[(currentIndex + offset + spaces.length) % spaces.length];
 }
 
 function disposeEditorsInElement(element) {
@@ -759,53 +757,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // --- Space Switching with Trackpad Swipe and Mouse Side Buttons ---
-    let isSwiping = false;
-    let swipeTimeout = null;
-    const swipeThreshold = 25; // Min horizontal movement to trigger a swipe
-
     spaceSwitcher.addEventListener('mouseup', async (event) => {
         if (event.button !== MOUSE_BUTTON.BACK && event.button !== MOUSE_BUTTON.FORWARD) {
             return;
         }
 
         event.preventDefault();
-        await switchSpaceBy(event.button === MOUSE_BUTTON.BACK ? -1 : 1);
+        const space = spaceAtOffset(event.button === MOUSE_BUTTON.BACK ? -1 : 1);
+        if (space) await setActiveSpace(space.id);
     });
 
-    document.getElementById('sidebar-container').addEventListener('wheel', async (event) => {
-        // Defense-in-depth: ignore wheel events that originate inside the
-        // chip strip. The strip lives inside #sidebar-container, so without
-        // this guard a horizontal swipe meant to scroll the chips would also
-        // switch the active space — that exact conflict is why chip
-        // scrolling felt slow and randomly reversed direction. The chip
-        // strip's own wheel handler (domManager.setupDOMElements) already
-        // stopPropagation()s its events so we shouldn't reach this branch
-        // for those gestures, but we filter here too in case any future
-        // code path bypasses that.
-        if (event.target.closest('#spaceSwitcher')) {
-            return;
-        }
-
-        // Ignore vertical scrolling or if a swipe is already being processed
-        if (Math.abs(event.deltaX) < Math.abs(event.deltaY) || isSwiping) {
-            return;
-        }
-
-        if (Math.abs(event.deltaX) > swipeThreshold) {
-            isSwiping = true;
-            event.preventDefault(); // Stop browser from navigating back/forward
-
-            // deltaX < 0 -> previous space, deltaX > 0 -> next space
-            await switchSpaceBy(event.deltaX < 0 ? -1 : 1);
-
-            // Cooldown to prevent re-triggering during the same gesture
-            clearTimeout(swipeTimeout);
-            swipeTimeout = setTimeout(() => {
-                isSwiping = false;
-            }, 400); // 400ms cooldown
-        }
-    }, { passive: false }); // 'passive: false' is required to use preventDefault()
+    spaceSwipe = setupSpaceSwipe(document.getElementById('sidebar-container'), {
+        getSpace: spaceAtOffset,
+        canSwipe: () => !isDraggingTab && !draggedSpaceSwitcherButton && !spaceDragPreview &&
+            pendingMutationCount === 0 && !editorSessions.isActive(),
+        activate: spaceId => setActiveSpace(spaceId, true, { source: 'swipe' }),
+        onError: error => Logger.warn('Could not switch spaces with a swipe:', error),
+    });
 });
 
 const spaceSaveQueue = new SpacePatchQueue(
@@ -882,7 +850,10 @@ async function adoptStoredSpaces(next, { render = true } = {}) {
             createSpaceElement(space);
         }
     }
-    if (!spaces.some(s => s.id === activeSpaceId)) activeSpaceId = spaces[0]?.id;
+    if (!spaces.some(s => s.id === activeSpaceId)) {
+        spaceSwipe?.cancel();
+        activeSpaceId = spaces[0]?.id;
+    }
     if (needsRender && render) {
         await activateSpaceInDOM(activeSpaceId, spaces, updateSpaceSwitcher);
         await refreshActiveSpaceUI();
@@ -1506,9 +1477,11 @@ function clearFolderOpenTimer() {
     currentHoveredFolder = null;
 }
 
-async function setActiveSpace(spaceId, updateTab = true) {
+async function setActiveSpace(spaceId, updateTab = true, { source } = {}) {
     const space = spaces.find(s => s.id === spaceId);
-    if (!space) return;
+    // The drop owns the visible destination through its asynchronous save.
+    if (!space || (tabDropCommitting && source !== 'drop')) return;
+    if (source !== 'swipe') spaceSwipe?.cancel();
     const spaceChanged = activeSpaceId !== spaceId;
     if (spaceChanged && isDraggingTab) tabPointerDrag.cancel();
     if (activeSpaceId && activeSpaceId !== spaceId) {
@@ -2500,7 +2473,7 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
                 if (!crossSpaceDrop && (droppedFolder || draggingElements.length > 1 || !orderHandled)) {
                     await handleArcifyOrderChangeAfterDrop(container);
                 }
-                if (sourceSpace) await setActiveSpace(destinationSpaceId, false);
+                if (sourceSpace) await setActiveSpace(destinationSpaceId, false, { source: 'drop' });
                 if (orderHandled) await refreshActiveSpaceUI({ force: true });
                 } catch (error) {
                     Logger.warn('Drop could not be completed; restoring saved state.', error);
@@ -2513,7 +2486,7 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
                             .catch(failure => Logger.warn('Could not reload Space membership:', failure));
                     }
                     if (crossSpaceSaved && activeSpaceId !== destinationSpaceId) {
-                        await setActiveSpace(destinationSpaceId, false)
+                        await setActiveSpace(destinationSpaceId, false, { source: 'drop' })
                             .catch(failure => Logger.warn('Could not show the destination Space:', failure));
                     }
                     if (sourceSpace) endSpaceDragPreview();
@@ -3804,6 +3777,7 @@ function handleTabActivated(activeInfo) {
 
         if (spaceWithTab && spaceWithTab.id !== activeSpaceId) {
             // Switch to the space containing the tab
+            spaceSwipe?.cancel();
             closeCleanPreview();
             activeSpaceId = spaceWithTab.id;
             await activateSpaceInDOM(spaceWithTab.id, spaces, updateSpaceSwitcher);
