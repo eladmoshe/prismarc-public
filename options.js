@@ -1,3 +1,4 @@
+import { INLINE_SWITCHER, setInlineSwitcher } from './tab-switcher-inline-settings.js';
 /**
  * Options - Extension settings and preferences UI
  * 
@@ -15,7 +16,7 @@ import { Utils } from './utils.js';
 import { LocalStorage } from './localstorage.js';
 import { Logger } from './logger.js';
 import { parsePreviewDomains, TAB_SWITCHER_EXCLUDED_DOMAINS, TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_VISIT_PERMISSION } from './tab-switcher-previews.js';
-import { enableVisitPreviews, setPreviewPreferences } from './tab-switcher-preview-settings.js';
+import { enableVisitPreviews, setPreviewPreferences, TAB_PREVIEW_HINT_DISMISSED } from './tab-switcher-preview-settings.js';
 
 // Default color values (must be 6-digit hex for color picker compatibility)
 const DEFAULT_COLORS = {
@@ -266,6 +267,53 @@ async function setupPreviewDomains() {
   });
 }
 
+function setupInlineSwitcher() {
+  const button = document.getElementById(INLINE_SWITCHER);
+  if (!button) return;
+  let choice;
+  let enabled = false;
+  let busy = false;
+  let revision = 0;
+
+  async function refresh() {
+    const request = ++revision;
+    const [settings, grants, platform] = await Promise.all([
+      chrome.storage.local.get(INLINE_SWITCHER),
+      chrome.permissions.getAll(),
+      chrome.runtime.getPlatformInfo(),
+    ]);
+    if (request !== revision) return;
+    if (platform.os !== 'mac') return;
+    button.closest('.options-setting-item').style.removeProperty('display');
+    choice = settings[INLINE_SWITCHER];
+    const hostAccess = grants.origins?.some(origin => origin === '<all_urls>' || /^(?:https?|\*):\/\//.test(origin));
+    enabled = choice === true && grants.permissions?.includes('scripting') && hostAccess;
+    button.textContent = enabled ? 'Use the Recent Tabs window' : 'Show Recent Tabs over webpages';
+    button.disabled = busy;
+  }
+
+  const update = () => refresh().catch(() => {});
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[INLINE_SWITCHER]) update();
+  });
+  chrome.permissions.onAdded.addListener(update);
+  chrome.permissions.onRemoved.addListener(update);
+  button.addEventListener('click', async event => {
+    if (!event.isTrusted || busy) return;
+    busy = button.disabled = true;
+    try {
+      if (!await setInlineSwitcher(chrome, !enabled, choice)) showToast('Chrome kept the Recent Tabs window.');
+      else showToast();
+    } catch {
+      showToast('Could not change how Recent Tabs opens.');
+    } finally {
+      busy = false;
+      update();
+    }
+  });
+  update();
+}
+
 function setupPagePreviews() {
   const checkbox = document.getElementById(TAB_SWITCHER_PAGE_PREVIEWS);
   const visitButton = document.getElementById(TAB_SWITCHER_CAPTURE_ON_VISIT);
@@ -275,6 +323,8 @@ function setupPagePreviews() {
   let visitEnabled = false;
   let visitChoice;
   let version = 0;
+  const fromPreviewHint = location.hash === `#${TAB_SWITCHER_CAPTURE_ON_VISIT}`;
+  let focusPreviewAction = fromPreviewHint;
 
   async function restore() {
     const request = ++version;
@@ -290,6 +340,10 @@ function setupPagePreviews() {
       visitButton.textContent = visitEnabled ? 'Turn off previews as I browse' : 'Enable previews as I browse';
       checkbox.disabled = busy;
       visitButton.disabled = busy || !checkbox.checked;
+      if (focusPreviewAction && !visitButton.disabled) {
+        focusPreviewAction = false;
+        if (document.activeElement === document.body) visitButton.focus();
+      }
     } catch {
       // Leave the controls at their last readable state if Chrome rejects the request.
     }
@@ -336,6 +390,7 @@ function setupPagePreviews() {
       } else {
         const result = await enableVisitPreviews(chrome, visitChoice);
         if (result === 'denied') {
+          if (fromPreviewHint) await chrome.storage.local.set({ [TAB_PREVIEW_HINT_DISMISSED]: true }).catch(() => {});
           showToast('Chrome did not grant access. Shortcut previews are still on.');
           return;
         }
@@ -354,6 +409,7 @@ document.addEventListener('DOMContentLoaded', () => {
   restoreOptions();
   setupAdvancedOptions();
   setupAutoSave();
+  setupInlineSwitcher();
   setupPagePreviews();
   setupPreviewDomains();
 });

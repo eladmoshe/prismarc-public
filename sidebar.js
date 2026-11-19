@@ -3,8 +3,8 @@ import { withTabCloseMotion, withRemovedTabMotion } from './tab-close-motion.js'
 import { updateTabAudioIndicator, updateWindowTabAudio, isAudioOnlyTabChange, TabAudioEvents } from './tab-audio.js';
 import { TabDragPreview } from './tab-drag-preview.js';
 import { TabPointerDrag, addDragListener, dispatchPointerDrag } from './tab-pointer-drag.js';
-import { getSpaceBookmarkById, getSpaceBookmarkFolder, getSpaceBookmarkTree,
-    isFolderInBookmarkRoot, removeSpacePin } from './space-bookmarks.js';
+import { editSpacePin, getSpacePinNameDefaults, getSpaceBookmarkById, getSpaceBookmarkFolder, getSpaceBookmarkTree,
+    isFolderInBookmarkRoot, removeSpacePin, restoreSpacePin, SPACE_PIN_NAME_DEFAULTS } from './space-bookmarks.js';
 import { initSidebarTour } from './sidebar-tour.js';
 import { setupSidebarPreviewHint } from './sidebar-preview-hint.js';
 import { setupSpaceSwipe } from './sidebar-space-swipe.js';
@@ -225,15 +225,21 @@ function scheduleBookmarkRefresh() {
     refreshCoordinator.invalidateBookmarks();
 }
 
-// Helper function to update bookmark for a tab
-async function updateBookmarkForTab(tab, bookmarkTitle) {
-    Logger.log("updating bookmark", tab, bookmarkTitle);
+async function savePinAlias(tab, tabElement, name) {
     const binding = await Utils.getPinnedTabState(tab.id);
-    if (!binding?.bookmarkId) return;
+    if (!binding?.bookmarkId || String(binding.bookmarkId) !== tabElement.dataset.bookmarkId) {
+        throw new Error('The favorite binding is no longer valid for this tab.');
+    }
     const space = ownerOf(spaces, tab.id);
-    const bookmark = space && await getSpaceBookmarkById(space, binding.bookmarkId);
-    if (!bookmark) throw new Error('The favorite binding is no longer valid for this space.');
-    await chrome.bookmarks.update(bookmark.id, { title: bookmarkTitle });
+    const alias = await editSpacePin(space, binding.bookmarkId, (bookmark, original) => {
+        const automaticTitle = isAwayFromPin(tab.url, bookmark.url)
+            ? original ?? bookmark.title
+            : tab.title || original || bookmark.title;
+        return { changes: { title: name || automaticTitle }, nameDefault: name ? original ?? bookmark.title : null };
+    });
+    tabElement.dataset.pinAlias = alias;
+    if (!name) await Utils.removeTabNameOverride(tab.id)
+        .catch(error => Logger.warn('Could not clear the tab’s previous title override.', error));
 }
 
 
@@ -270,28 +276,28 @@ async function replaceBookmarkUrlWithCurrentUrl(tab, tabElement) {
         return;
     }
 
+    let alias;
     try {
         const space = ownerOf(spaces, tab.id);
-        const bookmark = space && await getSpaceBookmarkById(space, resolvedBookmarkId);
-        if (!bookmark) throw new Error('The favorite binding is no longer valid for this space.');
-        const updatePayload = { url: newUrl };
-        // Keep bookmark title in sync with the new pinned page for clarity.
-        if (newTitle) updatePayload.title = newTitle;
-        await chrome.bookmarks.update(bookmark.id, updatePayload);
+        alias = await editSpacePin(space, resolvedBookmarkId, (_bookmark, original) => ({
+            changes: { url: newUrl, ...(original === null && newTitle && { title: newTitle }) },
+            nameDefault: original === null ? null : newTitle || original,
+        }));
     } catch (e) {
         Logger.error('[Arcify] chrome.bookmarks.update failed', { bookmarkId: resolvedBookmarkId, newUrl, error: e });
         return;
     }
 
     await Utils.setPinnedTabState(tab.id, { bookmarkId: resolvedBookmarkId, pinnedUrl: newUrl });
-    if (newTitle) {
-        // Update override baseline (and pinned display) to the new URL/title.
+    if (!alias && newTitle) {
+        // Keep the automatic bookmark fallback for an unnamed pin.
         await Utils.setTabNameOverride(tab.id, newUrl, newTitle);
     }
 
     if (tabElement) {
         tabElement.dataset.pinnedUrl = newUrl;
         tabElement.dataset.url = newUrl;
+        tabElement.dataset.pinAlias = alias;
         // Tab is now pinned to current URL; "back to pinned" should no longer be available.
         const favicon = tabElement.querySelector('.tab-favicon') || tabElement.querySelector('img');
         if (favicon) {
@@ -301,11 +307,7 @@ async function replaceBookmarkUrlWithCurrentUrl(tab, tabElement) {
         const slash = tabElement.querySelector('.tab-url-changed-slash');
         if (slash) slash.classList.remove('visible');
 
-        // Ensure the displayed title + domain subtitle reflect the new pinned URL immediately.
-        const titleDisplay = tabElement.querySelector('.tab-title-display');
-        if (titleDisplay && newTitle) titleDisplay.textContent = newTitle;
-        const domainDisplay = tabElement.querySelector('.tab-domain-display');
-        if (domainDisplay) domainDisplay.style.display = 'none';
+        renderLiveTabLabel(tabElement, { url: newUrl, title: newTitle || tab.title });
     }
 }
 
@@ -630,7 +632,8 @@ async function activatePinnedTabByURL(bookmarkUrl, targetSpaceId, spaceName, boo
                 createTabElement,
                 activateTabInDOM,
                 Utils,
-                persistSpaceTabOrder
+                persistSpaceTabOrder,
+                getSpacePinNameDefaults
             };
 
             // Use shared bookmark opening logic
@@ -668,6 +671,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Listen for storage changes to re-apply colors when they're updated
     chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local' && changes[SPACE_PIN_NAME_DEFAULTS]) scheduleBookmarkRefresh();
         if (areaName === 'local' && changes.colorOverrides) {
             Logger.log('Color overrides changed, re-applying...');
             applyColorOverrides();
@@ -866,12 +870,16 @@ async function initSidebar() {
     spaceSaveQueue.reset(spaces);
     const allTabs = await chrome.tabs.query({});
     await Utils.prunePinnedTabStates(allTabs.map(t => t.id));
+    const pinNameDefaults = await getSpacePinNameDefaults();
+    const restoreTabTitle = (tabId, url, name, bookmarkId) => {
+        if (typeof pinNameDefaults[bookmarkId] !== 'string') return Utils.setTabNameOverride(tabId, url, name);
+    };
     // Restore bookmark bindings using only this space's owned tabs.
     for (const space of spaces) {
         try {
             const folder = await getSpaceBookmarkFolder(space);
             const bound = await BookmarkUtils.matchTabsWithBookmarks(folder, space.id,
-                Utils.setTabNameOverride.bind(Utils), Utils.setPinnedTabState.bind(Utils), null, Utils.getPinnedUrlKey.bind(Utils), currentWindow.id);
+                restoreTabTitle, Utils.setPinnedTabState.bind(Utils), null, Utils.getPinnedUrlKey.bind(Utils), currentWindow.id);
             const previousPins = space.spaceBookmarks;
             const windowTabIds = new Set(allTabs.filter(t => t.windowId === currentWindow.id).map(t => t.id));
             space.spaceBookmarks = [...new Set([...previousPins.filter(id => !windowTabIds.has(id)), ...bound])];
@@ -1612,8 +1620,7 @@ function offerFavoriteUndo(removed, restoreTab = null) {
     if (!removed) return;
     // A bookmark is the favorite's durable record, so give intentional removal a recovery window.
     showUndoToast('Favorite removed.', async () => {
-        const siblings = await chrome.bookmarks.getChildren(removed.parentId);
-        const bookmark = await chrome.bookmarks.create({ ...removed, index: Math.min(removed.index, siblings.length) });
+        const bookmark = await restoreSpacePin(removed);
         if (restoreTab) await restoreTab(bookmark);
         scheduleBookmarkRefresh();
     });
@@ -1669,8 +1676,7 @@ function offerFavoritesUndo(removedFavorites) {
             // Restore siblings in their original order so saved indices stay meaningful.
             for (const item of removedFavorites.sort((a, b) => a.index - b.index)) {
                 const { tabId, spaceId, fromSpaceId, favoriteIndex, relatedTabs = [], ...details } = item;
-                const siblings = await chrome.bookmarks.getChildren(details.parentId);
-                const bookmark = await chrome.bookmarks.create({ ...details, index: Math.min(details.index, siblings.length) });
+                const bookmark = await restoreSpacePin(details);
                 await restoreFavoriteTab(spaceId, tabId, favoriteIndex, bookmark, fromSpaceId);
                 for (const { id, index } of relatedTabs) await restoreFavoriteTab(spaceId, id, index, bookmark);
             }
@@ -2689,6 +2695,7 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer, { force = 
     const invertTabOrder = await Utils.getInvertTabOrder();
     const tabs = (await getOwnedTabs(space.id)).filter(t => !t.pinned);
     const pinnedStatesById = await Utils.getPinnedTabStates();
+    const pinNameDefaults = await getSpacePinNameDefaults();
     const pinnedFragment = document.createDocumentFragment();
     let treeAvailable = true;
     let treeLoaded = false;
@@ -2742,6 +2749,7 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer, { force = 
                                 representedPinnedTabIds.add(existingTab.id);
                                 existingTab.pinnedUrl = item.url;
                                 existingTab.bookmarkId = item.id;
+                                existingTab.pinAlias = typeof pinNameDefaults[item.id] === 'string' ? item.title : '';
                                 const tabElement = await createTabElement(existingTab, true);
                                 Logger.log('Appending tab element to container:', tabElement);
                                 container.appendChild(tabElement);
@@ -2943,6 +2951,35 @@ async function closeTab(tabElement, tab, isPinned = false, isBookmarkOnly = fals
 }
 
 
+function isAwayFromPin(url, pinnedUrl) {
+    return Boolean(pinnedUrl && url && Utils.getPinnedUrlKey(url) !== Utils.getPinnedUrlKey(pinnedUrl));
+}
+
+function renderLiveTabLabel(row, tab, override, pinnedUrl = row.dataset.pinnedUrl) {
+    const titleDisplay = row.querySelector('.tab-title-display');
+    const titleInput = row.querySelector('.tab-title-input');
+    const domainDisplay = row.querySelector('.tab-domain-display');
+    const alias = row.dataset.pinAlias;
+    const away = isAwayFromPin(tab.url, pinnedUrl);
+    const liveTitle = tab.title || 'New Tab';
+    const title = alias || (!away && override?.name) || liveTitle;
+    titleDisplay.textContent = title;
+    titleDisplay.title = alias && away && liveTitle !== alias ? liveTitle : '';
+    titleInput.value = title;
+
+    let domain = '';
+    if (away) {
+        try {
+            const home = new URL(pinnedUrl).hostname;
+            const current = new URL(tab.url).hostname;
+            if (home && current !== home) domain = current;
+        } catch { /* A tab may not have a normal site URL. */ }
+    }
+    domainDisplay.textContent = domain;
+    domainDisplay.classList.remove('back-to-pinned');
+    domainDisplay.style.display = domain ? 'block' : 'none';
+}
+
 async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
     Logger.log('Creating tab element:', tab.id, 'IsBookmarkOnly:', isBookmarkOnly);
 
@@ -2994,7 +3031,18 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
         pinnedUrlForTab = tab.pinnedUrl || stored?.pinnedUrl || tab.url;
         const bookmarkIdForTab = tab.bookmarkId || stored?.bookmarkId || null;
         tabElement.dataset.pinnedUrl = pinnedUrlForTab;
-        if (bookmarkIdForTab) tabElement.dataset.bookmarkId = bookmarkIdForTab;
+        if (bookmarkIdForTab) {
+            tabElement.dataset.bookmarkId = bookmarkIdForTab;
+            if (tab.pinAlias !== undefined) {
+                tabElement.dataset.pinAlias = tab.pinAlias;
+            } else {
+                const defaults = await getSpacePinNameDefaults();
+                if (typeof defaults[bookmarkIdForTab] === 'string') {
+                    const [bookmark] = await chrome.bookmarks.get(bookmarkIdForTab).catch(() => []);
+                    if (bookmark?.url && !isAwayFromPin(bookmark.url, pinnedUrlForTab)) tabElement.dataset.pinAlias = bookmark.title || '';
+                }
+            }
+        }
     }
 
     // Set up favicon
@@ -3014,8 +3062,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
 
         const canBackToPinned = async () => {
             const pinnedUrl = await computePinnedUrl();
-            const currentUrl = computeCurrentUrl();
-            return Boolean(pinnedUrl && currentUrl && Utils.getPinnedUrlKey(currentUrl) !== Utils.getPinnedUrlKey(pinnedUrl));
+            return isAwayFromPin(computeCurrentUrl(), pinnedUrl);
         };
 
         const setBackButtonState = async () => {
@@ -3067,46 +3114,8 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
             return;
         }
 
-        // For actual tabs, check overrides
         const overrides = await Utils.getTabNameOverrides();
-        const override = overrides[tab.id];
-        let displayTitle = tab.title; // Default to actual tab title
-        let displayDomain = null;
-
-        titleInput.value = tab.title; // Default input value is current tab title
-
-        // For space-pinned tabs: only force the bookmark/override title when we're still on the pinned URL.
-        // If the tab navigates away, show the real page title (Arc-like).
-        const pinnedUrl = (isPinned ? (tabElement.dataset.pinnedUrl || pinnedUrlForTab) : null);
-        const isNavigatedAway = Boolean(isPinned && pinnedUrl && tab.url && Utils.getPinnedUrlKey(tab.url) !== Utils.getPinnedUrlKey(pinnedUrl));
-
-        if (override && !isNavigatedAway) {
-            displayTitle = override.name;
-            titleInput.value = override.name; // Set input value to override name
-        }
-
-        // Domain subtitle: only show when navigated away from the pinned domain.
-        if (isPinned && pinnedUrl && tab.url && Utils.getPinnedUrlKey(tab.url) !== Utils.getPinnedUrlKey(pinnedUrl)) {
-            try {
-                const pinnedDomain = new URL(pinnedUrl).hostname;
-                const currentDomain = new URL(tab.url).hostname;
-                if (currentDomain && pinnedDomain && currentDomain !== pinnedDomain) {
-                    displayDomain = currentDomain;
-                }
-            } catch (e) {
-                Logger.warn("Error parsing URL for domain check:", tab.url, e);
-            }
-        }
-
-        titleDisplay.textContent = displayTitle;
-        if (displayDomain) {
-            domainDisplay.textContent = displayDomain;
-            domainDisplay.classList.remove('back-to-pinned');
-            domainDisplay.style.display = 'block';
-        } else {
-            domainDisplay.classList.remove('back-to-pinned');
-            domainDisplay.style.display = 'none';
-        }
+        renderLiveTabLabel(tabElement, tab, overrides[tab.id]);
 
         // Ensure correct elements are visible
         titleDisplay.style.display = 'inline'; // Or 'block' if needed
@@ -3116,6 +3125,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
     // --- Event Listeners for Editing (Only for actual tabs) ---
     if (!isBookmarkOnly) {
         let tabEditSession = null;
+        let initialName = '';
         tabDetails.addEventListener('dblclick', (e) => {
             // Prevent dblclick on favicon or close button from triggering rename
             if (e.target === favicon || e.target === actionButton) return;
@@ -3123,35 +3133,29 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
             titleDisplay.style.display = 'none';
             domainDisplay.style.display = 'none'; // Hide domain while editing
             titleInput.style.display = 'inline-block'; // Or 'block'
-            if (!tabEditSession) tabEditSession = editorSessions.begin('tab', tab.id);
+            if (!tabEditSession) {
+                tabEditSession = editorSessions.begin('tab', tab.id);
+                initialName = titleInput.value.trim();
+            }
             titleInput.select(); // Select text for easy replacement
             titleInput.focus(); // Focus the input
         });
 
-        const saveOrCancelEdit = async (save) => {
+        const saveOrCancelEdit = async (save, explicitlyConfirmed = false) => {
             const session = tabEditSession;
             if (!session) return;
             const newName = titleInput.value.trim();
             try {
                 await editorSessions.complete(session, async () => {
                     if (save) {
-                    // Fetch the latest tab info in case the title changed naturally
-                    const currentTabInfo = await chrome.tabs.get(tab.id);
-                    const originalTitle = currentTabInfo.title;
-                    const activeSpace = spaces.find(s => s.id === activeSpaceId);
-
-                    if (newName && newName !== originalTitle) {
-                        await Utils.setTabNameOverride(tab.id, tab.url, newName);
+                        const currentTab = await chrome.tabs.get(tab.id);
                         if (isPinned) {
-                            await updateBookmarkForTab(tab, newName);
+                            if (explicitlyConfirmed || newName !== initialName) await savePinAlias(currentTab, tabElement, newName);
+                        } else if (newName && newName !== currentTab.title) {
+                            await Utils.setTabNameOverride(tab.id, tab.url, newName);
+                        } else {
+                            await Utils.removeTabNameOverride(tab.id);
                         }
-                    } else {
-                        // If name is empty or same as original, remove override
-                        await Utils.removeTabNameOverride(tab.id);
-                        if (isPinned) {
-                            await updateBookmarkForTab(tab, originalTitle);
-                        }
-                    }
                     }
                     const potentiallyUpdatedTab = await chrome.tabs.get(tab.id);
                     tab.title = potentiallyUpdatedTab.title;
@@ -3170,7 +3174,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
         titleInput.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault(); // Prevent potential form submission if wrapped
-                await saveOrCancelEdit(true);
+                await saveOrCancelEdit(true, true);
                 titleInput.blur(); // Explicitly blur to hide input
             } else if (e.key === 'Escape') {
                 await saveOrCancelEdit(false); // Cancel reverts input visually via updateDisplay
@@ -3351,7 +3355,8 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
                         createTabElement,
                         activateTabInDOM,
                         Utils,
-                        persistSpaceTabOrder
+                        persistSpaceTabOrder,
+                        getSpacePinNameDefaults
                     };
 
                     // Use shared bookmark opening logic
@@ -3565,8 +3570,6 @@ function handleTabUpdate(tabId, changeInfo, tab) {
             const titleDisplay = tabElement.querySelector('.tab-title-display');
             const domainDisplay = tabElement.querySelector('.tab-domain-display');
             const titleInput = tabElement.querySelector('.tab-title-input'); // Get input element
-            let displayTitle = tab.title; // Use potentially new title
-
             if (changeInfo.pinned !== undefined) {
                 if (changeInfo.pinned) {
                     // Chrome-native-pinning a favorite must NOT delete its bookmark — the
@@ -3598,39 +3601,8 @@ function handleTabUpdate(tabId, changeInfo, tab) {
                 // Don't update if the input field is currently focused
                 if (document.activeElement !== titleInput) {
                     const overrides = await Utils.getTabNameOverrides();
-                    Logger.log('changeInfo', changeInfo);
-                    Logger.log('overrides', overrides);
-                    Logger.log('tab.url', tab.url); // Log the tab URL her
-                    const override = overrides[tabId]; // Use potentially new URL
-                    Logger.log('override', override); // Log the override object here
-                    let displayDomain = null;
-                    const pinnedUrl = tabElement.dataset.pinnedUrl || (await Utils.getPinnedTabState(tabId))?.pinnedUrl || null;
-                    const isNavigatedAway = Boolean(pinnedUrl && tab.url && Utils.getPinnedUrlKey(tab.url) !== Utils.getPinnedUrlKey(pinnedUrl));
-
-                    // Only force override title when we're still on the pinned URL.
-                    if (override && !isNavigatedAway) {
-                        displayTitle = override.name;
-                    }
-                    titleDisplay.textContent = displayTitle;
-
-                    // Domain subtitle only when navigated away from pinned domain.
-                    if (isNavigatedAway) {
-                        try {
-                            const pinnedDomain = new URL(pinnedUrl).hostname;
-                            const currentDomain = new URL(tab.url).hostname;
-                            if (currentDomain && pinnedDomain && currentDomain !== pinnedDomain) {
-                                displayDomain = currentDomain;
-                            }
-                        } catch (e) { /* Ignore invalid URLs */ }
-                    }
-                    if (displayDomain) {
-                        domainDisplay.textContent = displayDomain;
-                        domainDisplay.style.display = 'block';
-                    } else {
-                        domainDisplay.style.display = 'none';
-                    }
-                    // Update input value only if not focused (might overwrite user typing)
-                    titleInput.value = (override && !isNavigatedAway) ? override.name : tab.title;
+                    const pinnedUrl = tabElement.dataset.pinnedUrl || (await Utils.getPinnedTabState(tabId))?.pinnedUrl;
+                    renderLiveTabLabel(tabElement, tab, overrides[tabId], pinnedUrl);
                 }
             }
             let faviconElement = tabElement.querySelector('.tab-favicon');
@@ -3644,7 +3616,7 @@ function handleTabUpdate(tabId, changeInfo, tab) {
                 tabElement.dataset.url = tab.url;
                 if (tabElement.closest('[data-tab-type="pinned"]')) {
                     const pinnedUrl = tabElement.dataset.pinnedUrl || (await Utils.getPinnedTabState(tabId))?.pinnedUrl;
-                    const shouldEnableBack = Boolean(pinnedUrl && tab.url && Utils.getPinnedUrlKey(tab.url) !== Utils.getPinnedUrlKey(pinnedUrl));
+                    const shouldEnableBack = isAwayFromPin(tab.url, pinnedUrl);
                     faviconElement.classList.toggle('pinned-back', shouldEnableBack);
                     faviconElement.title = shouldEnableBack ? 'Back to Pinned URL' : '';
                     const slash = tabElement.querySelector('.tab-url-changed-slash');

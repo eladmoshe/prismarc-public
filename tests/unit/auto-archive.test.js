@@ -55,6 +55,7 @@ function startBackground() {
         dispatchTourMessage: async () => ({}), registerBookmarkListeners() {}, createCleanTabsHandler: () => () => {},
         enqueueBookmarkOperation: async () => ({}), copyCurrentTabUrlWithFallback: async () => {},
         SpaceStore, ownerOf, isProtectedFavorite, NativeFavorites, LocalStorage, Utils, Logger, TabSwitcher,
+        TabSwitcherOverlay: class { register() {} receive() {} isOnTab() { return false; } isOverlayFrame() { return false; } },
         TabSwitcherPreviews: class { register() {} }
     });
     return () => Promise.all(chrome.alarms.onAlarm.listeners.map(fn => fn({ name: 'autoArchiveTabsAlarm' })));

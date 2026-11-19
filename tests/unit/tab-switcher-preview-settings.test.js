@@ -1,11 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { enableVisitPreviews, setPreviewPreferences } from '../../tab-switcher-preview-settings.js';
+import { enableVisitPreviews, isBrowsingPreviewCandidate, setPreviewPreferences } from '../../tab-switcher-preview-settings.js';
 import {
     TAB_SWITCHER_CAPTURE_ON_VISIT as VISIT,
     TAB_SWITCHER_PAGE_PREVIEWS as PREVIEWS,
     TAB_SWITCHER_VISIT_PERMISSION as PERMISSION,
 } from '../../tab-switcher-previews.js';
+
+test('browsing preview hints exclude only known invocation-only web origins and ineligible tabs', () => {
+    const page = { id: 1, windowId: 10, incognito: false, status: 'complete', url: 'https://site.example.test/' };
+    assert.equal(isBrowsingPreviewCandidate(page, []), true);
+    assert.equal(isBrowsingPreviewCandidate(page, ['example.test']), false);
+    assert.equal(isBrowsingPreviewCandidate({ ...page, discarded: true }, []), false);
+    assert.equal(isBrowsingPreviewCandidate({ ...page, status: 'unloaded' }, []), false);
+    assert.equal(isBrowsingPreviewCandidate({ ...page, incognito: true }, []), false);
+    for (const url of ['chrome://settings/', 'https://chromewebstore.google.com/category/extensions', 'https://chrome.google.com/webstore']) {
+        assert.equal(isBrowsingPreviewCandidate({ ...page, url }, []), false);
+    }
+    assert.equal(isBrowsingPreviewCandidate({ ...page, url: 'https://www.google.com/' }, []), true);
+});
 
 function fixture(settings = {}, requestAllowed = async () => true) {
     let granted = false;

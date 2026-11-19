@@ -1,4 +1,5 @@
 import { BOOKMARK_ROOT_KEY } from './localstorage.js';
+import { forgetRemovedSpacePinNames } from './space-bookmarks.js';
 
 const COALESCE_MS = 100;
 let timer = null;
@@ -39,7 +40,10 @@ async function handle(ids, reason) {
 
 export function registerBookmarkListeners() {
     chrome.bookmarks.onCreated.addListener((id, node) => handle([node?.parentId], 'created'));
-    chrome.bookmarks.onRemoved.addListener((id, info) => handle([id, info?.parentId], 'removed'));
+    chrome.bookmarks.onRemoved.addListener((id, info) => {
+        forgetRemovedSpacePinNames(id, info?.node).catch(() => {});
+        return handle([id, info?.parentId], 'removed');
+    });
     chrome.bookmarks.onMoved.addListener((id, info) => handle([id, info?.parentId, info?.oldParentId], 'moved'));
     chrome.bookmarks.onChanged.addListener(id => handle([id], 'changed'));
     chrome.bookmarks.onChildrenReordered?.addListener((id) => handle([id], 'reordered'));

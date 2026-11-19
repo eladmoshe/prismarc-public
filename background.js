@@ -8,6 +8,7 @@ import { isTrustedExtensionMessage } from './message-security.js';
 import { NativeFavorites } from './native-favorites.js';
 import { toggleQuickSwitcher } from './quick-switcher-window.js';
 import { SpaceStore, ownerOf } from './space-store.js';
+import { TabSwitcherOverlay } from './tab-switcher-overlay.js';
 import { TabSwitcher } from './tab-switcher.js';
 import { TabSwitcherPreviews } from './tab-switcher-previews.js';
 import { dispatchTourMessage } from './tour-state.js';
@@ -26,8 +27,15 @@ const reviseArchiveSafety = () => { archiveSafetyRevision++; };
 
 const spaceStore = new SpaceStore();
 const favorites = new NativeFavorites();
-const tabSwitcherPreviews = new TabSwitcherPreviews(chrome);
-const tabSwitcher = new TabSwitcher(chrome, tabSwitcherPreviews);
+const tabSwitcherOverlay = new TabSwitcherOverlay(chrome, {
+    input: (token, action) => tabSwitcher.inlineInput(token, action).catch(Logger.error),
+    lost: token => tabSwitcher.inlineLost(token).catch(Logger.error),
+});
+const tabSwitcherPreviews = new TabSwitcherPreviews(chrome, {
+    isCovered: id => tabSwitcherOverlay.coversTab(id), coverVersion: () => tabSwitcherOverlay.coverVersion ?? 0,
+});
+const tabSwitcher = new TabSwitcher(chrome, tabSwitcherPreviews, tabSwitcherOverlay);
+tabSwitcherOverlay.register();
 registerBookmarkListeners();
 for (const event of [chrome.bookmarks.onCreated, chrome.bookmarks.onMoved,
     chrome.bookmarks.onChanged, chrome.bookmarks.onRemoved]) {
@@ -55,6 +63,10 @@ function messageError(error) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const bridge = tabSwitcherOverlay.receive(message, sender);
+    if (bridge) return respond(bridge, sendResponse, 'Could not connect the in-page tab picker.');
+    const pickerOperation = tabSwitcher.receive(message, sender);
+    if (pickerOperation) return respond(pickerOperation, sendResponse, 'Could not complete the tab picker action.');
     if (!isTrustedExtensionMessage(message, sender, chrome)) return;
 
     switch (message.type) {
@@ -76,9 +88,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return respond(dispatchTourMessage(message).then(state => ({ state })),
                 sendResponse, 'Could not save the sidebar tour.', messageError);
     }
-
-    const pickerOperation = tabSwitcher.receive(message, sender);
-    if (pickerOperation) return respond(pickerOperation, sendResponse, 'Could not complete the tab picker action.');
 
     if (message.command === 'toggleSpacePin') {
         // The sending sidebar does not receive its own runtime message.
@@ -256,6 +265,7 @@ chrome.tabs.onActivated.addListener(info => {
     return setTabActivity(info.tabId, Date.now());
 });
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+    tabSwitcher.inlineSourceChanged(tabId, change)?.catch(Logger.error);
     if ((change.status === 'complete' || change.audible !== undefined) && (tab.active || tab.audible)) {
         return setTabActivity(tabId, Date.now());
     }

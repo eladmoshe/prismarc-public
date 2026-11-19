@@ -23,12 +23,14 @@ test('privileged handlers reject other extensions, web content scripts and malfo
     assert.equal(isTrustedExtensionMessage(message, {}, { runtime: {} }), false);
 });
 
-test('manifest denies outside messaging and public resources without page injection permissions', () => {
+test('manifest denies outside messaging and confines the optional Recent Tabs embedding to one document', () => {
     assert.deepEqual(manifest.externally_connectable, { ids: [] });
-    assert.equal(manifest.web_accessible_resources, undefined);
+    assert.deepEqual(manifest.web_accessible_resources, [{
+        resources: ['tab-switcher.html'], matches: ['http://*/*', 'https://*/*'], use_dynamic_url: true,
+    }]);
     assert.equal(manifest.host_permissions, undefined);
     assert.deepEqual(manifest.optional_host_permissions, ['<all_urls>']);
-    assert.deepEqual(manifest.optional_permissions, ['identity']);
+    assert.deepEqual(manifest.optional_permissions, ['identity', 'scripting']);
     assert.equal(manifest.permissions.includes('identity'), false);
     assert.equal(manifest.content_scripts, undefined);
     assert.equal(manifest.permissions.filter(permission => permission === 'history').length, 1);
@@ -73,7 +75,10 @@ test('runtime sources restrict remote requests to the Calendar integration and d
         const source = readFileSync(new URL(name, root), 'utf8');
         if (name !== 'tab-switcher-previews.js') assert.doesNotMatch(source, /\bcaptureVisibleTab\s*\(/, name);
         if (!['calendar-events.js', 'calendar-auth.js'].includes(name)) assert.doesNotMatch(source, /\bfetch\s*\(/, name);
-        assert.doesNotMatch(source, /chrome\.storage\.sync|(?:XMLHttpRequest|WebSocket|EventSource)\s*\(|sendBeacon\s*\(|scripting\.executeScript/, name);
+        assert.doesNotMatch(source, /chrome\.storage\.sync|(?:XMLHttpRequest|WebSocket|EventSource)\s*\(|sendBeacon\s*\(/, name);
+        if (name !== 'tab-switcher-inline-registration.js') {
+            assert.doesNotMatch(source, /scripting\.(?:executeScript|registerContentScripts)/, name);
+        }
         assert.doesNotMatch(source, /(?:src|href)\s*=\s*["']https?:\/\/|\.src\s*=\s*tab\.favIconUrl/, name);
         assert.doesNotMatch(source, /\bhistory\.(?:addUrl|deleteAll|deleteRange)\s*\(/, name);
         if (name !== 'quick-switcher-search.js') assert.doesNotMatch(source, /\bhistory\.deleteUrl\s*\(/, name);

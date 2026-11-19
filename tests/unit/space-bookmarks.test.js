@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getSpaceBookmarkById, removeSpacePin, getSpaceBookmarkFolder, getSpaceBookmarkTree } from '../../space-bookmarks.js';
+import { editSpacePin, forgetRemovedSpacePinNames, getSpaceBookmarkById, getSpaceBookmarkFolder, getSpaceBookmarkTree,
+    removeSpacePin, restoreSpacePin } from '../../space-bookmarks.js';
 import { BookmarkUtils } from '../../bookmark-utils.js';
 function mock() {
     const removed = [];
@@ -8,14 +9,15 @@ function mock() {
         { id: 'first', title: 'Twin', url: 'https://saved.test/' }, { id: 'bound', title: 'Saved', url: 'https://saved.test/' }
     ] };
     const pins = { 1: { bookmarkId: 'bound', pinnedUrl: 'https://saved.test/' } };
+    const local = { arcifyBookmarkRootId: 'root', pinnedTabStatesById: pins };
     globalThis.chrome = {
-        storage: { local: { async get() { return { arcifyBookmarkRootId: 'root', pinnedTabStatesById: pins }; } } },
+        storage: { local: { async get() { return structuredClone(local); }, async set(items) { Object.assign(local, items); } } },
         runtime: { async sendMessage() { return { success: true, spaces: [{ id: 's', spaceBookmarks: [1], temporaryTabs: [2] }] }; } },
         tabs: { async query() { return [{ id: 1, url: 'https://navigated.test/' }, { id: 2, url: 'https://saved.test/' }]; } },
         bookmarks: { async get(id) {
             return id === 'root' ? [{ id, title: 'PrismArc' }] : Object.values(tree).flat().filter(node => node.id === id);
         }, async getChildren(id) { return tree[id] || []; }, async remove(id) { removed.push(id); } } };
-    return { removed, tree };
+    return { removed, tree, local };
 }
 test('unpin removes the bound nested bookmark after navigation, preserving URL twins', async () => {
     const { removed } = mock();
@@ -92,4 +94,85 @@ test('removing a favorite returns the snapshot needed to undo it', async () => {
     assert.deepEqual(removed, ['bound']);
     assert.deepEqual(snapshot, { parentId: 'folder', index: 1, title: 'Saved', url: 'https://saved.test/' });
     assert.equal(await removeSpacePin({ bookmarkFolderId: 'space' }, { bookmarkId: 'missing' }), null);
+});
+
+test('an explicitly confirmed bookmark name retains its original title for rename and Undo', async () => {
+    const { local, tree } = mock();
+    const space = { bookmarkFolderId: 'space' };
+    globalThis.chrome.bookmarks.update = async (id, changes) => {
+        const node = tree.folder.find(node => node.id === id);
+        Object.assign(node, changes);
+        return node;
+    };
+    const confirmed = await editSpacePin(space, 'bound', bookmark => ({
+        changes: { title: bookmark.title }, nameDefault: bookmark.title,
+    }));
+    assert.equal(confirmed, 'Saved');
+    assert.deepEqual(local.spacePinNameDefaults, { bound: 'Saved' });
+    const renamed = await editSpacePin(space, 'bound', () => ({ changes: { title: 'Chosen name' } }));
+    assert.equal(renamed, 'Chosen name');
+    Object.assign(tree.folder.find(node => node.id === 'bound'), { parentId: 'folder', index: 1 });
+    const removed = await removeSpacePin(space, { bookmarkId: 'bound' });
+    assert.equal(removed.title, 'Chosen name');
+    assert.equal(removed.nameDefault, 'Saved');
+    await forgetRemovedSpacePinNames('bound');
+    globalThis.chrome.bookmarks.create = async details => ({ ...details, id: 'restored' });
+    const restored = await restoreSpacePin(removed);
+    assert.deepEqual(restored, { id: 'restored', parentId: 'folder', title: 'Chosen name', index: 1, url: 'https://saved.test/' });
+    assert.deepEqual(local.spacePinNameDefaults, { restored: 'Saved' });
+});
+
+test('a rejected native bookmark rename leaves the existing alias metadata intact', async () => {
+    const { local } = mock();
+    local.spacePinNameDefaults = { first: 'Another prior title' };
+    globalThis.chrome.bookmarks.update = async () => { throw new Error('Write rejected'); };
+    await assert.rejects(editSpacePin({ bookmarkFolderId: 'space' }, 'bound', bookmark => ({
+        changes: { title: 'New name' }, nameDefault: bookmark.title,
+    })), /Write rejected/);
+    assert.deepEqual(local.spacePinNameDefaults, { first: 'Another prior title' });
+});
+
+test('removing a bookmark folder prunes only the aliases in its removed tree', async () => {
+    const { local } = mock();
+    local.spacePinNameDefaults = { first: 'Retained name', bound: 'Removed name' };
+    await forgetRemovedSpacePinNames('folder', { children: [{ id: 'nested', children: [{ id: 'bound' }] }] });
+    assert.deepEqual(local.spacePinNameDefaults, { first: 'Retained name' });
+});
+
+test('unpin leaves a bookmark alone if it moves while reading name metadata', async () => {
+    const { removed, tree } = mock();
+    const storage = globalThis.chrome.storage.local;
+    const get = storage.get;
+    storage.get = async key => {
+        if (key === 'spacePinNameDefaults') tree.other = [tree.folder.pop()];
+        return get(key);
+    };
+    assert.equal(await removeSpacePin({ bookmarkFolderId: 'space' }, { bookmarkId: 'bound' }), null);
+    assert.equal(tree.other[0].id, 'bound');
+    assert.deepEqual(removed, []);
+});
+
+test('rename checks bookmark ownership again after persisting new name provenance', async () => {
+    const { tree, local } = mock();
+    const storage = globalThis.chrome.storage.local;
+    const set = storage.set;
+    storage.set = async items => {
+        await set(items);
+        if (Object.hasOwn(items.spacePinNameDefaults, 'bound')) tree.other = [tree.folder.pop()];
+    };
+    globalThis.chrome.bookmarks.update = async () => assert.fail('must not update the moved bookmark');
+    await assert.rejects(editSpacePin({ bookmarkFolderId: 'space' }, 'bound', bookmark => ({
+        changes: { title: 'New name' }, nameDefault: bookmark.title,
+    })), /no longer valid/);
+    assert.equal(tree.other[0].title, 'Saved');
+    assert.deepEqual(local.spacePinNameDefaults, {});
+});
+
+test('Undo returns the restored native bookmark if restoring its alias metadata fails', async () => {
+    mock();
+    globalThis.chrome.bookmarks.create = async details => ({ ...details, id: 'restored' });
+    globalThis.chrome.storage.local.set = async () => { throw new Error('Storage unavailable'); };
+    const restored = await restoreSpacePin({ parentId: 'folder', index: 1, title: 'Alias', url: 'https://saved.test/', nameDefault: 'Home' });
+    assert.equal(restored.id, 'restored');
+    assert.equal(restored.title, 'Alias');
 });

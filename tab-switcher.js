@@ -1,5 +1,7 @@
 import { isTrustedExtensionMessage } from './message-security.js';
 import { focusOpenTab, recentOpenTabs, TAB_FOCUS_TIMES } from './tab-switcher-tabs.js';
+import { TAB_PREVIEW_HINT_DISMISSED } from './tab-switcher-preview-settings.js';
+import { TAB_SWITCHER_CAPTURE_ON_VISIT } from './tab-switcher-previews.js';
 
 export const TAB_SWITCHER_SESSION = 'openTabSwitcher';
 export const TAB_SWITCHER_PAGE = 'tab-switcher.html';
@@ -7,9 +9,10 @@ export const TAB_SWITCHER_LIMIT = 5;
 const PRIVATE_BURST_MS = 800;
 
 export class TabSwitcher {
-    constructor(chromeApi, previews) {
+    constructor(chromeApi, previews, overlay) {
         this.chrome = chromeApi;
         this.previews = previews;
+        this.overlay = overlay;
         this.privateCycle = null;
         this.popupOpenedAt = 0;
         this.pending = Promise.resolve();
@@ -40,11 +43,11 @@ export class TabSwitcher {
     }
 
     pageUrl(token = '') {
-        return this.chrome.runtime.getURL(TAB_SWITCHER_PAGE) + '#' + token;
+        return `chrome-extension://${this.chrome.runtime.id}/${TAB_SWITCHER_PAGE}#${token}`;
     }
 
     invoke(tab, pressedAt = Date.now()) {
-        if (tab?.incognito === false && /^https?:\/\//i.test(tab.url)) {
+        if (tab?.incognito === false && !this.overlay?.isOnTab(tab.id) && /^https?:\/\//i.test(tab.url)) {
             try {
                 // Start the best-effort foreground capture before reading the
                 // candidate list. Preview work must not delay picker focus.
@@ -57,6 +60,10 @@ export class TabSwitcher {
             const source = tab ?? (await this.chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
             if (!source) return;
             const session = await this.session();
+            if (session?.surface === 'overlay' && session.originId === source.id && this.overlay?.isOnTab(source.id)) {
+                await this.move(session, 1);
+                return;
+            }
             if (session && [source.url, source.pendingUrl].includes(this.pageUrl(session.token))) {
                 await this.move(session, 1);
                 return;
@@ -79,7 +86,7 @@ export class TabSwitcher {
             this.privateCycle = null;
             const tabIds = tabs.slice(0, TAB_SWITCHER_LIMIT).map(tab => tab.id);
             if (tabIds.length < 2) return;
-            await this.open(tabIds, tabs[0].windowId);
+            await this.open(tabIds, tabs[0].windowId, source, pressedAt);
         });
     }
 
@@ -116,6 +123,13 @@ export class TabSwitcher {
         if (this.privateCycle && this.privateCycle.targetWindowId === windowId && this.privateCycle.targetId !== tabId) {
             this.privateCycle = null;
         }
+        const attempt = this.overlay?.current;
+        if (attempt && attempt.source.windowId === windowId && attempt.source.id !== tabId) {
+            this.run(async () => {
+                const session = await this.session();
+                if (session?.surface === 'overlay' && session.token === attempt.token) await this.finish(session);
+            }).catch(() => {});
+        }
     }
 
     windowFocused(windowId, focusedAt = Date.now()) {
@@ -135,13 +149,12 @@ export class TabSwitcher {
                 await this.chrome.storage.session.set({ [TAB_FOCUS_TIMES]: times });
             }
             const session = await this.session();
-            if (!session || focusedAt <= this.popupOpenedAt) return;
-            await this.finish(session);
+            if (!session || (session.surface !== 'overlay' && focusedAt <= this.popupOpenedAt)) return;
+            if (session.surface !== 'overlay' || session.originWindowId !== windowId) await this.finish(session);
         });
     }
 
-    async open(tabIds, windowId) {
-        const preferredWidth = 32 + tabIds.length * 120;
+    async open(tabIds, windowId, source, pressedAt) {
         const session = {
             token: crypto.randomUUID(),
             originId: tabIds[0],
@@ -150,8 +163,25 @@ export class TabSwitcher {
             selectedId: tabIds[1],
             incognito: false,
         };
+        if (this.overlay && source) {
+            let prepared = false;
+            const prepare = async () => {
+                await this.save({ ...session, surface: 'overlay' });
+                prepared = true;
+            };
+            if (await this.overlay.open(source, session.token, pressedAt, prepare).catch(() => false)) return;
+            if (prepared && !await this.inlineOriginIsActive(session)) {
+                await this.clear();
+                return;
+            }
+        }
+        await this.openPopup(session);
+    }
+
+    async openPopup(session) {
+        const preferredWidth = 32 + session.tabIds.length * 120;
         try {
-            const [window] = await Promise.all([this.chrome.windows.get(windowId), this.save(session)]);
+            const [window] = await Promise.all([this.chrome.windows.get(session.originWindowId), this.save(session)]);
             const width = Math.min(preferredWidth, window.width ?? preferredWidth);
             const height = Math.min(212, window.height ?? 212);
             const options = {
@@ -176,8 +206,9 @@ export class TabSwitcher {
     }
 
     receive(message, sender) {
-        if (message?.type !== TAB_SWITCHER_SESSION || !isTrustedExtensionMessage(message, sender, this.chrome) ||
-            !sender.url?.startsWith(this.pageUrl())) return;
+        if (message?.type !== TAB_SWITCHER_SESSION) return;
+        const popupSender = isTrustedExtensionMessage(message, sender, this.chrome) && sender.url?.startsWith(this.pageUrl());
+        if (!popupSender && !this.overlay?.isOverlayFrame(sender)) return;
         if (message.action === 'previews') return this.previewResponse(sender);
         return this.run(async () => {
             const session = await this.session();
@@ -186,6 +217,10 @@ export class TabSwitcher {
                 case 'next': return this.move(session, 1);
                 case 'previous': return this.move(session, -1);
                 case 'cancel': return this.finish(session, session.originId);
+                case 'previewSettings': return this.openPreviewSettings(session);
+                case 'inlinePreviewHint':
+                    if (session.surface === 'overlay') this.overlay?.setPreviewHint(session.token, message.visible);
+                    return;
                 case 'commit': {
                     const target = message.tabId ?? session.selectedId;
                     if (session.tabIds.includes(target)) return this.finish(session, target);
@@ -196,8 +231,66 @@ export class TabSwitcher {
     }
 
     isCurrentPicker(session, sender) {
-        return session && sender.tab && Boolean(sender.tab.incognito) === session.incognito &&
-            sender.url === this.pageUrl(session.token);
+        if (session?.surface === 'overlay') return this.overlay?.authorizes(session, sender);
+        return session && sender.tab && (sender.frameId === undefined || sender.frameId === 0) &&
+            Boolean(sender.tab.incognito) === session.incognito && sender.url === this.pageUrl(session.token);
+    }
+
+    inlineInput(token, action) {
+        return this.run(async () => {
+            const session = await this.session();
+            if (session?.surface !== 'overlay' || session.token !== token || !this.overlay?.ownsGesture(token)) return;
+            if (action === 'commit') await this.finish(session, session.selectedId);
+            else if (action === 'cancel') await this.finish(session);
+            else if (action === 'next' || action === 'previous') await this.move(session, action === 'next' ? 1 : -1);
+            else if (this.overlay?.hasPreviewHint(token)) {
+                if (action === 'previewSettings') await this.openPreviewSettings(session);
+                if (action === 'dismissPreviewHint') await this.chrome.storage.local.set({ [TAB_PREVIEW_HINT_DISMISSED]: true });
+            }
+        });
+    }
+
+    inlineLost(token) {
+        return this.run(async () => {
+            const session = await this.session();
+            if (session?.surface !== 'overlay' || session.token !== token) return;
+            await this.overlay?.close(token);
+            if (!await this.inlineOriginIsActive(session)) {
+                await this.clear();
+                return;
+            }
+            const { surface: _surface, ...popup } = session;
+            await this.openPopup(popup);
+        });
+    }
+
+    async inlineOriginIsActive(session) {
+        const window = await this.chrome.windows.get(session.originWindowId, { populate: true }).catch(() => null);
+        return Boolean(window?.focused && window.tabs?.some(tab => tab.id === session.originId && tab.active));
+    }
+
+    inlineSourceChanged(tabId, change) {
+        const attempt = this.overlay?.current;
+        if (attempt?.source.id === tabId && (change.url !== undefined || change.status === 'loading')) {
+            return this.inlineLost(attempt.token);
+        }
+    }
+
+    async openPreviewSettings(session) {
+        const window = await this.chrome.windows.get(session.originWindowId);
+        if (window?.type !== 'normal' || window.incognito || session.incognito) {
+            throw new Error('Cannot open preview settings in the original window.');
+        }
+        await this.chrome.tabs.create({
+            windowId: window.id,
+            url: this.chrome.runtime.getURL(`options.html#${TAB_SWITCHER_CAPTURE_ON_VISIT}`),
+            active: true,
+        });
+        try {
+            await this.chrome.windows.update(window.id, { focused: true });
+        } finally {
+            await this.finish(session);
+        }
     }
 
     async previewResponse(sender) {
@@ -221,8 +314,11 @@ export class TabSwitcher {
                 if (tab && Boolean(tab.incognito) === session.incognito) await focusOpenTab(this.chrome, tab.id);
             }
         } finally {
-            const popup = await this.findPopup(session);
-            if (popup) await this.chrome.windows.remove(popup.id);
+            if (session.surface === 'overlay') await this.overlay?.close(session.token);
+            else {
+                const popup = await this.findPopup(session);
+                if (popup) await this.chrome.windows.remove(popup.id);
+            }
             await this.clear();
         }
     }
@@ -236,6 +332,10 @@ export class TabSwitcher {
             }
             const session = await this.session();
             if (!session?.tabIds.includes(tabId)) return;
+            if (session.surface === 'overlay' && session.originId === tabId) {
+                await this.finish(session);
+                return;
+            }
             const tabIds = session.tabIds.filter(id => id !== tabId);
             if (tabIds.length < 2) {
                 await this.finish(session);
@@ -257,7 +357,7 @@ export class TabSwitcher {
     removeWindow() {
         return this.run(async () => {
             const session = await this.session();
-            if (session && !(await this.findPopup(session))) await this.clear();
+            if (session && session.surface !== 'overlay' && !(await this.findPopup(session))) await this.clear();
         });
     }
 }

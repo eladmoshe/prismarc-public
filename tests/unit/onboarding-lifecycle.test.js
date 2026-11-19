@@ -30,6 +30,7 @@ function background(completed = false, onboardingVersion = undefined, version = 
     runInNewContext(source, {
         registerZoomLaunchTabs() {},
         chrome, console, isTrustedExtensionMessage, TabSwitcher, dispatchTourMessage: async () => 'tour',
+        TabSwitcherOverlay: class { register() {} receive() {} isOnTab() { return false; } isOverlayFrame() { return false; } },
         TabSwitcherPreviews: class { register() {} },
         registerBookmarkListeners() {}, createCleanTabsHandler: () => () => {},
         NativeFavorites: class { install() {} async dispatch() { return []; } },

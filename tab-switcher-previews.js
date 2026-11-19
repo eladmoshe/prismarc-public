@@ -59,11 +59,17 @@ async function resizePreview(source) {
     }
 }
 
-function eligiblePage(tab) {
+export function eligiblePage(tab) {
     return Number.isInteger(tab?.id) && tab.id >= 0 && Number.isInteger(tab.windowId) &&
         tab.windowId >= 0 && tab.incognito === false &&
         /^https?:\/\//i.test(tab.url) && !tab.pendingUrl && !tab.discarded &&
         tab.status !== 'loading' && tab.status !== 'unloaded';
+}
+
+export function allowsPreviewUrl(url, excludedDomains) {
+    if (!Array.isArray(excludedDomains)) return false;
+    const host = new URL(url).hostname.toLowerCase().replace(/\.$/, '');
+    return !excludedDomains.some(domain => host === domain || host.endsWith('.' + domain));
 }
 
 function validSource(tab) {
@@ -84,12 +90,14 @@ function isSmallJpeg(data) {
 }
 
 export class TabSwitcherPreviews {
-    constructor(chromeApi, { now = Date.now, resize = resizePreview } = {}) {
+    constructor(chromeApi, { now = Date.now, resize = resizePreview, isCovered = () => false, coverVersion = () => 0 } = {}) {
         this.chrome = chromeApi;
         this.store = new TabSwitcherPreviewStore(chromeApi);
         this.retired = new Set();
         this.now = now;
         this.resize = resize;
+        this.isCovered = isCovered;
+        this.coverVersion = coverVersion;
         this.enabled = false;
         this.permitted = true;
         this.revision = 0;
@@ -365,18 +373,16 @@ export class TabSwitcherPreviews {
     }
 
     allowsUrl(url) {
-        if (!Array.isArray(this.excludedDomains)) return false;
-        const host = new URL(url).hostname.toLowerCase().replace(/\.$/, '');
-        return !this.excludedDomains.some(domain => host === domain || host.endsWith('.' + domain));
+        return allowsPreviewUrl(url, this.excludedDomains);
     }
 
     async isForeground(source) {
         const tab = await this.foregroundTab(source.windowId, source.id);
-        return validSource(tab) && tab.url === source.url && this.allowsUrl(tab.url);
+        return !this.isCovered(source.id) && validSource(tab) && tab.url === source.url && this.allowsUrl(tab.url);
     }
 
     async capture(source, visit = false) {
-        if (!validSource(source) || this.checking || !this.chrome.tabs.captureVisibleTab) return;
+        if (!validSource(source) || this.isCovered(source.id) || this.checking || !this.chrome.tabs.captureVisibleTab) return;
         if (!visit && this.hasFreshVisit(source.id)) return;
         const job = { tabId: source.id, windowId: source.windowId, invalid: false, visit };
         this.checking = job;
@@ -406,24 +412,26 @@ export class TabSwitcherPreviews {
         if (!this.jobAllowed(job) || this.pending.has(job.tabId) || this.captureDelay() ||
             !await this.isForeground(source) || !this.jobAllowed(job)) return;
         job.allowDisk = this.canCaptureVisit();
+        const cover = this.coverVersion();
         this.captureTimes.push(this.now());
         const image = this.chrome.tabs.captureVisibleTab(job.windowId, { format: 'jpeg', quality: 45 })
             .then(raw => ({ raw }), captureFailure);
         if (!await this.isForeground(source) || !this.jobAllowed(job)) return;
 
         this.pending.set(job.tabId, job);
-        job.preview = this.finishCapture(job, source, image);
+        job.preview = this.finishCapture(job, source, image, cover);
     }
 
     jobAllowed(job) {
         return !job.invalid && this.enabled && this.permitted && (!job.visit || this.canCaptureVisit());
     }
 
-    async finishCapture(job, source, image) {
+    async finishCapture(job, source, image, cover) {
         let deadline;
         try {
             const encoded = image.then(async result => {
                 if (!result.raw) return result;
+                if (cover !== this.coverVersion() || this.isCovered(job.tabId)) return {};
                 if (this.pending.get(job.tabId) !== job || !this.jobAllowed(job)) return {};
                 // Chrome has bound the capture to the verified WebContents.
                 // Check that the same document remains eligible after readback.

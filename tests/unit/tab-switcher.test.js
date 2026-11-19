@@ -18,6 +18,7 @@ function fixture() {
     ];
     const sessions = {};
     const updates = [];
+    const created = [];
     const focused = [];
     const lookup = id => windows.flatMap(window => window.tabs).find(tab => tab.id === id);
     const chrome = {
@@ -28,6 +29,7 @@ function fixture() {
             remove: async key => { delete sessions[key]; },
         } },
         tabs: {
+            create: async options => { created.push(options); },
             get: async id => lookup(id),
             update: async (id, props) => {
                 assert.deepEqual(props, { active: true });
@@ -62,7 +64,7 @@ function fixture() {
     const request = (controller, action, tabId) => controller.receive({ type: TAB_SWITCHER_SESSION, action, tabId }, {
         id: chrome.runtime.id, url: picker().url, tab: picker().tabs[0],
     });
-    return { chrome, windows, lookup, updates, focused, picker, state, request };
+    return { chrome, windows, lookup, updates, created, focused, picker, state, request };
 }
 
 test('one tab has no effect and two tabs open a picker on the first press', async () => {
@@ -82,6 +84,102 @@ test('one tab has no effect and two tabs open a picker on the first press', asyn
     await f.request(switcher, 'commit');
     assert.deepEqual(f.updates, [2]);
     assert.equal(f.picker(), undefined);
+});
+
+test('an observed Option release during inline startup switches once with no popup', async () => {
+    const f = fixture();
+    let release;
+    let stop;
+    const overlay = {
+        isOnTab: () => false,
+        ownsGesture: () => true,
+        open: async (_source, token, _pressedAt, prepare) => {
+            await prepare();
+            release = switcher.inlineInput(token, 'commit');
+            return true;
+        },
+        close: async token => { stop = token; },
+    };
+    const switcher = new TabSwitcher(f.chrome, undefined, overlay);
+    await switcher.invoke(f.lookup(1));
+    await release;
+    assert.deepEqual(f.updates, [2]);
+    assert.equal(f.picker(), undefined);
+    assert.equal(f.state(), undefined);
+    assert.equal(typeof stop, 'string');
+});
+
+test('queued native repeats advance once each before an observed startup release commits', async () => {
+    const f = fixture();
+    let reveal;
+    let opened;
+    const ready = new Promise(resolve => { opened = resolve; });
+    const opening = new Promise(resolve => { reveal = resolve; });
+    const overlay = {
+        isOnTab: () => true,
+        ownsGesture: () => true,
+        open: async (_source, token, _pressedAt, prepare) => {
+            await prepare();
+            opened(token);
+            return opening;
+        },
+        close: async () => {},
+    };
+    const switcher = new TabSwitcher(f.chrome, undefined, overlay);
+    const first = switcher.invoke(f.lookup(1));
+    const token = await ready;
+    const second = switcher.invoke(f.lookup(1));
+    const third = switcher.invoke(f.lookup(1));
+    const released = switcher.inlineInput(token, 'commit');
+    reveal(true);
+    await Promise.all([first, second, third, released]);
+    assert.deepEqual(f.updates, [4]);
+    assert.equal(f.picker(), undefined);
+    assert.equal(f.state(), undefined);
+});
+
+test('navigation in a source tab that lost focus does not open a focused picker', async () => {
+    const f = fixture();
+    const original = f.lookup(1);
+    const overlay = {
+        current: { source: original },
+        isOnTab: () => true,
+        ownsGesture: () => true,
+        open: async (_source, token, _pressedAt, prepare) => {
+            await prepare();
+            overlay.current.token = token;
+            return true;
+        },
+        close: async () => {},
+    };
+    const switcher = new TabSwitcher(f.chrome, undefined, overlay);
+    await switcher.invoke(original);
+    f.windows[0].focused = false;
+    await switcher.inlineSourceChanged(original.id, { status: 'loading' });
+    assert.equal(f.picker(), undefined);
+    assert.equal(f.state(), undefined);
+    assert.deepEqual(f.updates, []);
+    assert.deepEqual(f.focused, []);
+});
+
+test('a stale inline handshake cannot steal focus with a fallback popup', async () => {
+    const f = fixture();
+    f.windows[0].focused = true;
+    const original = f.lookup(1);
+    original.active = true;
+    const overlay = {
+        isOnTab: () => false,
+        open: async (_source, _token, _pressedAt, prepare) => {
+            await prepare();
+            f.windows[0].focused = false;
+            return false;
+        },
+    };
+    await new TabSwitcher(f.chrome, undefined, overlay).invoke(original);
+    assert.equal(f.picker(), undefined);
+    assert.equal(f.state(), undefined);
+    assert.deepEqual(f.updates, []);
+    assert.deepEqual(f.focused, []);
 });
 
 test('back-to-back commands with stale origin snapshot open one real picker and preserve duplicate URLs', async () => {
@@ -107,6 +205,25 @@ test('a delayed repeat with a stale origin advances the existing focused picker'
     assert.deepEqual(f.updates, []);
     await f.request(switcher, 'commit');
     assert.deepEqual(f.updates, [3]);
+    assert.equal(f.picker(), undefined);
+});
+
+test('a current picker opens preview settings in its regular origin without committing the highlighted tab', async () => {
+    const f = fixture();
+    const switcher = new TabSwitcher(f.chrome);
+    await switcher.invoke(f.lookup(1));
+    const picker = f.picker();
+    const sender = { id: f.chrome.runtime.id, url: picker.url, tab: picker.tabs[0] };
+    await switcher.receive({ type: TAB_SWITCHER_SESSION, action: 'previewSettings' }, { ...sender, url: switcher.pageUrl('stale') });
+    assert.deepEqual(f.created, []);
+    await Promise.all([
+        switcher.receive({ type: TAB_SWITCHER_SESSION, action: 'previewSettings' }, sender),
+        switcher.receive({ type: TAB_SWITCHER_SESSION, action: 'commit' }, sender),
+    ]);
+    assert.deepEqual(f.created, [{ windowId: 10, url: f.chrome.runtime.getURL('options.html#tabSwitcherCaptureOnVisit'), active: true }]);
+    assert.deepEqual(f.focused, [10]);
+    assert.deepEqual(f.updates, []);
+    assert.equal(f.state(), undefined);
     assert.equal(f.picker(), undefined);
 });
 
@@ -335,12 +452,15 @@ function pickerInputFixture(onMessage) {
     const timers = new Map();
     let nextTimer = 1;
     let messages = [];
+    let openingPreviewSettings = false;
     const script = readFileSync(new URL('../../public/tab-switcher-release.js', import.meta.url), 'utf8');
+    const window = { addEventListener(type, listener) { listeners.set(type, listener); } };
+    window.parent = window;
     runInNewContext(script, {
-        window: {
-            addEventListener(type, listener) { listeners.set(type, listener); },
-        },
-        document: { hasFocus: () => true },
+        window,
+        document: { hasFocus: () => true, documentElement: {
+            hasAttribute: name => name === 'data-opening-preview-settings' && openingPreviewSettings,
+        } },
         setTimeout(listener) {
             const id = nextTimer++;
             timers.set(id, listener);
@@ -368,7 +488,7 @@ function pickerInputFixture(onMessage) {
         messages = [];
         await Promise.all(pending);
     };
-    return { emit, expire, settle };
+    return { emit, expire, settle, openPreviewSettings() { openingPreviewSettings = true; } };
 }
 
 test('the head listener accepts only a trusted Option release before the renderer initializes', async () => {
@@ -381,6 +501,13 @@ test('the head listener accepts only a trusted Option release before the rendere
     f.emit('keyup', { key: 'Alt', altKey: false });
     await f.settle();
     assert.deepEqual(requests, [[TAB_SWITCHER_SESSION, 'commit']]);
+});
+
+test('releasing Option while opening preview settings does not commit a tab switch', async () => {
+    const f = pickerInputFixture(() => assert.fail('Should not commit an Option release while navigating to settings'));
+    f.openPreviewSettings();
+    f.emit('keyup', { key: 'Alt', altKey: false });
+    await f.settle();
 });
 
 test('a quiet first hold and a pause after advancing cannot activate a tab before Option release', async () => {

@@ -38,6 +38,8 @@ async function verifyBuild() {
     ...Object.values(manifest.icons ?? {}),
     ...Object.values(manifest.chrome_url_overrides ?? {}),
     ...(manifest.content_scripts ?? []).flatMap(entry => [...(entry.js ?? []), ...(entry.css ?? [])]),
+    ...(manifest.web_accessible_resources ?? []).flatMap(entry => entry.resources),
+    'tab-switcher-inline.js',
     // These pages are opened from runtime code rather than declared in the manifest.
     'installation-onboarding.html',
     'tutorial-practice.html',

@@ -95,7 +95,8 @@ export const BookmarkUtils = {
             createTabElement,
             activateTabInDOM,
             Utils,
-            persistSpaceTabOrder
+            persistSpaceTabOrder,
+            getSpacePinNameDefaults
         } = context;
 
         Logger.log('[BookmarkUtils] Opening bookmark as tab:', bookmarkData.url, targetSpaceId);
@@ -107,8 +108,13 @@ export const BookmarkUtils = {
             windowId: currentWindow.id
         });
 
-        // If bookmark has a custom name, set tab name override
-        if (bookmarkData.title && newTab.title !== bookmarkData.title) {
+        // Keep the legacy title fallback for ordinary bookmarks. A named
+        // Space pin gets its alias from its bookmark, not a tab-ID override.
+        const nameDefaults = isPinned && bookmarkData.bookmarkId && getSpacePinNameDefaults
+            ? await getSpacePinNameDefaults().catch(() => ({}))
+            : {};
+        const named = typeof nameDefaults[bookmarkData.bookmarkId] === 'string';
+        if (!named && bookmarkData.title && newTab.title !== bookmarkData.title) {
             await Utils.setTabNameOverride(newTab.id, bookmarkData.url, bookmarkData.title);
         }
 
@@ -158,7 +164,8 @@ export const BookmarkUtils = {
                 favIconUrl: newTab.favIconUrl,
                 spaceName: bookmarkData.spaceName,
                 pinnedUrl: bookmarkData.url,
-                bookmarkId: bookmarkData.bookmarkId || null
+                bookmarkId: bookmarkData.bookmarkId || null,
+                pinAlias: named ? bookmarkData.title : ''
             };
             const activeTabElement = await createTabElement(activeTabData, true, false);
             activeTabElement.classList.add('active');
@@ -220,7 +227,7 @@ export const BookmarkUtils = {
                 claimed.add(tab.id);
                 bookmarks.push(tab.id);
                 if (item.title && item.title !== tab.title && setTabNameOverride) {
-                    await setTabNameOverride(tab.id, tab.url, item.title);
+                    await setTabNameOverride(tab.id, tab.url, item.title, item.id);
                 }
                 if (setPinnedTabState) {
                     await setPinnedTabState(tab.id, { pinnedUrl: item.url, bookmarkId: item.id });

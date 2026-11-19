@@ -1,7 +1,4 @@
-import { enableVisitPreviews } from './tab-switcher-preview-settings.js';
-import { TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_PAGE_PREVIEWS } from './tab-switcher-previews.js';
-
-export const TAB_PREVIEW_HINT_DISMISSED = 'tabSwitcherPreviewHintDismissed';
+import { enableVisitPreviews, shouldOfferVisitPreviewHint, TAB_PREVIEW_HINT_DISMISSED, TAB_PREVIEW_HINT_PREFS } from './tab-switcher-preview-settings.js';
 
 export async function setupSidebarPreviewHint(currentWindow) {
     if (currentWindow.type !== 'normal' || currentWindow.incognito) return;
@@ -10,7 +7,6 @@ export async function setupSidebarPreviewHint(currentWindow) {
     const enable = document.getElementById('tabPreviewHintEnable');
     const dismiss = document.getElementById('tabPreviewHintDismiss');
     const message = document.getElementById('tabPreviewHintMessage');
-    const keys = [TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_PREVIEW_HINT_DISMISSED];
     let busy = false;
     let declinedHere = false;
     let dismissedHere = false;
@@ -18,11 +14,9 @@ export async function setupSidebarPreviewHint(currentWindow) {
 
     async function refresh() {
         const request = ++revision;
-        const settings = await chrome.storage.local.get(keys);
+        const settings = await chrome.storage.local.get(TAB_PREVIEW_HINT_PREFS);
         if (request !== revision) return;
-        const eligible = !dismissedHere && settings[TAB_SWITCHER_PAGE_PREVIEWS] !== false &&
-            settings[TAB_SWITCHER_CAPTURE_ON_VISIT] === undefined &&
-            (declinedHere || settings[TAB_PREVIEW_HINT_DISMISSED] !== true);
+        const eligible = !dismissedHere && shouldOfferVisitPreviewHint(settings, declinedHere);
         const moveFocus = !eligible && hint.contains(document.activeElement);
         hint.hidden = !eligible;
         if (moveFocus) document.getElementById('quickSwitcherBtn').focus({ preventScroll: true });
@@ -35,7 +29,7 @@ export async function setupSidebarPreviewHint(currentWindow) {
     }
 
     chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'local' && keys.some(key => changes[key])) refresh().catch(() => {});
+        if (area === 'local' && TAB_PREVIEW_HINT_PREFS.some(key => changes[key])) refresh().catch(() => {});
     });
     dismiss.addEventListener('click', async () => {
         if (busy || hint.hidden) return;

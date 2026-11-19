@@ -12,7 +12,15 @@
   <main class="switcher" aria-label="Recent tabs">
     <div id="tabs" class="tab-strip" role="listbox" aria-label="Open tabs in recent order"
         aria-orientation="horizontal" aria-busy="true" tabindex="0"></div>
-    <div id="selected-title" class="selected-title" aria-hidden="true"></div>
+    <div class="switcher-footer">
+      <div id="selected-title" class="selected-title" aria-hidden="true"></div>
+      <div id="preview-hint" class="preview-hint" role="group" aria-label="Tab preview setup" hidden>
+        <button id="preview-settings" class="preview-settings" type="button" aria-keyshortcuts="P Alt+P"
+          title="Open Settings to show previews for more pages where Chrome allows capture (P).">Fill more previews as you browse <kbd aria-hidden="true">P</kbd></button>
+        <button id="preview-dismiss" class="preview-dismiss" type="button" aria-label="Dismiss preview hint"
+          aria-keyshortcuts="X Alt+X" title="Dismiss preview hint (X)">×</button>
+      </div>
+    </div>
     <div id="switcher-status" class="switcher-status" role="status"></div>
   </main>
   <script type="module" src="tab-switcher-page.js"></script>
