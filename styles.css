@@ -60,6 +60,10 @@ h3 {
 }
 
 .sidebar-container {
+    --space-control-bg: rgba(255, 255, 255, 0.08);
+    --space-control-hover-bg: rgba(255, 255, 255, 0.18);
+    --space-control-active-bg: rgba(255, 255, 255, 0.28);
+    --space-control-active-hover-bg: rgba(255, 255, 255, 0.36);
     --space-bg-color: var(--space-base-color, rgba(255, 255, 255, 0.1));
     --space-bg-color-dark: var(--space-base-color-dark, rgba(255, 255, 255, 0.1));
     background: var(--space-gradient, none) var(--space-base-color, rgba(255, 255, 255, 0.1));
@@ -102,7 +106,7 @@ h3 {
 .sidebar-container[data-swipe-target="prismarc-light"] { --space-swipe-gradient: var(--prismarc-light-gradient); }
 
 .sidebar-container:is(.updating-space-color, .space-swipe-preview) :is(
-    .space-content, .pinned-tabs, .pinned-favicon, .folder, .tab, .tab-drag-preview-row, .space-switcher button, .add-space-toggle,
+    .space-content, .pinned-tabs, .pinned-favicon, .folder, .tab, .tab-drag-preview-row, .space-switcher button, .add-space-toggle, .sidebar-text-action,
     #newSpaceName, #createSpaceBtn
 ) {
     transition-property: none;
@@ -157,7 +161,7 @@ h3 {
 
 .tab-preview-hint[hidden] { display: none; }
 .tab-preview-hint p { padding-block: 3px; line-height: 1.35; }
-.tab-preview-hint button {
+.tab-preview-hint-dismiss {
     min-height: 26px;
     border: 0;
     border-radius: 5px;
@@ -166,17 +170,14 @@ h3 {
     font: inherit;
     cursor: pointer;
 }
-.tab-preview-hint button:hover { background: color-mix(in srgb, currentColor 20%, transparent); }
-.tab-preview-hint button:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
-.tab-preview-hint button[aria-disabled="true"] { cursor: default; }
-.tab-preview-hint .tab-preview-hint-enable {
+.tab-preview-hint-dismiss:hover { background: color-mix(in srgb, currentColor 20%, transparent); }
+.tab-preview-hint-dismiss:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.tab-preview-hint-dismiss[aria-disabled="true"] { cursor: default; }
+.tab-preview-hint-enable {
     grid-row: 2;
     justify-self: start;
-    padding-inline: 8px;
-    background: color-mix(in srgb, currentColor 13%, transparent);
-    font-weight: 600;
 }
-.tab-preview-hint .tab-preview-hint-dismiss {
+.tab-preview-hint-dismiss {
     grid-area: 1 / 2;
     width: 26px;
     font-size: 17px;
@@ -973,8 +974,9 @@ h3 {
 }
 
 .space-switcher button,
-.add-space-toggle {
-    height: 32px;
+.add-space-toggle,
+.sidebar-text-action {
+    min-height: 32px;
     border-radius: 8px;
     border: none;
     background-color: var(--space-control-bg);
@@ -984,12 +986,23 @@ h3 {
     transition: background-color 0.2s ease;
 }
 
+.space-switcher button,
+.sidebar-text-action {
+    padding-inline: 10px;
+    font-size: 13px;
+}
+
+.sidebar-text-action {
+    max-width: 100%;
+    padding-block: 4px;
+    overflow-wrap: anywhere;
+}
+
 .space-switcher button {
+    height: 32px;
     min-width: 32px;
     max-width: none;
     width: auto;
-    padding: 0 10px;
-    font-size: 13px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -997,24 +1010,46 @@ h3 {
 }
 
 .space-switcher button:hover,
-.add-space-toggle:hover {
+.add-space-toggle:hover,
+.sidebar-text-action:enabled:not([aria-disabled="true"]):hover {
     background-color: var(--space-control-hover-bg);
 }
 
 .space-switcher button.active,
-.add-space-toggle.active {
+.add-space-toggle.active,
+.sidebar-text-action-primary {
     background-color: var(--space-control-active-bg);
 }
 
 .space-switcher button.active:hover,
-.add-space-toggle.active:hover {
+.add-space-toggle.active:hover,
+.sidebar-text-action-primary:enabled:not([aria-disabled="true"]):hover {
     background-color: var(--space-control-active-hover-bg);
 }
 
 .space-switcher button:focus-visible,
-.add-space-toggle:focus-visible {
+.add-space-toggle:focus-visible,
+.sidebar-text-action:focus-visible {
     outline: 2px solid currentColor;
     outline-offset: -2px;
+}
+
+.sidebar-text-action:is(:disabled, [aria-disabled="true"]) {
+    opacity: .6;
+    cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sidebar-text-action { transition: none; }
+}
+
+@media (forced-colors: active) {
+    .sidebar-text-action {
+        border: 1px solid ButtonText;
+    }
+    .sidebar-text-action-primary {
+        border: 2px solid Highlight;
+    }
 }
 
 .space-switcher button.space-drag-hover,
@@ -1350,16 +1385,14 @@ h3 {
     padding: 4px;
 }
 
+
 .space-switcher-container {
-    --space-control-bg: rgba(255, 255, 255, 0.08);
-    --space-control-hover-bg: rgba(255, 255, 255, 0.18);
-    --space-control-active-bg: rgba(255, 255, 255, 0.28);
-    --space-control-active-hover-bg: rgba(255, 255, 255, 0.36);
     position: relative;
     margin-top: 8px;
 }
 
 .add-space-toggle {
+    height: 32px;
     position: absolute;
     right: 0;
     top: 8px;
@@ -2157,11 +2190,12 @@ h3 {
         background-color: rgba(255, 255, 255, 0.1);
     }
 
-    .space-switcher-container {
-        --space-control-bg: rgba(0, 0, 0, 0.04);
-        --space-control-hover-bg: rgba(0, 0, 0, 0.12);
-        --space-control-active-bg: rgba(0, 0, 0, 0.18);
-        --space-control-active-hover-bg: rgba(0, 0, 0, 0.24);
+    .sidebar-container {
+        /* Keep light labels legible even on the brightest flat space colors. */
+        --space-control-bg: rgb(0 0 0 / 30%);
+        --space-control-hover-bg: rgb(0 0 0 / 36%);
+        --space-control-active-bg: rgb(0 0 0 / 44%);
+        --space-control-active-hover-bg: rgb(0 0 0 / 50%);
     }
 
     .tab-title-display,
@@ -2276,6 +2310,10 @@ h3 {
 }
 
 .sidebar-container[data-space-theme="prismarc"] {
+    --space-control-bg: #ffffff0f;
+    --space-control-hover-bg: #ffffff1f;
+    --space-control-active-bg: #ffffff29;
+    --space-control-active-hover-bg: #ffffff35;
     --sidebar-appearance: dark;
     color-scheme: dark;
     color: #eceff1;
@@ -2300,18 +2338,18 @@ h3 {
 }
 [data-space-theme="prismarc"] .options-separator { background: #ffffff35; }
 
-[data-space-theme="prismarc"] .space-switcher-container {
-    --space-control-bg: #ffffff0f;
-    --space-control-hover-bg: #ffffff1f;
-    --space-control-active-bg: #ffffff29;
-    --space-control-active-hover-bg: #ffffff35;
-}
 
 /* Let portaled menus and drag ghosts inherit the same light palette. */
 body:has(> .sidebar-container[data-space-theme="prismarc-light"]) {
     --sidebar-appearance: light;
     color-scheme: light;
     color: var(--prismarc-light-ink);
+}
+.sidebar-container[data-space-theme="prismarc-light"] {
+    --space-control-bg: rgb(255 255 255 / 22%);
+    --space-control-hover-bg: var(--prismarc-light-frost);
+    --space-control-active-bg: var(--prismarc-light-accent);
+    --space-control-active-hover-bg: #394c90;
 }
 [data-space-theme="prismarc-light"] :is(.space-name, .folder-name, .tab-title-display, .tab-title-input) {
     color: var(--prismarc-light-ink);
@@ -2336,13 +2374,7 @@ body:has(> .sidebar-container[data-space-theme="prismarc-light"]) {
 [data-space-theme="prismarc-light"] .folder {
     background: transparent;
 }
-[data-space-theme="prismarc-light"] .space-switcher-container {
-    --space-control-bg: rgb(255 255 255 / 22%);
-    --space-control-hover-bg: var(--prismarc-light-frost);
-    --space-control-active-bg: var(--prismarc-light-accent);
-    --space-control-active-hover-bg: #394c90;
-}
-[data-space-theme="prismarc-light"] :is(.space-switcher button.active, .add-space-toggle.active) {
+[data-space-theme="prismarc-light"] :is(.space-switcher button.active, .add-space-toggle.active, .sidebar-text-action-primary) {
     color: white;
 }
 [data-space-theme="prismarc-light"] .space-options-dropdown { background: #f5f5ff; }
@@ -2363,7 +2395,11 @@ body:has(> .sidebar-container[data-space-theme="prismarc-light"]) {
     font-size: 13px;
 }
 .tab-group-import p { margin: 0 0 8px; }
-.tab-group-import button { margin-right: 8px; padding: 6px 10px; cursor: pointer; }
+.tab-group-import-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
 
 .space-store-status {
     padding: 8px 10px;

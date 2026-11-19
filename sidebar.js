@@ -910,9 +910,15 @@ async function offerTabGroupImport() {
     notice.className = 'tab-group-import';
     const text = document.createElement('p');
     text.textContent = 'Create spaces from your existing Chrome tab groups? Your groups will stay unchanged.';
+    const actions = document.createElement('div');
+    actions.className = 'tab-group-import-actions';
     const accept = document.createElement('button');
+    accept.type = 'button';
+    accept.className = 'sidebar-text-action sidebar-text-action-primary';
     accept.textContent = 'Create spaces';
     const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'sidebar-text-action';
     dismiss.textContent = 'No thanks';
     accept.onclick = async () => {
         accept.disabled = true;
@@ -926,7 +932,8 @@ async function offerTabGroupImport() {
         await chrome.storage.local.set({ tabGroupImportDismissed: true });
         notice.remove();
     };
-    notice.append(text, accept, dismiss);
+    actions.append(accept, dismiss);
+    notice.append(text, actions);
     document.getElementById('sidebar-container').prepend(notice);
 }
 
@@ -2776,6 +2783,7 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer, { force = 
         notice.textContent = 'Favorites are temporarily unavailable. Your bookmarks were not changed. ';
         const retry = document.createElement('button');
         retry.type = 'button';
+        retry.className = 'sidebar-text-action';
         retry.textContent = 'Retry';
         retry.addEventListener('click', () => scheduleBookmarkRefresh());
         notice.appendChild(retry);
