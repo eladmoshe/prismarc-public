@@ -1,4 +1,5 @@
 import { TAB_AUDIO_ICON, TAB_MUTED_ICON } from './icons.js';
+import { Logger } from './logger.js';
 
 export function isAudioOnlyTabChange(change) {
     const keys = Object.keys(change);
@@ -50,27 +51,81 @@ export function tabAudioState(tab) {
     return tab.audible === true ? 'audible' : null;
 }
 
-// Native metadata only: this indicator neither controls nor captures audio.
-export function updateTabAudioIndicator(element, tab, { live = true } = {}) {
-    const state = live ? tabAudioState(tab) : null;
-    let indicator = element.querySelector(':scope > .tab-audio-indicator');
-    const label = state === 'audible' ? 'Playing audio' : state === 'muted' ? 'Muted' : '';
-    if (state) {
-        if (!indicator) {
-            indicator = element.ownerDocument.createElement('span');
-            indicator.className = 'tab-audio-indicator';
-            indicator.setAttribute('role', 'img');
-            element.append(indicator);
+function createAudioButton(element, { id, windowId }, chromeApi) {
+    const button = element.ownerDocument.createElement('button');
+    button.className = 'tab-audio-indicator';
+    button.type = 'button';
+    let pending = false;
+    let releasedOutside = false;
+
+    // Keep a press on the speaker from turning into a click on the surrounding row.
+    button.addEventListener('pointerdown', event => {
+        if (event.button !== 0 && event.button !== 1) return;
+        releasedOutside = false;
+        button.setPointerCapture(event.pointerId);
+    });
+    button.addEventListener('pointerup', event => {
+        const hit = element.ownerDocument.elementFromPoint(event.clientX, event.clientY);
+        releasedOutside = !button.contains(hit);
+    });
+
+    // Prevent the draggable row from starting a native drag on this control.
+    button.addEventListener('mousedown', event => {
+        event.preventDefault();
+        if (event.button === 0) button.focus({ preventScroll: true });
+    });
+    for (const type of ['auxclick', 'dblclick']) {
+        button.addEventListener(type, event => {
+            event.preventDefault();
+            event.stopPropagation();
+        });
+    }
+    button.addEventListener('click', async event => {
+        event.stopPropagation();
+        if (pending || !button.isConnected || (event.detail > 0 && releasedOutside)) return;
+        pending = true;
+        try {
+            const current = await chromeApi.tabs.get(id);
+            if (!button.isConnected || current.windowId !== windowId || !tabAudioState(current)) return;
+            await chromeApi.tabs.update(id, { muted: current.mutedInfo?.muted !== true });
+        } catch (error) {
+            Logger.warn(Logger.context('Could not change tab mute.'), error);
+        } finally {
+            pending = false;
         }
+    });
+    return button;
+}
+
+export function updateTabAudioIndicator(element, tab, { live = true, chromeApi = globalThis.chrome } = {}) {
+    const state = live ? tabAudioState(tab) : null;
+    const favorite = element.classList.contains('pinned-favicon');
+    // Native Favorites keep their activation and audio as sibling buttons.
+    const host = favorite ? element.closest('.favorite-tile') : element;
+    let indicator = host?.querySelector(':scope > .tab-audio-indicator');
+    const label = state === 'audible' ? 'Playing audio' : state === 'muted' ? 'Muted' : '';
+    if (state && host) {
+        if (!indicator) {
+            indicator = createAudioButton(element, tab, chromeApi);
+            const close = favorite ? null : host.querySelector(':scope > .tab-close, :scope > .tab-remove');
+            host.insertBefore(indicator, close);
+        }
+        const name = element.querySelector('.tab-title-display')?.textContent || tab.title || '';
+        const action = state === 'muted' ? 'Unmute tab' : 'Mute tab';
         indicator.dataset.audioState = state;
         indicator.innerHTML = state === 'muted' ? TAB_MUTED_ICON : TAB_AUDIO_ICON;
-        indicator.setAttribute('aria-label', label);
+        indicator.title = action;
+        indicator.setAttribute('aria-label', name ? `${action}: ${name}` : action);
         element.dataset.audioState = state;
     } else {
+        const restoreFocus = indicator && element.ownerDocument.activeElement === indicator;
         indicator?.remove();
+        if (restoreFocus) {
+            if (!favorite) element.tabIndex = -1;
+            element.focus({ preventScroll: true });
+        }
         delete element.dataset.audioState;
     }
-    const favorite = element.classList.contains('pinned-favicon');
     let baseTitle = favorite ? element.dataset.audioBaseTitle || '' : element.title || '';
     const previousLabel = element.dataset.audioLabel;
     if (!favorite && previousLabel && baseTitle.endsWith(`\n${previousLabel}`)) {

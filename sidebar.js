@@ -361,16 +361,10 @@ async function updatePinnedFavicons() {
     pinnedFavicons.style.setProperty('--favorite-columns', Math.max(1, Math.min(4, pinnedTabs.length)));
     pinnedFavicons.classList.toggle('empty', pinnedTabs.length === 0);
 
-    // Remove favicon elements for tabs that are no longer pinned
-    Array.from(pinnedFavicons.children).forEach(element => {
-        // Only remove elements that are pinned favicons (have the pinned-favicon class)
-        if (element.classList.contains('pinned-favicon')) {
-            const tabId = element.dataset.tabId;
-            if (!pinnedTabs.some(tab => tab.id.toString() === tabId)) {
-                element.remove();
-            }
-        }
-    });
+    for (const tile of pinnedFavicons.querySelectorAll(':scope > .favorite-tile')) {
+        const tabId = Number(tile.querySelector('.pinned-favicon')?.dataset.tabId);
+        if (!pinnedTabs.some(tab => tab.id === tabId)) tile.remove();
+    }
 
     pinnedTabs.forEach(tab => {
         // Check if favicon element already exists for this tab
@@ -409,7 +403,10 @@ async function updatePinnedFavicons() {
                 faviconElement.classList.remove('dragging');
             });
 
-            pinnedFavicons.appendChild(faviconElement);
+            const tile = document.createElement('div');
+            tile.className = 'favorite-tile';
+            tile.append(faviconElement);
+            pinnedFavicons.append(tile);
             existingElement = faviconElement;
         }
         existingElement.dataset.pinnedUrl = tab.baseUrl || tab.url;
@@ -437,7 +434,7 @@ async function updatePinnedFavicons() {
     if (pinOrder.some((element, index) => Number(element.dataset.tabId) !== pinnedTabs[index]?.id)) {
         pinnedTabs.forEach(tab => {
             const element = pinnedFavicons.querySelector(`[data-tab-id="${tab.id}"]`);
-            if (element) pinnedFavicons.appendChild(element);
+            if (element) pinnedFavicons.append(element.closest('.favorite-tile'));
         });
     }
     calendarPreview?.position();
@@ -513,32 +510,15 @@ async function updatePinnedFavicons() {
 
             // If dragging a pinned favicon to reorder, handle positioning
             if (draggingElement.classList.contains('pinned-favicon')) {
-                const afterElement = getFavoriteDropTarget(pinnedFavicons, e.clientX, e.clientY);
-                if (afterElement) {
-                    // Check if this is a placeholder (empty container)
-                    if (afterElement.classList.contains('pinned-placeholder-container')) {
-                        // Empty container - append directly and hide placeholder
-                        pinnedFavicons.appendChild(draggingElement);
-                        afterElement.style.display = 'none';
-                    } else {
-                        // Normal positioning logic for actual favicons
-                        const position = getDropPosition(afterElement, e.clientX, e.clientY, true);
-
-                        // Position element based on indicator logic
-                        if (position === 'left') {
-                            pinnedFavicons.insertBefore(draggingElement, afterElement);
-                        } else { // 'right'
-                            const nextSibling = afterElement.nextElementSibling;
-                            if (nextSibling) {
-                                pinnedFavicons.insertBefore(draggingElement, nextSibling);
-                            } else {
-                                pinnedFavicons.appendChild(draggingElement);
-                            }
-                        }
-                    }
+                const tile = draggingElement.closest('.favorite-tile');
+                const target = getFavoriteDropTarget(pinnedFavicons, e.clientX, e.clientY);
+                const targetTile = target?.closest('.favorite-tile');
+                if (targetTile) {
+                    const position = getDropPosition(target, e.clientX, e.clientY, true);
+                    pinnedFavicons.insertBefore(tile, position === 'left' ? targetTile : targetTile.nextElementSibling);
                 } else {
-                    // Fallback: append to end
-                    pinnedFavicons.appendChild(draggingElement);
+                    pinnedFavicons.append(tile);
+                    if (target) target.style.display = 'none';
                 }
                 const ids = [...pinnedFavicons.querySelectorAll('.pinned-favicon[data-tab-id]')]
                     .map(el => Number(el.dataset.tabId));
@@ -2401,6 +2381,7 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
                     const sourceContent = sourceFolder?.querySelector(':scope > .folder-content');
                     removeProjectedAnchor(sourceContent, element);
                     targetContainer.insertBefore(element, insertBefore);
+                    if (originalContent.classList.contains('favorite-tile')) originalContent.remove();
                     const dropIntent = container.dataset.tabType === 'temporary'
                         ? { crossSpaceDrop, temporaryDisplayOrder: getTempSectionTabIds(spaceElement), inverted: dropInverted, offerUndo: draggingElements.length === 1 }
                         : {

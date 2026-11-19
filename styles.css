@@ -188,6 +188,11 @@ h3 {
     max-height: none;
 }
 
+.favorite-tile {
+    position: relative;
+    min-width: 0;
+}
+
 .pinned-favicon {
     position: relative;
     width: 100%;
@@ -1147,22 +1152,33 @@ h3 {
 }
 
 .tab-audio-indicator {
-    position: absolute;
-    left: 24px;
-    top: calc(50% + 1px);
     display: grid;
     place-items: center;
-    width: 12px;
-    height: 12px;
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
     border-radius: 50%;
     background: #f3f0f4;
     color: #39434a;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
-    pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12);
+    cursor: pointer;
 }
-.tab-audio-indicator svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-.pinned-favicon > .tab-audio-indicator { left: calc(50% + 3px); top: calc(50% + 3px); width: 14px; height: 14px; }
-.pinned-favicon > .tab-audio-indicator svg { width: 12px; height: 12px; }
+.tab-audio-indicator:hover { filter: brightness(.92); }
+.tab-audio-indicator:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -3px;
+}
+.tab-audio-indicator svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.tab > .tab-audio-indicator { margin-inline-start: 4px; }
+.tab:has(> .tab-audio-indicator) > :is(.tab-close, .tab-remove) { margin-inline-start: 4px; }
+.favorite-tile > .tab-audio-indicator {
+    position: absolute;
+    inset-inline-end: 0;
+    bottom: 0;
+    max-width: calc(50% - 1px);
+}
 @media (prefers-color-scheme: dark) { body:not(:has(> .sidebar-container[data-space-theme="prismarc-light"])) .tab-audio-indicator { background: #38404a; color: #eceff1; box-shadow: 0 0 0 1px rgba(255, 255, 255, .18); } }
 
 /* Arc-like: when a pinned tab has navigated away, favicon becomes a back-to-pinned button */

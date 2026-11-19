@@ -17,36 +17,87 @@ test('audio state distinguishes native mute from recent sound and rejects non-li
 });
 
 function host(favorite = false) {
-    const element = {
-        dataset: favorite ? { audioBaseTitle: 'Saved favorite\nhttps://example.test/\nDouble-click to return to saved URL' } : {},
-        title: '', attributes: {}, children: [],
-        classList: { contains: name => favorite && name === 'pinned-favicon' },
+    const ownerDocument = {
+        createElement(tagName) {
+            return {
+                tagName, dataset: {}, attributes: {}, listeners: {}, isConnected: true,
+                setAttribute(name, value) { this.attributes[name] = value; },
+                addEventListener(type, listener) { this.listeners[type] = listener; },
+                focus() { ownerDocument.activeElement = this; },
+            };
+        },
+    };
+    const parent = {
+        children: [],
         querySelector(selector) {
-            if (selector === '.tab-title-display') return { textContent: 'A renamed tab' };
+            if (!selector.includes('.tab-audio-indicator')) return null;
             return this.children.find(child => child.className === 'tab-audio-indicator');
         },
-        append(child) { this.children.push(child); child.remove = () => { this.children = this.children.filter(node => node !== child); }; },
+        insertBefore(child) {
+            this.children.push(child);
+            child.remove = () => {
+                child.isConnected = false;
+                this.children = this.children.filter(node => node !== child);
+            };
+        },
+    };
+    const element = {
+        ...parent, children: [],
+        dataset: favorite ? { audioBaseTitle: 'Saved favorite\nhttps://example.test/\nDouble-click to return to saved URL' } : {},
+        title: '', attributes: {},
+        classList: { contains: name => favorite && name === 'pinned-favicon' },
+        closest(selector) { return favorite && selector === '.favorite-tile' ? parent : null; },
+        querySelector(selector) {
+            if (selector === '.tab-title-display') return { textContent: 'A renamed tab' };
+            return parent.querySelector.call(this, selector);
+        },
         setAttribute(name, value) { this.attributes[name] = value; },
-        ownerDocument: { createElement() { return { dataset: {}, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } }; } },
+        focus() { ownerDocument.activeElement = this; },
+        ownerDocument,
     };
     return element;
 }
 
-test('live updates replace/remove a single noninteractive badge and preserve Favorite action descriptions', () => {
+test('live updates preserve the sound button as a sibling of a Favorite and keep its accessible title', () => {
     const element = host(true);
-    updateTabAudioIndicator(element, { id: 7, audible: true });
-    assert.equal(element.children.length, 1);
-    assert.equal(element.children[0].attributes['aria-label'], 'Playing audio');
-    assert.equal(element.children[0].attributes.role, 'img');
+    const tile = element.closest('.favorite-tile');
+    updateTabAudioIndicator(element, { id: 7, audible: true, title: 'Saved favorite' });
+    assert.equal(element.children.length, 0);
+    assert.equal(tile.children.length, 1);
+    const [button] = tile.children;
+    assert.equal(button.tagName, 'button');
+    assert.equal(button.attributes['aria-label'], 'Mute tab: A renamed tab');
     assert.match(element.attributes['aria-label'], /Double-click to return to saved URL\nPlaying audio$/);
     updateTabAudioIndicator(element, { id: 7, audible: true, mutedInfo: { muted: true } });
-    assert.equal(element.children.length, 1);
-    assert.equal(element.children[0].attributes['aria-label'], 'Muted');
+    assert.equal(tile.children[0], button);
+    assert.equal(button.attributes['aria-label'], 'Unmute tab: A renamed tab');
     assert.doesNotMatch(element.title, /Playing audio/);
+    button.focus();
     updateTabAudioIndicator(element, { id: 7, audible: false, mutedInfo: { muted: false } });
-    assert.equal(element.children.length, 0);
+    assert.equal(tile.children.length, 0);
+    assert.equal(element.ownerDocument.activeElement, element);
     assert.equal(element.title, element.dataset.audioBaseTitle);
     assert.equal(element.dataset.audioState, undefined);
+});
+
+test('speaker actions check fresh mute state and never change activation or another window', async () => {
+    const element = host();
+    const actions = [];
+    let current = { id: 7, windowId: 1, audible: true, mutedInfo: { muted: true } };
+    const chromeApi = { tabs: {
+        get: async () => current,
+        update: async (id, changes) => actions.push([id, changes]),
+    } };
+    updateTabAudioIndicator(element, { ...current, mutedInfo: { muted: false } }, { chromeApi });
+    const [button] = element.children;
+    const click = { stopPropagation() {} };
+    await button.listeners.click(click);
+    assert.deepEqual(actions, [[7, { muted: false }]], 'The native state wins over the last painted badge');
+    current = { ...current, windowId: 2 };
+    await button.listeners.click(click);
+    current = { ...current, windowId: 1, mutedInfo: { muted: false }, audible: false };
+    await button.listeners.click(click);
+    assert.equal(actions.length, 1);
 });
 
 test('offline bookmarks never inherit audio and updates stay within the native owning window', () => {
