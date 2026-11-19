@@ -1,5 +1,5 @@
 import { isTrustedExtensionMessage } from './message-security.js';
-import { DEFAULT_SPACE_COLOR } from './space-colors.js';
+import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR } from './space-colors.js';
 import { spaceRequest } from './space-client.js';
 import { setSidebarFavicon, wrapSidebarFavicon } from './sidebar-favicon.js';
 /**
@@ -106,7 +106,8 @@ export function setupSpaceColorPicker(select, palette) {
         button.dataset.color = option.value;
         button.title = option.text;
         button.setAttribute('aria-label', option.text);
-        if (option.value === DEFAULT_SPACE_COLOR) {
+        if (option.value === DEFAULT_SPACE_COLOR || option.value === LIGHT_SPACE_COLOR) {
+            button.classList.add('preset-swatch');
             const chip = document.createElement('span');
             chip.className = 'prismarc-color-chip';
             chip.setAttribute('aria-hidden', 'true');

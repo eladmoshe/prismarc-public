@@ -207,7 +207,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-    .calendar-preview {
+    body:not(:has(> .sidebar-container[data-space-color="prismarc-light"])) .calendar-preview {
         --calendar-surface: #20282d;
         --calendar-text: #eef4f6;
         --calendar-muted: #bcc9d0;

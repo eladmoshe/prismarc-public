@@ -8,7 +8,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-    .temporary-tabs {
+    :where(.sidebar-container:not([data-space-color="prismarc-light"])) .temporary-tabs {
         --clean-accent: #bfcbff;
         --clean-accent-text: #182641;
         --clean-surface: color-mix(in srgb, var(--space-bg-color, #2b3444) 36%, #252d3b);

@@ -37,7 +37,7 @@ body {
 
 .tab-strip:focus { outline: none; }
 .tab-strip:focus-visible:not([aria-activedescendant]) {
-    outline: 2px solid #c7d7ef;
+    outline: 2px solid var(--picker-focus, #c7d7ef);
     outline-offset: -3px;
     border-radius: 9px;
 }
@@ -59,13 +59,13 @@ body {
     place-items: center;
     aspect-ratio: 1.23;
     overflow: hidden;
-    border: 1px solid #ffffff3b;
+    border: 1px solid var(--preview-border, #ffffff3b);
     border-radius: 8px;
     isolation: isolate;
     background:
         radial-gradient(ellipse at 88% 0%, hsl(var(--site-hue) 67% 69% / 54%), transparent 71%),
         linear-gradient(135deg, hsl(var(--site-hue) 38% 39%), hsl(var(--site-hue) 29% 20%));
-    box-shadow: inset 0 1px 0 #ffffff27, 0 2px 6px #11141b50;
+    box-shadow: inset 0 1px 0 #ffffff27, var(--preview-shadow, 0 2px 6px #11141b50);
 }
 
 .tile-art::before,
@@ -128,7 +128,7 @@ body {
 .tab-tile:focus-visible .tile-art {
     border: 3px solid var(--prismarc-periwinkle);
     outline: 0;
-    box-shadow: 0 2px 6px #11141b50;
+    box-shadow: var(--preview-shadow, 0 2px 6px #11141b50);
 }
 
 .tile-badge {
@@ -139,11 +139,11 @@ body {
     aspect-ratio: 1;
     display: grid;
     place-items: center;
-    border: 2px solid #4e5a6a;
+    border: 2px solid var(--badge-border, #4e5a6a);
     border-radius: 50%;
     background: #f4f6fb;
     color: #263347;
-    box-shadow: 0 2px 7px #141720ab;
+    box-shadow: var(--badge-shadow, 0 2px 7px #141720ab);
     font-size: 15px;
     line-height: 1;
     font-weight: 700;
@@ -177,6 +177,29 @@ body {
 }
 .switcher-status:empty { display: none; }
 
+:root[data-space-color="prismarc-light"] {
+    color-scheme: light;
+    color: var(--prismarc-light-ink);
+    background: var(--prismarc-light-gradient) var(--prismarc-light-base);
+    --picker-focus: var(--prismarc-light-accent);
+    --preview-border: #51628652;
+    --preview-shadow: 0 2px 6px #35416c2b;
+    --badge-border: #7482a0;
+    --badge-shadow: 0 2px 5px #39497738;
+}
+[data-space-color="prismarc-light"] .tile-art {
+    background: radial-gradient(ellipse at 88% 0%, hsl(var(--site-hue) 62% 91%), transparent 76%),
+        linear-gradient(135deg, hsl(var(--site-hue) 53% 82%), hsl(var(--site-hue) 33% 74%));
+}
+[data-space-color="prismarc-light"] .tile-mark {
+    color: var(--prismarc-light-ink);
+    text-shadow: none;
+}
+[data-space-color="prismarc-light"] .tab-tile:hover .tile-art { border-color: var(--prismarc-light-muted); }
+[data-space-color="prismarc-light"] .tab-tile:is([data-selected="true"], :focus-visible) .tile-art,
+[data-space-color="prismarc-light"] .tab-tile[data-selected="true"] .tile-badge { border-color: var(--picker-focus); }
+[data-space-color="prismarc-light"] .switcher-status { color: #8b244a; }
+
 @media (max-width: 339px) {
     .switcher { padding-inline: 9px; }
 }
@@ -187,6 +210,7 @@ body {
 }
 
 @media (forced-colors: active) {
+    :root[data-space-color="prismarc-light"] { --picker-focus: Highlight; --badge-border: ButtonText; }
     .tab-tile[data-selected="true"] .tile-art,
     .tab-tile:focus-visible .tile-art { border-color: Highlight; }
     .tile-badge { border-color: ButtonText; }

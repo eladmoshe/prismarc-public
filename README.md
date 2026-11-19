@@ -2,6 +2,8 @@
 
 PrismArc is a fork of [Arcify](https://github.com/nisargkolhe/arcify), originally created by Nisarg Kolhe and maintained by the Arcify contributors. It provides a vertical sidebar for organizing tabs into spaces, saving favorites, and moving between tabs.
 
+In the sidebar’s space color menu, choose **PrismArc Light** for a blue-to-lavender sidebar, Quick Switcher, and Recent Tabs picker. New spaces start with the dark **PrismArc** preset.
+
 This fork began on **2026-11-16** from [Arcify 5.2.0](https://github.com/nisargkolhe/arcify/tree/e565122217c2c106faa6dccdc4f8ced3ec5b423c). Its changes include local extension storage, a smaller runtime permission surface, native tab and history search, a recent-tab picker, and an optional Google Calendar preview.
 
 This repository contains source snapshots for review. Use a link to a specific commit when reporting a finding or recording which version you reviewed.

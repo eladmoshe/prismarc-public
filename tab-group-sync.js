@@ -1,4 +1,6 @@
-import { DEFAULT_SPACE_COLOR } from './space-colors.js';
+import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR } from './space-colors.js';
+
+const presetGroupColors = new Map([[DEFAULT_SPACE_COLOR, 'grey'], [LIGHT_SPACE_COLOR, 'blue']]);
 
 // Optional, one-way projection. This is the only module allowed to mutate groups.
 // Space identity and ordering never depend on the projection succeeding.
@@ -28,7 +30,7 @@ export async function syncSpaceGroups(spaces, activeSpaces = {}) {
             next[key] = groupId;
             const collapsed = Boolean(activeSpaces[windowId] && activeSpaces[windowId] !== space.id);
             // Chrome tab groups accept named solid colors only.
-            const color = space.color === DEFAULT_SPACE_COLOR ? 'grey' : space.color;
+            const color = presetGroupColors.get(space.color) ?? space.color;
             if (!liveGroup || liveGroup.title !== space.name || liveGroup.color !== color || liveGroup.collapsed !== collapsed) {
                 await chrome.tabGroups.update(groupId, { title: space.name, color, collapsed });
             }

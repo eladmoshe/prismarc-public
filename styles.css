@@ -18,6 +18,8 @@
     --sidebar-appearance: light;
     --chrome-prismarc-color: var(--prismarc-charcoal);
     --chrome-prismarc-color-dark: #3a4455;
+    --chrome-prismarc-light-color: var(--prismarc-light-base);
+    --chrome-prismarc-light-color-dark: var(--prismarc-light-frost);
 
     /* User color overrides (set via JavaScript, fallback to defaults) */
     --chrome-grey-color: var(--user-chrome-grey-color, #cccccc);
@@ -68,7 +70,7 @@ h3 {
 }
 
 .sidebar-container.updating-space-color :is(
-    .space-content, .pinned-tabs, .folder, .tab, .tab-drag-preview-row, .space-switcher button, .add-space-toggle,
+    .space-content, .pinned-tabs, .pinned-favicon, .folder, .tab, .tab-drag-preview-row, .space-switcher button, .add-space-toggle,
     #newSpaceName, #createSpaceBtn
 ) {
     transition-property: none;
@@ -488,7 +490,7 @@ h3 {
     border-color: rgba(0, 0, 0, 0.3);
 }
 
-.color-swatch[data-color="prismarc"] {
+.color-swatch.preset-swatch {
     grid-column: 1 / -1;
     display: flex;
     align-items: center;
@@ -513,9 +515,9 @@ h3 {
     background: var(--prismarc-sidebar-glows) var(--prismarc-charcoal);
 }
 
-.color-swatch[data-color="prismarc"]:hover { transform: none; border-color: #cad4f7; }
-.color-swatch[data-color="prismarc"].selected { border-color: #bac9fb; }
-.color-swatch[data-color="prismarc"].selected::after {
+.color-swatch.preset-swatch:hover { transform: none; border-color: #cad4f7; }
+.color-swatch.preset-swatch.selected { border-color: #bac9fb; }
+.color-swatch.preset-swatch.selected::after {
     content: '';
     flex: none;
     margin-inline: auto 2px;
@@ -526,10 +528,20 @@ h3 {
     transform: rotate(45deg) translateY(-1px);
 }
 
+.color-swatch[data-color="prismarc-light"] {
+    color: var(--prismarc-light-ink);
+    background: #e5e8fb;
+}
+.color-swatch[data-color="prismarc-light"] .prismarc-color-chip {
+    background: var(--prismarc-light-gradient) var(--prismarc-light-base);
+    border-color: #939fc5;
+}
+.color-swatch[data-color="prismarc-light"]:is(:hover, .selected) { border-color: var(--prismarc-light-accent); }
+
 @media (forced-colors: active) {
-    .color-swatch[data-color="prismarc"] { border-color: ButtonText; }
+    .color-swatch.preset-swatch { border-color: ButtonText; }
     .color-swatch.selected,
-    .color-swatch[data-color="prismarc"].selected { border-color: Highlight; }
+    .color-swatch.preset-swatch.selected { border-color: Highlight; }
     .color-swatch:focus-visible { outline-color: Highlight; }
 }
 
@@ -855,7 +867,7 @@ h3 {
 
 /* Dark mode toast styling */
 @media (prefers-color-scheme: dark) {
-    .url-copy-toast {
+    body:not(:has(> .sidebar-container[data-space-color="prismarc-light"])) .url-copy-toast {
         background-color: rgb(255, 255, 255);
         color: #333;
         box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
@@ -894,7 +906,7 @@ h3 {
 }
 
 @media (prefers-color-scheme: dark) {
-    .undo-toast {
+    body:not(:has(> .sidebar-container[data-space-color="prismarc-light"])) .undo-toast {
         background-color: rgb(255, 255, 255);
         color: #333;
         box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
@@ -1106,7 +1118,7 @@ h3 {
 .tab-audio-indicator svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .pinned-favicon > .tab-audio-indicator { left: calc(50% + 3px); top: calc(50% + 3px); width: 14px; height: 14px; }
 .pinned-favicon > .tab-audio-indicator svg { width: 12px; height: 12px; }
-@media (prefers-color-scheme: dark) { .tab-audio-indicator { background: #38404a; color: #eceff1; box-shadow: 0 0 0 1px rgba(255, 255, 255, .18); } }
+@media (prefers-color-scheme: dark) { body:not(:has(> .sidebar-container[data-space-color="prismarc-light"])) .tab-audio-indicator { background: #38404a; color: #eceff1; box-shadow: 0 0 0 1px rgba(255, 255, 255, .18); } }
 
 /* Arc-like: when a pinned tab has navigated away, favicon becomes a back-to-pinned button */
 .tab-favicon.pinned-back {
@@ -2235,6 +2247,49 @@ h3 {
     --space-control-active-bg: #ffffff29;
     --space-control-active-hover-bg: #ffffff35;
 }
+
+/* Let portaled menus and drag ghosts inherit the same light palette. */
+body:has(> .sidebar-container[data-space-color="prismarc-light"]) {
+    --sidebar-appearance: light;
+    color-scheme: light;
+    color: var(--prismarc-light-ink);
+}
+.sidebar-container[data-space-color="prismarc-light"] {
+    background: var(--prismarc-light-gradient) var(--prismarc-light-base);
+}
+[data-space-color="prismarc-light"] :is(.space-name, .folder-name, .tab-title-display, .tab-title-input) {
+    color: var(--prismarc-light-ink);
+}
+[data-space-color="prismarc-light"] :is(h3, .tab-domain-display, .tab.bookmark-only .tab-title-display) {
+    color: var(--prismarc-light-muted);
+    opacity: 1;
+}
+[data-space-color="prismarc-light"] :is(.pinned-favicon, .quick-switcher-btn) {
+    background: var(--prismarc-light-frost);
+}
+[data-space-color="prismarc-light"] :is(.pinned-favicon, .quick-switcher-btn):hover {
+    background: rgb(255 255 255 / 62%);
+}
+[data-space-color="prismarc-light"] :is(.pinned-favicon.active, .tab.active) {
+    background: var(--prismarc-light-selected);
+    box-shadow: 0 1px 3px #25315a24, 0 3px 10px #25315a0a;
+}
+[data-space-color="prismarc-light"] .tab.multi-selected {
+    box-shadow: inset 0 0 0 2px var(--prismarc-light-accent);
+}
+[data-space-color="prismarc-light"] .folder {
+    background: transparent;
+}
+[data-space-color="prismarc-light"] .space-switcher-container {
+    --space-control-bg: rgb(255 255 255 / 22%);
+    --space-control-hover-bg: var(--prismarc-light-frost);
+    --space-control-active-bg: var(--prismarc-light-accent);
+    --space-control-active-hover-bg: #394c90;
+}
+[data-space-color="prismarc-light"] :is(.space-switcher button.active, .add-space-toggle.active) {
+    color: white;
+}
+[data-space-color="prismarc-light"] .space-options-dropdown { background: #f5f5ff; }
 
 .space-header-spacer {
     flex: 1;

@@ -2,7 +2,7 @@ import { Logger } from './logger.js';
 import { isPracticeUrl } from './tour-practice.js';
 import { syncSpaceGroups } from './tab-group-sync.js';
 import { LocalStorage } from './localstorage.js';
-import { DEFAULT_SPACE_COLOR } from './space-colors.js';
+import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR } from './space-colors.js';
 import { boundRestoreRecords, matchStartupRestores, restoreLifetime, restoreUrl } from './space-restore.js';
 
 const sections = ['spaceBookmarks', 'temporaryTabs'];
@@ -64,6 +64,19 @@ export class SpaceStore {
         const pending = this.chain.then(async () => { await this.initialize(); return operation(); });
         this.chain = pending.catch(() => {});
         return pending;
+    }
+    popupUsesLightTheme(windowId, tabId) {
+        if (!Number.isInteger(windowId) || windowId < 0) return Promise.resolve(false);
+        return this.run(async () => {
+            // The same priority as sidebar startup. Global lastActiveSpaceId
+            // can describe a different window, especially with two monitors.
+            let space = this.spaces.find(item => item.id === this.active[windowId]);
+            if (!space) {
+                const originId = tabId ?? (await chrome.tabs.query({ active: true, windowId }))[0]?.id;
+                space = ownerOf(this.spaces, originId) || this.spaces[0];
+            }
+            return space?.color === LIGHT_SPACE_COLOR;
+        });
     }
     async makeSpace(name, color, folder = null) {
         if (!folder) {

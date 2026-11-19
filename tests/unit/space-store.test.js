@@ -2,7 +2,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { SpaceStore, applySpacePatch, ownerOf } from '../../space-store.js';
 import { syncSpaceGroups } from '../../tab-group-sync.js';
-import { DEFAULT_SPACE_COLOR } from '../../space-colors.js';
+import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR } from '../../space-colors.js';
 import { Utils } from '../../utils.js';
 import { restoreLifetime } from '../../space-restore.js';
 
@@ -78,6 +78,20 @@ test('existing colors and recovered folder colors survive new defaults', async (
     assert.equal(local.spaceRegistry.b.color, DEFAULT_SPACE_COLOR);
 });
 
+test('popup colors follow the source window selection, then its tab, independently of global recency', async () => {
+    local.spaces[1].color = LIGHT_SPACE_COLOR;
+    session.activeSpaces = { 1: 'a', 2: 'b' };
+    session.lastActiveSpaceId = 'b';
+    const store = new SpaceStore();
+    assert.equal(await store.popupUsesLightTheme(1, 2), false);
+    assert.equal(await store.popupUsesLightTheme(2, 1), true);
+    // Window 3 has no stored selection. The owner of its active tab supplies the theme.
+    tabs[1].windowId = 3;
+    assert.equal(await store.popupUsesLightTheme(3, 2), true);
+    assert.equal(await store.popupUsesLightTheme(3, 999), false);
+    assert.equal(await store.popupUsesLightTheme(undefined, 2), false);
+});
+
 test('stale panel patch preserves concurrent tabs, moves and metadata', () => {
     const before = [space('a', [1]), space('b', [2])];
     const current = structuredClone(before); current[0].temporaryTabs.push(3); current[1].color = 'red';
@@ -150,13 +164,15 @@ test('sync is opt-in and disabling it performs no mutations', async () => {
     mutations.length = 0; local.syncTabGroups = false;
     await syncSpaceGroups(local.spaces); assert.deepEqual(mutations, []);
 });
-test('PrismArc projects a native neutral group without changing its saved color', async () => {
+test('PrismArc presets project to native grey and blue while retaining their saved colors', async () => {
     local.syncTabGroups = true;
     local.spaces[0].color = DEFAULT_SPACE_COLOR;
+    local.spaces[1].color = LIGHT_SPACE_COLOR;
     await syncSpaceGroups(local.spaces);
     assert.equal(groups[0].color, 'grey');
     assert.equal(groups[1].color, 'blue');
     assert.equal(local.spaces[0].color, DEFAULT_SPACE_COLOR);
+    assert.equal(local.spaces[1].color, LIGHT_SPACE_COLOR);
     mutations.length = 0;
     await syncSpaceGroups(local.spaces);
     assert.deepEqual(mutations, []);

@@ -145,6 +145,7 @@ export class TabSwitcher {
         const session = {
             token: crypto.randomUUID(),
             originId: tabIds[0],
+            originWindowId: windowId,
             tabIds,
             selectedId: tabIds[1],
             incognito: false,

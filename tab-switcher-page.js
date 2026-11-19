@@ -1,3 +1,4 @@
+import { applyPopupSpaceTheme } from './space-client.js';
 import { TAB_SWITCHER_SESSION } from './tab-switcher.js';
 import { describeOpenTab } from './tab-switcher-tabs.js';
 import { TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_PREVIEW_CACHE } from './tab-switcher-previews.js';
@@ -192,10 +193,15 @@ chrome.tabs.onRemoved.addListener(tabId => {
 
 const current = chrome.windows.getCurrent();
 let generation = 0;
+let themeRequested = false;
 async function render(state) {
     const version = ++generation;
     if (!state || state.token !== token || Boolean((await current).incognito) !== state.incognito) return;
     if (version !== generation) return;
+    if (!themeRequested) {
+        themeRequested = true;
+        applyPopupSpaceTheme(state.originWindowId, state.originId);
+    }
     const ids = state.tabIds.join(',');
     if (renderedIds !== ids) {
         const openTabs = await chrome.tabs.query({});

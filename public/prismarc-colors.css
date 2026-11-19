@@ -7,6 +7,13 @@
     --prismarc-sidebar-glows:
         radial-gradient(ellipse 150% 83% at 0% 0%, var(--prismarc-indigo), transparent 77%),
         radial-gradient(ellipse 150% 73% at 100% 100%, var(--prismarc-teal), transparent 77%);
+    --prismarc-light-base: #d7ddfc;
+    --prismarc-light-gradient: linear-gradient(168deg, #bed4fc 0%, #d4dcfc 51%, #f0e3fc 100%);
+    --prismarc-light-ink: #222c46;
+    --prismarc-light-muted: #475674;
+    --prismarc-light-frost: rgb(255 255 255 / 41%);
+    --prismarc-light-selected: rgb(255 255 255 / 86%);
+    --prismarc-light-accent: #485fad;
     --prismarc-search-indigo: #37415e;
     --prismarc-search-teal: #24464b;
     --prismarc-search-charcoal: #29292e;

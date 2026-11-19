@@ -60,6 +60,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.type) {
         case 'cleanTabs':
             return handleCleanTabs(message, sender, sendResponse);
+        case 'popupSpaceTheme':
+            return respond(spaceStore.popupUsesLightTheme(message.windowId, message.tabId)
+                .then(light => ({ light })), sendResponse, 'Could not load the popup theme.');
         case 'spaceStore':
             return respond(spaceStore.dispatch(message).then(spaces => ({ spaces })),
                 sendResponse, 'Could not complete the space operation.', messageError);

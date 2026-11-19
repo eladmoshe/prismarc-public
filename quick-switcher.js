@@ -1,3 +1,4 @@
+import { applyPopupSpaceTheme } from './space-client.js';
 import { searchBrowser, activateBrowserResult, resolveSearchWindow, deleteHistoryResult, historyDestinationIdentity } from './quick-switcher-search.js';
 import { numberShortcutIndex, optionDigit } from './quick-switcher-keyboard.js';
 import { activateGoogleSearch } from './quick-switcher-google.js';
@@ -10,6 +11,7 @@ const status = document.getElementById('search-status');
 const labels = { tab: 'Open tab', bookmark: 'Bookmark', history: 'History' };
 const sourceId = new URL(location.href).searchParams.get('windowId');
 const contextReady = resolveSearchWindow(sourceId === null ? null : Number(sourceId)).catch(() => null);
+contextReady.then(source => { if (source) applyPopupSpaceTheme(source.id); });
 let context, filtered = [], selected = 0, version = 0, timer, activating = false, deleting = false, deleteFeedback = null;
 let selectionExplicit = false;
 let pointer = { x: -1, y: -1 };
