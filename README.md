@@ -1,6 +1,6 @@
-# Prismark · PrismArc for Chrome
+# PrismArc for Chrome
 
-Prismark is a fork of [Arcify](https://github.com/nisargkolhe/arcify), originally created by Nisarg Kolhe and maintained by the Arcify contributors. The extension appears as **PrismArc** in Chrome. It provides a vertical sidebar for organizing tabs into spaces, saving favorites, and moving between tabs.
+PrismArc is a fork of [Arcify](https://github.com/nisargkolhe/arcify), originally created by Nisarg Kolhe and maintained by the Arcify contributors. It provides a vertical sidebar for organizing tabs into spaces, saving favorites, and moving between tabs.
 
 This fork began on **2026-11-16** from [Arcify 5.2.0](https://github.com/nisargkolhe/arcify/tree/e565122217c2c106faa6dccdc4f8ced3ec5b423c). Its changes include local extension storage, a smaller runtime permission surface, native tab and history search, a recent-tab picker, and an optional Google Calendar preview.
 
@@ -35,4 +35,4 @@ The [extension manifest](manifest.json) lists the complete permission set. For t
 
 ## License
 
-Prismark is distributed under the [GNU General Public License v3.0](LICENSE), which allows use, modification, and redistribution under its terms. The [modification notice](NOTICE) records changes from Arcify. If you distribute a modified version, retain copyright and license notices, identify and date your changes, and provide the corresponding source under GPLv3 if you distribute a built package.
+PrismArc is distributed under the [GNU General Public License v3.0](LICENSE), which allows use, modification, and redistribution under its terms. The [modification notice](NOTICE) records changes from Arcify. If you distribute a modified version, retain copyright and license notices, identify and date your changes, and provide the corresponding source under GPLv3 if you distribute a built package.
