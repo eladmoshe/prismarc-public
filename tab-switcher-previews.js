@@ -1,3 +1,5 @@
+import { previewStorageMode, TabSwitcherPreviewStore } from './tab-switcher-preview-store.js';
+
 export const TAB_SWITCHER_PAGE_PREVIEWS = 'tabSwitcherPagePreviews';
 export const TAB_SWITCHER_PREVIEW_CACHE = 'tabSwitcherPreviewCache';
 export const TAB_SWITCHER_CAPTURE_ON_VISIT = 'tabSwitcherCaptureOnVisit';
@@ -31,16 +33,27 @@ const JPEG_BYTE_LIMIT = 40 * 1024;
 
 async function resizePreview(source) {
     if (!source?.startsWith(JPEG) || source.length > SOURCE_LENGTH_LIMIT) return null;
-    const bytes = Uint8Array.from(atob(source.slice(JPEG.length)), char => char.charCodeAt(0));
+    const payload = source.slice(JPEG.length);
+    const bytes = Uint8Array.fromBase64 ? Uint8Array.fromBase64(payload) :
+        Uint8Array.from(atob(payload), char => char.charCodeAt(0));
     const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
     try {
         const scale = Math.min(1, 384 / bitmap.width, 240 / bitmap.height);
         const canvas = new OffscreenCanvas(Math.max(1, Math.round(bitmap.width * scale)),
             Math.max(1, Math.round(bitmap.height * scale)));
         canvas.getContext('2d', { alpha: false }).drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-        const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: .7 });
+        const options = { type: 'image/jpeg', quality: .7 };
+        let blob = await canvas.convertToBlob(options);
+        if (blob.size > JPEG_BYTE_LIMIT) {
+            // Textured or noisy views may need a smaller canvas to fit the same cap.
+            canvas.width = Math.max(1, Math.floor(canvas.width / 2));
+            canvas.height = Math.max(1, Math.floor(canvas.height / 2));
+            canvas.getContext('2d', { alpha: false }).drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            blob = await canvas.convertToBlob(options);
+        }
         if (blob.type !== 'image/jpeg' || blob.size > JPEG_BYTE_LIMIT) return null;
-        return JPEG + btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())));
+        const thumbnail = new Uint8Array(await blob.arrayBuffer());
+        return JPEG + (thumbnail.toBase64 ? thumbnail.toBase64() : btoa(String.fromCharCode(...thumbnail)));
     } finally {
         bitmap.close();
     }
@@ -59,8 +72,8 @@ function validSource(tab) {
 
 function captureFailure(error) {
     const message = typeof error?.message === 'string' ? error.message : '';
-    if (message.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) return { quota: true };
-    if (/^Failed to capture tab: (image readback failed|encoding failed|view is invisible)$/.test(message)) return {};
+    if (message.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) return { retry: true };
+    if (/^Failed to capture tab: (image readback failed|encoding failed|view is invisible)$/.test(message)) return { retry: true };
     // Treat permission, policy, and unrecognized native errors as denials.
     return { denied: true };
 }
@@ -73,6 +86,8 @@ function isSmallJpeg(data) {
 export class TabSwitcherPreviews {
     constructor(chromeApi, { now = Date.now, resize = resizePreview } = {}) {
         this.chrome = chromeApi;
+        this.store = new TabSwitcherPreviewStore(chromeApi);
+        this.retired = new Set();
         this.now = now;
         this.resize = resize;
         this.enabled = false;
@@ -103,6 +118,7 @@ export class TabSwitcherPreviews {
             if (area !== 'local') return;
             const preview = changes[TAB_SWITCHER_PAGE_PREVIEWS];
             const visit = changes[TAB_SWITCHER_CAPTURE_ON_VISIT];
+            if (!preview && !visit && !changes[TAB_SWITCHER_EXCLUDED_DOMAINS]) return;
             if (changes[TAB_SWITCHER_EXCLUDED_DOMAINS]) {
                 this.domainRevision++;
                 this.excludedDomains = changes[TAB_SWITCHER_EXCLUDED_DOMAINS].newValue ?? [];
@@ -117,7 +133,7 @@ export class TabSwitcherPreviews {
                 this.captureOnVisit = visit.newValue === true;
             }
             if (!this.enabled || (visit && !this.captureOnVisit)) this.clear();
-            else if (visit || preview) this.queueCurrentVisit();
+            else this.queueCurrentVisit();
         });
         this.ready = Promise.resolve().then(() => this.chrome.storage.local.get([
             TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_EXCLUDED_DOMAINS,
@@ -127,9 +143,9 @@ export class TabSwitcherPreviews {
             if (visitRevision === this.visitRevision) this.captureOnVisit = settings[TAB_SWITCHER_CAPTURE_ON_VISIT] === true;
         }).catch(() => {});
         this.refreshVisitPermission();
-        // MV3 can suspend the worker between shortcuts. Only the reduced
-        // preview is restored from Chrome's trusted, volatile session store.
+        // The session index contains only tab IDs, capture times and opaque refs.
         this.cacheWork = this.restoreCache().catch(() => {});
+        this.cacheWork.then(() => this.queueCurrentVisit(true));
         this.chrome.alarms?.onAlarm?.addListener(alarm => {
             if (alarm.name === PREVIEW_EXPIRY_ALARM) this.updateCache(() => {});
         });
@@ -195,11 +211,15 @@ export class TabSwitcherPreviews {
         clearTimeout(this.visitTimer);
     }
 
-    queueCurrentVisit() {
+    queueCurrentVisit(missingOnly = false) {
         Promise.all([this.ready, this.permissionReady]).then(async () => {
             if (!this.canCaptureVisit()) return;
             const window = await this.chrome.windows.getLastFocused({ windowTypes: ['normal'] });
-            if (Number.isInteger(window?.id) && window.id >= 0) this.queueVisit(window.id);
+            if (!Number.isInteger(window?.id) || window.id < 0) return;
+            const tab = await this.foregroundTab(window.id);
+            if (!validSource(tab) || !this.allowsUrl(tab.url)) return;
+            if (missingOnly && this.recordAllowed(this.previews.get(tab.id))) return;
+            this.queueVisit(window.id, tab.id);
         }).catch(() => {});
     }
 
@@ -225,19 +245,25 @@ export class TabSwitcherPreviews {
     async captureVisit(windowId, tabId, version, mayRetry) {
         if (version !== this.visitVersion || !this.canCaptureVisit()) return;
         const tab = await this.foregroundTab(windowId, tabId);
-        if (version !== this.visitVersion || !validSource(tab) || !this.canCaptureVisit()) return;
-        const previous = this.previews.get(tab.id);
-        if (previous && previous.expiresAt - PREVIEW_TTL_MS > this.now() - VISIT_REPEAT_MS) return;
+        if (version !== this.visitVersion || !validSource(tab) || !this.canCaptureVisit() || !this.allowsUrl(tab.url)) return;
+        if (this.hasFreshVisit(tab.id)) return;
         const delay = this.captureDelay();
         if (delay > 0) {
             this.waitForVisit(windowId, tab.id, version, delay, mayRetry);
             return;
         }
         const job = await this.capture(tab, true);
-        const retry = (job?.preview && await job.preview) === 'quota';
+        // Capture can be busy with the previous visit or the native screenshot
+        // can temporarily fail while Chrome is painting the new foreground tab.
+        const retry = !job || await job.preview === 'retry';
         if (retry && mayRetry && version === this.visitVersion && this.canCaptureVisit()) {
             this.waitForVisit(windowId, tab.id, version, CAPTURE_WINDOW_MS, false);
         }
+    }
+
+    hasFreshVisit(tabId) {
+        const record = this.previews.get(tabId);
+        return record?.visit && this.canCaptureVisit() && record.capturedAt > this.now() - VISIT_REPEAT_MS;
     }
 
     captureDelay() {
@@ -246,66 +272,89 @@ export class TabSwitcherPreviews {
         return this.captureTimes.length >= CAPTURE_LIMIT ? this.captureTimes[0] + CAPTURE_WINDOW_MS - now : 0;
     }
 
+    recordAllowed(record) {
+        if (!this.enabled || !this.permitted || !record) return false;
+        return record.visit === true ? this.canCaptureVisit() : record.expiresAt > this.now();
+    }
+
     async restoreCache() {
         await Promise.all([this.ready, this.permissionReady]);
         const stored = await this.chrome.storage.session.get(TAB_SWITCHER_PREVIEW_CACHE);
-        const records = stored[TAB_SWITCHER_PREVIEW_CACHE];
-        if (!records) return;
-        if (this.enabled && this.permitted) {
-            const now = this.now();
-            for (const [key, record] of Object.entries(records)) {
-                const id = Number(key);
-                if (Number.isInteger(id) && id >= 0 && String(id) === key && record?.expiresAt > now &&
-                    record.expiresAt <= now + PREVIEW_TTL_MS && isSmallJpeg(record.data) &&
-                    (record.visit !== true || this.canCaptureVisit())) {
-                    this.previews.set(id, { data: record.data, expiresAt: record.expiresAt, ...(record.visit === true && { visit: true }) });
-                }
-            }
+        const now = this.now();
+        for (const [key, record] of Object.entries(stored[TAB_SWITCHER_PREVIEW_CACHE] ?? {})) {
+            const id = Number(key);
+            // Old versions kept raw images in this index. Never migrate image data.
+            if (!Number.isSafeInteger(id) || id < 0 || String(id) !== key ||
+                !this.recordAllowed(record) || previewStorageMode(record.ref) !== (record.visit === true ? 'disk' : 'session') ||
+                !Number.isFinite(record.capturedAt) || record.capturedAt > now ||
+                (!record.visit && record.expiresAt !== record.capturedAt + PREVIEW_TTL_MS)) continue;
+            const { ref, capturedAt } = record;
+            this.previews.set(id, record.visit === true ? { ref, capturedAt, visit: true } :
+                { ref, capturedAt, expiresAt: record.expiresAt });
+        }
+        // A new browser session has an empty index and a new key. Sweep orphan
+        // ciphertext even when no tab records survived the previous session.
+        const surviving = await this.store.reconcile([...this.previews.values()].map(record => record.ref));
+        for (const [id, record] of this.previews) {
+            if (!surviving.has(record.ref)) this.forget(id);
         }
         await this.persistCache();
     }
 
     updateCache(update) {
         const operation = this.cacheWork.then(async () => {
-            if (update() === false) return;
+            if (await update() === false) return;
             await this.persistCache();
         });
         this.cacheWork = operation.catch(() => {});
         return this.cacheWork;
     }
 
+    forget(tabId) {
+        const record = this.previews.get(tabId);
+        if (!record) return false;
+        this.retired.add(record.ref);
+        return this.previews.delete(tabId);
+    }
+
+    forgetAll() {
+        for (const id of this.previews.keys()) this.forget(id);
+    }
+
     clear() {
         this.stopQueuedVisit();
         if (this.checking) this.checking.invalid = true;
         this.pending.clear();
-        this.previews.clear();
-        this.updateCache(() => this.previews.clear());
+        this.forgetAll();
+        this.updateCache(() => this.forgetAll());
     }
 
     invalidate(tabId) {
         if (this.checking?.tabId === tabId) this.checking.invalid = true;
         this.pending.delete(tabId);
-        const removed = this.previews.delete(tabId);
-        this.updateCache(() => this.previews.delete(tabId) || removed);
+        const removed = this.forget(tabId);
+        this.updateCache(() => this.forget(tabId) || removed);
     }
 
     async persistCache() {
-        if (!this.enabled || !this.permitted) this.previews.clear();
-        const now = this.now();
         for (const [id, preview] of this.previews) {
-            if (preview.expiresAt <= now) this.previews.delete(id);
+            if (!this.recordAllowed(preview)) this.forget(id);
         }
-        const newest = [...this.previews].sort((left, right) => right[1].expiresAt - left[1].expiresAt);
-        for (const [id] of newest.slice(PREVIEW_LIMIT)) this.previews.delete(id);
-
+        const oldest = [...this.previews].sort((a, b) => a[1].capturedAt - b[1].capturedAt);
+        for (const [id] of oldest.slice(0, Math.max(0, oldest.length - PREVIEW_LIMIT))) this.forget(id);
+        if (this.retired.size) {
+            const discarded = [...this.retired];
+            await this.store.delete(discarded);
+            for (const ref of discarded) this.retired.delete(ref);
+        }
         if (this.previews.size) {
-            const when = Math.min(...[...this.previews.values()].map(preview => preview.expiresAt));
             await this.chrome.storage.session.set({ [TAB_SWITCHER_PREVIEW_CACHE]: Object.fromEntries(this.previews) });
-            await this.chrome.alarms?.create?.(PREVIEW_EXPIRY_ALARM, { when });
         } else {
             await this.chrome.storage.session.remove(TAB_SWITCHER_PREVIEW_CACHE);
-            await this.chrome.alarms?.clear?.(PREVIEW_EXPIRY_ALARM);
         }
+        const deadlines = [...this.previews.values()].filter(record => !record.visit).map(record => record.expiresAt);
+        if (deadlines.length) await this.chrome.alarms?.create?.(PREVIEW_EXPIRY_ALARM, { when: Math.min(...deadlines) });
+        else await this.chrome.alarms?.clear?.(PREVIEW_EXPIRY_ALARM);
     }
 
     async foregroundTab(windowId, tabId) {
@@ -328,6 +377,7 @@ export class TabSwitcherPreviews {
 
     async capture(source, visit = false) {
         if (!validSource(source) || this.checking || !this.chrome.tabs.captureVisibleTab) return;
+        if (!visit && this.hasFreshVisit(source.id)) return;
         const job = { tabId: source.id, windowId: source.windowId, invalid: false, visit };
         this.checking = job;
         let deadline;
@@ -355,6 +405,7 @@ export class TabSwitcherPreviews {
         await this.ready;
         if (!this.jobAllowed(job) || this.pending.has(job.tabId) || this.captureDelay() ||
             !await this.isForeground(source) || !this.jobAllowed(job)) return;
+        job.allowDisk = this.canCaptureVisit();
         this.captureTimes.push(this.now());
         const image = this.chrome.tabs.captureVisibleTab(job.windowId, { format: 'jpeg', quality: 45 })
             .then(raw => ({ raw }), captureFailure);
@@ -379,19 +430,29 @@ export class TabSwitcherPreviews {
                 const tab = await this.chrome.tabs.get(job.tabId);
                 if (tab?.id !== job.tabId || !eligiblePage(tab) || tab.url !== source.url ||
                     tab.windowId !== job.windowId) return {};
-                return { data: await this.resize(result.raw) };
+                const data = await this.resize(result.raw);
+                return data ? { data } : { retry: true };
             });
-            const { data, denied, quota } = await Promise.race([
-                encoded.catch(() => ({})),
-                new Promise(resolve => { deadline = setTimeout(() => resolve({}), CAPTURE_WORK_MS); }),
+            const { data, denied, retry } = await Promise.race([
+                encoded.catch(() => ({ retry: true })),
+                new Promise(resolve => { deadline = setTimeout(() => resolve({ retry: true }), CAPTURE_WORK_MS); }),
             ]);
-            await this.updateCache(() => {
+            await this.updateCache(async () => {
                 if (this.pending.get(job.tabId) !== job || !this.jobAllowed(job)) return false;
-                if (denied) return this.previews.delete(job.tabId);
+                if (denied) return this.forget(job.tabId);
                 if (!isSmallJpeg(data)) return false;
-                this.previews.set(job.tabId, { data, expiresAt: this.now() + PREVIEW_TTL_MS, ...(job.visit && { visit: true }) });
+                const visit = job.allowDisk && this.canCaptureVisit();
+                const ref = await this.store.put(data, visit);
+                if (!ref) return false;
+                if (this.pending.get(job.tabId) !== job || !this.jobAllowed(job) || (visit && !this.canCaptureVisit())) {
+                    this.retired.add(ref);
+                    return;
+                }
+                const capturedAt = this.now();
+                this.forget(job.tabId);
+                this.previews.set(job.tabId, { ref, capturedAt, ...(visit ? { visit } : { expiresAt: capturedAt + PREVIEW_TTL_MS }) });
             });
-            if (quota) return 'quota';
+            if (retry) return 'retry';
         } finally {
             clearTimeout(deadline);
             if (this.pending.get(job.tabId) === job) this.pending.delete(job.tabId);
@@ -401,7 +462,11 @@ export class TabSwitcherPreviews {
     async get(tabIds) {
         await this.ready;
         if (!this.enabled || !this.permitted) return {};
-        const work = tabIds.map(id => this.pending.get(id)?.preview).filter(Boolean);
+        await this.cacheWork;
+        // Existing cards can paint immediately, including during refresh of
+        // another card. The picker listens for newly published references.
+        const hasReadyCard = tabIds.some(id => this.recordAllowed(this.previews.get(id)));
+        const work = hasReadyCard ? [] : tabIds.map(id => this.pending.get(id)?.preview).filter(Boolean);
         if (work.length) {
             let deadline;
             try {
@@ -412,15 +477,22 @@ export class TabSwitcherPreviews {
             } finally {
                 clearTimeout(deadline);
             }
+            await this.cacheWork;
         }
-        await this.cacheWork;
         if (!this.enabled || !this.permitted) return {};
-        const records = tabIds.filter(id => this.previews.has(id)).map(id => [id, this.previews.get(id)]);
-        const tabs = await Promise.all(records.map(([id]) => this.chrome.tabs.get(id).catch(() => null)));
-        return Object.fromEntries(records
-            .filter(([id, record], index) => this.enabled && this.permitted && this.previews.get(id) === record &&
-                record.expiresAt > this.now() && (record.visit !== true || this.canCaptureVisit()) &&
-                tabs[index]?.id === id && eligiblePage(tabs[index]) && this.allowsUrl(tabs[index].url))
-            .map(([id, record]) => [id, record.data]));
+        const ids = [...new Set(tabIds)].filter(id => this.previews.has(id)).slice(0, PREVIEW_LIMIT);
+        const results = await Promise.all(ids.map(async id => {
+            const record = this.previews.get(id);
+            if (!this.recordAllowed(record)) return;
+            const tab = await this.chrome.tabs.get(id).catch(() => null);
+            const current = () => this.previews.get(id) === record && this.recordAllowed(record);
+            if (!current() || tab?.id !== id || !eligiblePage(tab) || !this.allowsUrl(tab.url)) return;
+            const data = await this.store.read(record.ref);
+            if (!current()) return;
+            if (isSmallJpeg(data)) return { id, record, data };
+            await this.updateCache(() => this.previews.get(id) === record && this.forget(id));
+        }));
+        return Object.fromEntries(results.filter(result => result && this.previews.get(result.id) === result.record &&
+            this.recordAllowed(result.record)).map(({ id, data }) => [id, data]));
     }
 }

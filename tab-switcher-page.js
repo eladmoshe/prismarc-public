@@ -1,7 +1,7 @@
 import { applyPopupSpaceTheme } from './space-client.js';
 import { TAB_SWITCHER_SESSION } from './tab-switcher.js';
 import { describeOpenTab } from './tab-switcher-tabs.js';
-import { TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_PREVIEW_CACHE } from './tab-switcher-previews.js';
+import { TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_EXCLUDED_DOMAINS, TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_PREVIEW_CACHE } from './tab-switcher-previews.js';
 import { Utils } from './utils.js';
 
 const token = location.hash.slice(1);
@@ -186,6 +186,9 @@ chrome.tabs.onUpdated.addListener((tabId, change) => {
         clearPreviews([tile]);
     }
 });
+chrome.permissions.onRemoved.addListener(({ permissions, origins }) => {
+    if (permissions?.includes('activeTab') || origins?.length) clearPreviews(tiles.values());
+});
 chrome.tabs.onRemoved.addListener(tabId => {
     const tile = tiles.get(tabId);
     if (tile) clearPreviews([tile]);
@@ -219,7 +222,10 @@ async function render(state) {
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes[TAB_SWITCHER_PAGE_PREVIEWS]?.newValue === false) clearPreviews(tiles.values());
+    if (area === 'local' && (changes[TAB_SWITCHER_PAGE_PREVIEWS]?.newValue === false ||
+        changes[TAB_SWITCHER_CAPTURE_ON_VISIT]?.newValue === false || changes[TAB_SWITCHER_EXCLUDED_DOMAINS])) {
+        clearPreviews(tiles.values());
+    }
     if (area !== 'session') return;
     const cache = changes[TAB_SWITCHER_PREVIEW_CACHE];
     if (cache) {
@@ -229,7 +235,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
             const before = cache.oldValue?.[id];
             const after = cache.newValue?.[id];
             if (before && !after) removedTiles.push(tile);
-            if (after && (before?.expiresAt !== after.expiresAt || before?.data !== after.data)) changed = true;
+            if (after && before?.ref !== after.ref) changed = true;
         }
         if (removedTiles.length) clearPreviews(removedTiles);
         if (changed) refreshPreviews();

@@ -24,14 +24,19 @@ function fixture(settings = {}, session = {}) {
     function emit(name, ...args) {
         for (const handler of handlers[name] ?? []) handler(...args);
     }
+    const area = items => ({
+        get: async selector => {
+            const keys = selector == null ? Object.keys(items) : [selector].flat();
+            return structuredClone(Object.fromEntries(keys.filter(key => key in items).map(key => [key, items[key]])));
+        },
+        getKeys: async () => Object.keys(items),
+        set: async values => Object.assign(items, structuredClone(values)),
+        remove: async keys => { for (const key of [keys].flat()) delete items[key]; },
+    });
     const chrome = {
         storage: {
-            local: { get: async () => settings },
-            session: {
-                get: async () => structuredClone(session),
-                set: async values => Object.assign(session, structuredClone(values)),
-                remove: async key => { delete session[key]; }
-            },
+            local: area(settings),
+            session: area(session),
             onChanged: event('storage'),
         },
         windows: {
@@ -59,7 +64,7 @@ function fixture(settings = {}, session = {}) {
         return previews;
     };
     return {
-        chrome, emit, get active() { return active; }, live, calls, session, worker,
+        chrome, emit, get active() { return active; }, live, calls, session, local: settings, worker,
         advance: delta => { now += delta; },
         grant: value => { allSites = value; },
         select: props => {
@@ -84,8 +89,11 @@ test('a shortcut can hand off before its screenshot arrives; a restarted worker 
     capture.resolve('fixture raw bytes');
     assert.deepEqual(await result, { 1: reducedImage });
     const cache = f.session[TAB_SWITCHER_PREVIEW_CACHE];
-    assert.deepEqual(Object.keys(cache[1]).sort(), ['data', 'expiresAt']);
-    assert.equal(cache[1].data, reducedImage);
+    assert.deepEqual(Object.keys(cache[1]).sort(), ['capturedAt', 'expiresAt', 'ref']);
+    assert.match(cache[1].ref, /:s:/);
+    assert.ok(f.session[cache[1].ref].ciphertext);
+    assert.ok(!JSON.stringify(f.session).includes(reducedImage));
+    assert.deepEqual(f.local, {});
     assert.equal(JSON.stringify(cache).includes('example.test'), false);
     assert.deepEqual(await f.worker().get([1, 8]), { 1: reducedImage });
     delete f.active.url;
@@ -167,15 +175,17 @@ test('capture rate, permission removal, site refusal and expiry fall back safely
     assert.equal(f.calls.length, 2);
     f.advance(1000);
     f.chrome.tabs.captureVisibleTab = async () => { throw new Error('Fixture blocks capture'); };
-    await service.capture(f.active);
+    const denied = await service.capture(f.active);
+    await denied.preview;
     assert.deepEqual(await service.get([1]), {});
     assert.equal(f.session[TAB_SWITCHER_PREVIEW_CACHE], undefined);
 
     const records = { 1: { data: reducedImage, expiresAt: 150_000 } };
-    const g = fixture({}, { [TAB_SWITCHER_PREVIEW_CACHE]: records });
+    const g = fixture();
     const restored = g.worker();
+    await restored.capture(g.active);
     assert.deepEqual(await restored.get([1]), { 1: reducedImage });
-    g.advance(50_000);
+    g.advance(600_000);
     g.emit('alarm', { name: 'tabSwitcherPreviewExpiry' });
     assert.deepEqual(await restored.get([1]), {});
     assert.equal(g.session[TAB_SWITCHER_PREVIEW_CACHE], undefined);
@@ -212,8 +222,6 @@ test('opted-in normal visits supply up to five images before the shortcut is use
     f.grant(true);
     const previews = f.worker();
     await previews.ready;
-    await wait(220);
-    assert.deepEqual(f.calls, []);
 
     // Passing briefly over a tab must not start a capture that races the
     // next foreground tab, including when the two have identical URLs.
@@ -335,7 +343,8 @@ test('a transient refresh failure keeps the last frame, while a browser denial e
 
     f.advance(1100);
     f.chrome.tabs.captureVisibleTab = async () => { throw new Error('Fixture policy blocks capture'); };
-    await service.capture(f.active);
+    const denied = await service.capture(f.active);
+    await denied.preview;
     assert.deepEqual(await service.get([1]), {});
 });
 
@@ -402,4 +411,245 @@ test('excluded sites cover subdomains, keep lookalike sites eligible, and clear 
     f.emit('storage', { [TAB_SWITCHER_EXCLUDED_DOMAINS]: { newValue: ['anotherexample.test'] } }, 'local');
     assert.deepEqual(await previews.get([1]), {});
     assert.equal(f.session[TAB_SWITCHER_PREVIEW_CACHE], undefined);
+});
+
+test('unrelated local storage traffic during worker startup preserves existing thumbnails', async () => {
+    const f = fixture();
+    const first = f.worker();
+    await first.capture(f.active);
+    assert.deepEqual(await first.get([1]), { 1: reducedImage });
+    const ready = deferred();
+    f.chrome.storage.local.get = () => ready.promise;
+    const service = f.worker();
+    f.emit('storage', { spaces: { newValue: [] } }, 'local');
+    ready.resolve({});
+    assert.deepEqual(await service.get([1]), { 1: reducedImage });
+});
+
+test('an already opted-in worker fills a missing foreground thumbnail and retries a transient readback once', async context => {
+    context.mock.timers.enable({ apis: ['setTimeout'] });
+    const drain = () => new Promise(resolve => setImmediate(resolve));
+    const f = fixture({ [TAB_SWITCHER_CAPTURE_ON_VISIT]: true });
+    f.grant(true);
+    let attempts = 0;
+    f.chrome.tabs.captureVisibleTab = async () => {
+        if (++attempts === 1) throw new Error('Failed to capture tab: image readback failed');
+        return 'fixture raw bytes';
+    };
+    const service = f.worker();
+    await drain();
+    context.mock.timers.tick(200);
+    await drain();
+    assert.equal(attempts, 1);
+    f.advance(1000);
+    context.mock.timers.tick(1000);
+    await drain();
+    assert.equal(attempts, 2);
+    assert.deepEqual(await service.get([1]), { 1: reducedImage });
+});
+
+
+test('a detailed frame that exceeds the JPEG cap is resized again before storage', async t => {
+    const f = fixture();
+    const dimensions = [];
+    const priorBitmap = globalThis.createImageBitmap;
+    const priorCanvas = globalThis.OffscreenCanvas;
+    t.after(() => {
+        if (priorBitmap) globalThis.createImageBitmap = priorBitmap;
+        else delete globalThis.createImageBitmap;
+        if (priorCanvas) globalThis.OffscreenCanvas = priorCanvas;
+        else delete globalThis.OffscreenCanvas;
+    });
+    globalThis.createImageBitmap = async () => ({ width: 1536, height: 960, close() {} });
+    globalThis.OffscreenCanvas = class {
+        constructor(width, height) { this.width = width; this.height = height; }
+        getContext() { return { drawImage() {} }; }
+        async convertToBlob() {
+            dimensions.push([this.width, this.height]);
+            const size = dimensions.length === 1 ? 41 * 1024 : 20 * 1024;
+            return new Blob([new Uint8Array(size)], { type: 'image/jpeg' });
+        }
+    };
+    f.chrome.tabs.captureVisibleTab = async () => reducedImage;
+    const service = new TabSwitcherPreviews(f.chrome);
+    service.register();
+    await service.capture(f.active);
+    const frames = await service.get([f.active.id]);
+    assert.ok(frames[1]?.startsWith('data:image/jpeg;base64,'));
+    assert.deepEqual(dimensions, [[384, 240], [192, 120]]);
+});
+
+test('a denied foreground capture is never retried on the same visit', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const f = fixture({ [TAB_SWITCHER_CAPTURE_ON_VISIT]: true });
+    f.grant(true);
+    let attempts = 0;
+    f.chrome.tabs.captureVisibleTab = async () => {
+        attempts++;
+        throw new Error('Capture is disabled by policy');
+    };
+    const service = f.worker();
+    const drain = () => new Promise(resolve => setImmediate(resolve));
+    await drain();
+    t.mock.timers.tick(200);
+    await drain();
+    f.advance(1500);
+    t.mock.timers.tick(1500);
+    await drain();
+    assert.equal(attempts, 1);
+    assert.deepEqual(await service.get([1]), {});
+});
+
+test('browsing thumbnails outlive ten minutes and worker sleep, then navigation deletes the encrypted record', async () => {
+    const f = fixture({ [TAB_SWITCHER_CAPTURE_ON_VISIT]: true });
+    f.grant(true);
+    const service = f.worker();
+    await service.permissionReady;
+    await service.capture(f.active, true);
+    assert.deepEqual(await service.get([1]), { 1: reducedImage });
+    const record = f.session[TAB_SWITCHER_PREVIEW_CACHE][1];
+    assert.deepEqual(Object.keys(record).sort(), ['capturedAt', 'ref', 'visit']);
+    assert.match(record.ref, /:d:/);
+    assert.deepEqual(Object.keys(f.local[record.ref]).sort(), ['ciphertext', 'iv']);
+    for (const stored of [f.local, f.session]) {
+        assert.ok(!JSON.stringify(stored).includes(reducedImage.slice(reducedImage.indexOf(',') + 1)));
+        assert.ok(!JSON.stringify(stored).includes('example.test'));
+    }
+    f.advance(24 * 3_600_000);
+    const restarted = f.worker();
+    assert.deepEqual(await restarted.get([1]), { 1: reducedImage });
+    f.emit('updated', 1, { status: 'loading' });
+    assert.deepEqual(await restarted.get([1]), {});
+    assert.equal(f.local[record.ref], undefined);
+});
+
+test('a cold browser session purges unreadable ciphertext and drops legacy plaintext thumbnails', async () => {
+    const f = fixture({ [TAB_SWITCHER_CAPTURE_ON_VISIT]: true });
+    f.grant(true);
+    const service = f.worker();
+    await service.permissionReady;
+    await service.capture(f.active, true);
+    assert.deepEqual(await service.get([1]), { 1: reducedImage });
+    const ref = f.session[TAB_SWITCHER_PREVIEW_CACHE][1].ref;
+    assert.ok(f.local[ref]);
+    const cold = fixture(f.local, {
+        [TAB_SWITCHER_PREVIEW_CACHE]: { 1: { data: reducedImage, expiresAt: 190_000 } },
+    });
+    const restarted = cold.worker();
+    assert.deepEqual(await restarted.get([1]), {});
+    assert.equal(cold.local[ref], undefined);
+    assert.equal(cold.session[TAB_SWITCHER_PREVIEW_CACHE], undefined);
+});
+
+test('withdrawn browsing permission during encryption discards the unpublished record', async () => {
+    const f = fixture({ [TAB_SWITCHER_CAPTURE_ON_VISIT]: true });
+    f.grant(true);
+    const service = f.worker();
+    await service.cacheWork;
+    const gate = deferred();
+    const started = deferred();
+    const write = service.store.put.bind(service.store);
+    let ref;
+    service.store.put = async (...args) => {
+        ref = await write(...args);
+        started.resolve();
+        await gate.promise;
+        return ref;
+    };
+    const job = await service.capture(f.active, true);
+    await started.promise;
+    f.grant(false);
+    f.emit('permission-removed', { origins: ['<all_urls>'] });
+    gate.resolve();
+    await job.preview;
+    assert.deepEqual(await service.get([1]), {});
+    assert.equal(f.local[ref], undefined);
+    assert.equal(f.session[TAB_SWITCHER_PREVIEW_CACHE], undefined);
+});
+
+test('decryption is limited to requested, eligible cards and navigation discards a late decryption', async () => {
+    const f = fixture();
+    const service = f.worker();
+    for (const id of [1, 2]) {
+        f.select({ id });
+        await service.capture(f.active);
+        assert.deepEqual(await service.get([id]), { [id]: reducedImage });
+    }
+    f.live.get(2).incognito = true;
+    const read = service.store.read.bind(service.store);
+    const gate = deferred();
+    const started = deferred();
+    const reads = [];
+    service.store.read = async ref => {
+        reads.push(ref);
+        const data = await read(ref);
+        started.resolve();
+        await gate.promise;
+        return data;
+    };
+    assert.deepEqual(await service.get([2, 12]), {});
+    assert.deepEqual(reads, []);
+    const pending = service.get([1, 2]);
+    await started.promise;
+    f.emit('updated', 1, { status: 'loading' });
+    gate.resolve();
+    assert.deepEqual(await pending, {});
+    assert.equal(reads.length, 1);
+});
+
+test('a shortcut capture submitted before opt-in stays in session memory through a later grant', async () => {
+    const f = fixture();
+    const service = f.worker();
+    const gate = deferred();
+    f.chrome.tabs.captureVisibleTab = () => gate.promise;
+    const job = await service.capture(f.active);
+    f.grant(true);
+    f.emit('permission-added', { origins: ['<all_urls>'] });
+    f.emit('storage', { [TAB_SWITCHER_CAPTURE_ON_VISIT]: { newValue: true } }, 'local');
+    await service.permissionReady;
+    gate.resolve('fixture');
+    await job.preview;
+    assert.match(f.session[TAB_SWITCHER_PREVIEW_CACHE][1].ref, /:s:/);
+    assert.deepEqual(f.local, {});
+    service.stopQueuedVisit();
+});
+
+test('ready cards paint without waiting for a pending refresh or another card’s first image', async () => {
+    const f = fixture();
+    const service = f.worker();
+    const original = await service.capture(f.active);
+    await original.preview;
+    for (const id of [1, 2]) {
+        f.advance(1100);
+        f.select({ id });
+        const incoming = deferred();
+        f.chrome.tabs.captureVisibleTab = () => incoming.promise;
+        const capture = await service.capture(f.active);
+        const visible = await Promise.race([service.get([1, 2]), wait(150).then(() => 'still waiting')]);
+        incoming.resolve('fixture');
+        await capture.preview;
+        assert.deepEqual(visible, { 1: reducedImage });
+    }
+    assert.deepEqual(await service.get([1, 2]), { 1: reducedImage, 2: reducedImage });
+});
+
+test('a shortcut reuses a fresh browsing frame until navigation or its freshness window ends', async () => {
+    const f = fixture({ [TAB_SWITCHER_CAPTURE_ON_VISIT]: true });
+    f.grant(true);
+    const service = f.worker();
+    await service.cacheWork;
+    const visit = await service.capture(f.active, true);
+    await visit.preview;
+    await service.capture(f.active);
+    assert.equal(f.calls.length, 1);
+    f.advance(2600);
+    const refresh = await service.capture(f.active);
+    await refresh.preview;
+    assert.equal(f.calls.length, 2);
+    f.select({ url: 'https://example.test/new' });
+    f.emit('updated', 1, { url: f.active.url }, f.active);
+    const afterNavigation = await service.capture(f.active);
+    await afterNavigation.preview;
+    assert.equal(f.calls.length, 3);
+    service.stopQueuedVisit();
 });
