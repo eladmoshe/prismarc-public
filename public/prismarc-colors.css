@@ -1,0 +1,13 @@
+:root {
+    --prismarc-indigo: #394461;
+    --prismarc-charcoal: #252b35;
+    --prismarc-teal: #24464a;
+    --prismarc-periwinkle: #758bcc;
+    --prismarc-favicon-backing: rgb(183 194 202 / 40%);
+    --prismarc-sidebar-glows:
+        radial-gradient(ellipse 150% 83% at 0% 0%, var(--prismarc-indigo), transparent 77%),
+        radial-gradient(ellipse 150% 73% at 100% 100%, var(--prismarc-teal), transparent 77%);
+    --prismarc-search-indigo: #37415e;
+    --prismarc-search-teal: #24464b;
+    --prismarc-search-charcoal: #29292e;
+}

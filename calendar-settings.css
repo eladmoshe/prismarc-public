@@ -1,0 +1,60 @@
+.calendar-settings-page .options-container {
+    max-width: 30rem;
+}
+
+.calendar-settings-page .options-title { margin-bottom: 1.5rem; }
+.calendar-settings-page .options-description { font-size: inherit; }
+#calendarSettingsHeading:focus { outline: none; }
+
+#calendarSettingsField, #calendarSettingsManual { margin-top: 1rem; }
+.calendar-settings-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 1rem;
+}
+.calendar-settings-actions button {
+    padding: 8px 12px;
+    min-height: 36px;
+    border: 1px solid var(--options-border-color);
+    border-radius: 7px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.calendar-settings-actions button:hover { border-color: var(--options-muted-color); }
+.calendar-settings-actions button:disabled { opacity: .65; cursor: wait; }
+.calendar-settings-actions button[type="submit"] {
+    background: var(--calendar-settings-action);
+    border-color: var(--calendar-settings-action);
+    color: var(--calendar-settings-action-text);
+    font-weight: 600;
+}
+.calendar-settings-actions button[type="submit"]:hover { filter: brightness(.92); }
+
+.options-page.calendar-settings-page {
+    --calendar-settings-action: #156782;
+    --calendar-settings-action-text: #fff;
+    --options-primary-color: var(--options-text-color);
+}
+.calendar-settings-copy-buffer {
+    position: fixed;
+    inset-inline-start: -10000px;
+    top: 0;
+}
+#calendarSettingsStatus:not(:empty) { margin-top: 10px; }
+
+@media (prefers-color-scheme: dark) {
+    .options-page.calendar-settings-page {
+        --options-bg-color: #171e22;
+        --options-text-color: #eef4f6;
+        --options-muted-color: #bcc9d0;
+        --options-border-color: #56656d;
+        --calendar-settings-action: #9dd8ec;
+        --calendar-settings-action-text: #182b33;
+        color-scheme: dark;
+    }
+    .calendar-settings-page .options-container { background: #252e34; }
+    .calendar-settings-page .options-input { background: #1b2327; }
+}

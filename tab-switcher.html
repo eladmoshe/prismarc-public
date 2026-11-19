@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <script src="/tab-switcher-release.js"></script>
+  <title>PrismArc · Recent Tabs</title>
+  <link rel="stylesheet" href="tab-switcher.css">
+</head>
+<body>
+  <main class="switcher" aria-label="Recent tabs">
+    <div id="tabs" class="tab-strip" role="listbox" aria-label="Open tabs in recent order"
+        aria-orientation="horizontal" aria-busy="true" tabindex="0"></div>
+    <div id="selected-title" class="selected-title" aria-hidden="true"></div>
+    <div id="switcher-status" class="switcher-status" role="status"></div>
+  </main>
+  <script type="module" src="tab-switcher-page.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Calendar settings · PrismArc</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="calendar-settings.css">
+    <script type="module" src="calendar-settings.js"></script>
+</head>
+<body class="options-page calendar-settings-page">
+    <main class="options-container">
+        <h1 class="options-title">Calendar settings</h1>
+        <section aria-labelledby="calendarSettingsHeading">
+            <h2 id="calendarSettingsHeading" class="options-section-title" tabindex="-1">Checking setup…</h2>
+            <p id="calendarSettingsDescription" class="options-description"></p>
+            <form id="calendarSettingsForm" hidden novalidate>
+                <div id="calendarSettingsField" hidden>
+                    <label for="calendarSettingsClient" class="options-label">Public client ID</label>
+                    <input id="calendarSettingsClient" class="options-input" type="password" maxlength="255"
+                        autocomplete="new-password" spellcheck="false" aria-describedby="calendarSettingsDescription">
+                </div>
+                <div id="calendarSettingsManual" hidden>
+                    <label for="calendarSettingsAddress" class="options-label">Redirect address</label>
+                    <input id="calendarSettingsAddress" class="options-input" type="text" readonly>
+                </div>
+                <div class="calendar-settings-actions">
+                    <button id="calendarSettingsAction" type="submit"></button>
+                    <button id="calendarSettingsBack" type="button" hidden>Back</button>
+                    <button id="calendarSettingsChange" type="button" hidden>Change setup</button>
+                </div>
+            </form>
+            <p id="calendarSettingsStatus" role="status"></p>
+        </section>
+    </main>
+</body>
+</html>

@@ -1,0 +1,88 @@
+{
+  "manifest_version": 3,
+  "name": "PrismArc",
+  "version": "5.2.0",
+  "description": "A sidebar extension that replicates Arc browser's tab management system",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "tabGroups",
+    "sidePanel",
+    "storage",
+    "bookmarks",
+    "history",
+    "alarms",
+    "favicon",
+    "clipboardWrite",
+    "offscreen"
+  ],
+  "side_panel": {
+    "default_path": "sidebar.html"
+  },
+  "action": {
+    "default_icon": {
+      "16": "assets/icon-16.png",
+      "24": "assets/icon-24.png",
+      "32": "assets/icon-32.png",
+      "48": "assets/icon-48.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "externally_connectable": {
+    "ids": []
+  },
+  "icons": {
+    "16": "assets/icon-16.png",
+    "32": "assets/icon-32.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon.png"
+  },
+  "commands": {
+    "mockQuickSwitcher": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Open Quick Switcher"
+    },
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "Toggle side panel"
+    },
+    "quickPinToggle": {
+      "suggested_key": {
+        "default": "Alt+D"
+      },
+      "description": "Quick Pin/Unpin Tab"
+    },
+    "cycleOpenTabs": {
+      "suggested_key": {
+        "default": "Ctrl+Tab",
+        "mac": "Alt+Tab"
+      },
+      "description": "Cycle through open tabs"
+    },
+    "NextTabInSpace": {
+      "description": "Navigates to next tab in space"
+    },
+    "PrevTabInSpace": {
+      "description": "Navigates to prev tab in space"
+    },
+    "copyCurrentUrl": {
+      "description": "Copy current tab URL"
+    }
+  },
+  "options_page": "options.html",
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; connect-src https://www.googleapis.com/calendar/v3/calendars/primary/events; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'none'; form-action 'none'; base-uri 'none';"
+  },
+  "optional_host_permissions": ["<all_urls>"],
+  "optional_permissions": [
+    "identity"
+  ]
+}
