@@ -259,8 +259,8 @@ body {
 :root:not([data-picker-ready]),
 :root[data-inline-picker] { background: transparent; }
 :root:not([data-picker-ready]) > body { visibility: hidden; }
-/* Let the embedded canvas follow the host while the panel uses its Space theme. */
-:root[data-inline-picker] { color-scheme: light dark; }
+/* Match the mounting iframe's scheme and theme the visible panel independently. */
+:root[data-inline-picker] { color-scheme: only light; }
 [data-inline-picker] .switcher {
     color-scheme: dark;
     border-radius: 16px;

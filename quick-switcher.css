@@ -44,8 +44,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .palette { display: flex; flex-direction: column; height: 100vh; }
 :root:not([data-picker-ready]), :root[data-inline-search] { background: transparent; }
 :root:not([data-picker-ready]) body { visibility: hidden; }
+/* Match the mounting iframe's scheme and theme the visible panel independently. */
+:root[data-inline-search] { color-scheme: only light; }
 [data-inline-search] body { display: grid; min-height: 100vh; place-items: center; }
 [data-inline-search] .palette {
+    color-scheme: dark;
     width: min(640px, calc(100% - 24px));
     height: min(560px, calc(100vh - 24px));
     overflow: hidden;
@@ -54,6 +57,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
     background: var(--palette-background);
     box-shadow: 0 12px 44px #0d122b80;
 }
+[data-inline-search][data-appearance="light"] .palette { color-scheme: light; }
 .search-line { display: flex; align-items: center; gap: 14px; padding: 23px 22px; border-bottom: var(--divider); }
 .search-icon { width: 22px; height: 22px; color: var(--accent); }
 #search { min-width: 0; width: 100%; background: transparent; border: 0; padding: 5px 2px; font-size: 18px; letter-spacing: -.35px; }

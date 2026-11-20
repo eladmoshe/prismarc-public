@@ -55,7 +55,8 @@
         frame.title = search ? 'Quick Switcher' : 'Recent Tabs';
         frame.src = chrome.runtime.getURL(search ? page : 'tab-switcher.html');
         host.style.cssText = 'all:initial!important;position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important;';
-        frame.style.cssText = 'all:initial;display:block;width:100%;height:100%;border:0;visibility:hidden;pointer-events:auto;';
+        // Both picker documents use this same canvas scheme so Chromium can composite them transparently.
+        frame.style.cssText = 'all:initial;color-scheme:only light;display:block;width:100%;height:100%;border:0;visibility:hidden;pointer-events:auto;';
         frame.addEventListener('load', () => {
             if (sheet?.nonce !== nonce) return;
             const dynamicOrigin = frame.src.slice(0, frame.src.lastIndexOf('/'));
