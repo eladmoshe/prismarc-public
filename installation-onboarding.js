@@ -11,6 +11,7 @@ let windowId;
 let bookmarkFolderId;
 let shortcutRevision = 0;
 let bookmarkRevision = 0;
+let openedShortcutSettings = false;
 let completing = false;
 
 function showError(message) {
@@ -57,6 +58,16 @@ function openSettings(url, error) {
     chrome.tabs.create({ url }).catch(() => showError(error));
 }
 
+async function openShortcutSettings() {
+    el('error').hidden = true;
+    try {
+        await chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+        openedShortcutSettings = true;
+    } catch {
+        showError('Could not open keyboard shortcut settings. Enter chrome://extensions/shortcuts in the address bar.');
+    }
+}
+
 function openSidebar() {
     el('error').hidden = true;
     // Chrome requires the call to run directly in the click gesture.
@@ -100,6 +111,28 @@ function showShortcut(id, binding) {
     el(`${id}-shortcut`).textContent = binding || 'Not assigned';
 }
 
+function recentInstructions(commands, binding, mac) {
+    if (!binding) {
+        return `Assign ${mac ? 'Option+Y' : 'Ctrl+Shift+Y'} to “Cycle through open tabs” in keyboard shortcut settings.`;
+    }
+    if (!mac || !usesOptionShortcut(commands)) {
+        return 'Press your shortcut to open the picker. Use the arrow keys to move and Enter to switch.';
+    }
+    const release = ' Release Option to switch. If the picker stays open, press Enter.';
+    if (/^(?:⌥|Alt|Option)\s*\+?\s*Y$/i.test(binding.trim())) {
+        return 'Tap Option+Y to return to your previous tab. To choose another, keep holding Option and press Y again.' + release;
+    }
+    if (/^(?:⌥|Alt|Option)\s*\+?\s*(?:Tab|⇥)$/i.test(binding.trim())) {
+        return 'Tap Option+Tab to return to your previous tab. To choose another, keep holding Option and press Tab again.' + release;
+    }
+    return 'Press your shortcut to select your previous tab. To choose another, keep holding Option and repeat the shortcut.' + release;
+}
+
+function showShortcutReturnStatus(message) {
+    const status = el('shortcut-return-status');
+    if (status.textContent !== message) status.textContent = message;
+}
+
 async function loadShortcuts() {
     const revision = ++shortcutRevision;
     try {
@@ -113,39 +146,37 @@ async function loadShortcuts() {
         const pin = shortcut('quickPinToggle');
         const copy = shortcut('copyCurrentUrl');
         showShortcut('quick', quick);
+        showShortcut('recent-setup', recent);
         showShortcut('recent', recent);
         showShortcut('sidebar', sidebar);
         showShortcut('pin', pin);
         showShortcut('copy', copy);
 
-        const usesCommandT = /^(?:⌘|Command|Cmd)\s*\+?\s*T$/i.test(quick?.trim() ?? '');
-        el('quick-mac-note').hidden = !mac || usesCommandT;
-        el('quick-setup-note').hidden = mac || Boolean(quick);
-        el('setup-quick-shortcut').hidden = false;
+        el('quick-suggestion').textContent = mac ? 'Command+Shift+K' : 'Ctrl+Shift+K';
+        el('quick-setup-note').hidden = false;
+        el('quick-existing-mac-note').hidden = !mac;
+        el('recent-mac-note').hidden = !mac;
+        el('recent-other-note').hidden = mac;
         el('setup-sidebar-shortcut').hidden = Boolean(sidebar);
         el('setup-pin-shortcut').hidden = Boolean(pin);
         const copyButton = el('setup-copy-shortcut');
         copyButton.textContent = copy ? 'Change shortcut' : mac ? 'Set up ⌘⇧C' : 'Set up Ctrl+Shift+C';
         copyButton.disabled = false;
 
-        const recentInstructions = el('recent-instructions');
-        if (mac && usesOptionShortcut(commands)) {
-            const optionTab = /^(?:⌥|Alt|Option)\s*\+?\s*(?:Tab|⇥)$/i.test(recent.trim());
-            recentInstructions.textContent = optionTab
-                ? 'Tap Option+Tab to return to the previous tab. To choose another, hold Option, tap Tab to move, then release Option.'
-                : 'Press your shortcut and keep holding Option. Tap Tab to move, then release Option to switch.';
-        } else if (recent) {
-            recentInstructions.textContent = 'Press your shortcut to open the picker. Use the arrow keys to move and Enter to switch.';
-            if (mac) recentInstructions.textContent += ' With Option+Tab assigned, hold Option, tap Tab, then release Option to switch.';
+        el('recent-instructions').textContent = recentInstructions(commands, recent, mac);
+        if (openedShortcutSettings) {
+            const assigned = Number(Boolean(quick)) + Number(Boolean(recent));
+            showShortcutReturnStatus(assigned === 2
+                ? 'Chrome reports both shortcuts assigned. Press each shortcut to check that it works.'
+                : `Chrome reports ${assigned} of 2 shortcuts assigned. See the rows above to check what’s missing.`);
         } else {
-            recentInstructions.textContent = mac
-                ? 'Assign Option+Tab to “Cycle through open tabs” in extension shortcuts. Hold Option, tap Tab to move, and release Option to switch.'
-                : 'Assign an available shortcut to “Cycle through open tabs” in extension shortcuts. In the picker, use the arrow keys and Enter.';
+            showShortcutReturnStatus('');
         }
     } catch {
         if (revision !== shortcutRevision) return;
-        for (const id of ['quick', 'recent', 'sidebar', 'pin', 'copy']) el(`${id}-shortcut`).textContent = 'Unavailable';
+        for (const id of ['quick', 'recent-setup', 'recent', 'sidebar', 'pin', 'copy']) showShortcut(id, 'Unavailable');
         for (const button of document.querySelectorAll('.shortcut-settings')) button.hidden = button.disabled = false;
+        showShortcutReturnStatus('Could not read your shortcuts. See your assignments in keyboard shortcut settings.');
         el('recent-instructions').textContent = 'Check Chrome’s extension shortcuts for the current assignment.';
     }
 }
@@ -241,7 +272,7 @@ el('open-quick-switcher').addEventListener('click', openQuickSwitcher);
 el('open-sidebar').addEventListener('click', openSidebar);
 el('complete-open-sidebar').addEventListener('click', openSidebar);
 for (const button of document.querySelectorAll('.shortcut-settings')) {
-    button.addEventListener('click', () => openSettings('chrome://extensions/shortcuts', 'Could not open Chrome’s extension shortcuts.'));
+    button.addEventListener('click', openShortcutSettings);
 }
 el('appearance').addEventListener('click', () => openSettings('chrome://settings/appearance', 'Could not open Chrome’s Appearance settings.'));
 el('bookmarks').addEventListener('click', () => openSettings(

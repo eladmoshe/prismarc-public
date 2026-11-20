@@ -21,38 +21,48 @@
 
             <article class="lesson" data-guide-step="quick-switcher" aria-labelledby="quick-title">
                 <div class="lesson-copy">
-                    <h1 id="quick-title" tabindex="-1">Find anything with Quick Switcher</h1>
-                    <p>Search open tabs, bookmarks and history from one box. Use the arrow keys to pick a result and press <kbd>Enter</kbd> to open it.</p>
-                    <div class="binding"><span>Your shortcut</span><kbd id="quick-shortcut">Checking…</kbd></div>
-                    <p id="quick-mac-note" class="lesson-note" hidden>Prefer <kbd>⌘T</kbd>? If Chrome accepts it, assign it to <strong>Open Quick Switcher</strong> in extension shortcuts.</p>
-                    <p id="quick-setup-note" class="lesson-note" hidden>Assign a key to <strong>Open Quick Switcher</strong> in Chrome's extension shortcuts.</p>
+                    <h1 id="quick-title" tabindex="-1">Set up your switching shortcuts</h1>
+                    <p>Use <strong>Quick Switcher</strong> to search tabs, bookmarks, and history. Use <strong>Recent Tabs</strong> to jump back to the tabs you were just using.</p>
+                    <p class="lesson-note">In Quick Switcher, type a page name, choose a result with the arrow keys, and press <kbd>Enter</kbd>.</p>
                     <div class="lesson-actions">
-                        <button id="open-quick-switcher" type="button" class="secondary">Try Quick Switcher</button>
-                        <button id="setup-quick-shortcut" type="button" class="text-button shortcut-settings" hidden>Shortcut settings</button>
+                        <button id="setup-quick-shortcut" type="button" class="primary shortcut-settings">Open keyboard shortcut settings</button>
+                        <button id="open-quick-switcher" type="button" class="text-button">Try Quick Switcher</button>
                     </div>
                 </div>
-                <div class="demo demo-quick" aria-hidden="true">
-                    <div class="quick-example">
-                        <div class="quick-query"><span class="search-icon"></span> project</div>
-                        <div class="quick-results">
-                            <div class="quick-row selected"><span class="site plan">P</span><span>Project plan<small>notes.example</small></span><span class="quick-source">Tab &nbsp; ↵</span></div>
-                            <div class="quick-row"><span class="site library">R</span><span>Project resources<small>library.example</small></span><span class="quick-source">Bookmark</span></div>
-                            <div class="quick-row"><span class="site notes">M</span><span>Project meeting notes<small>notes.example</small></span><span class="quick-source">History</span></div>
+                <div class="shortcut-setup">
+                    <ol class="shortcut-steps">
+                        <li>In keyboard shortcut settings, find <strong>PrismArc</strong>.</li>
+                        <li>Keep any shortcut that works for you. To set one, click the <strong>pencil</strong> next to the command and press the key combination.</li>
+                        <li>Return to this tab to see the saved shortcuts. With at least two regular tabs open, try each shortcut.</li>
+                    </ol>
+                    <section class="shortcut-row" aria-labelledby="quick-command">
+                        <div class="shortcut-row-heading">
+                            <h2 id="quick-command">Open Quick Switcher</h2>
+                            <kbd id="quick-shortcut">Checking…</kbd>
                         </div>
-                        <div class="quick-keys"><span><kbd>↑</kbd> <kbd>↓</kbd> Move</span><span><kbd>↵</kbd> Open</span><span><kbd>Esc</kbd> Close</span></div>
-                    </div>
+                        <p id="quick-setup-note" hidden><span id="quick-existing-mac-note" hidden>Use <kbd>Command+T</kbd> if it’s already assigned above. </span>For a new shortcut, try <kbd id="quick-suggestion"></kbd>.</p>
+                    </section>
+                    <section class="shortcut-row" aria-labelledby="recent-command">
+                        <div class="shortcut-row-heading">
+                            <h2 id="recent-command">Cycle through open tabs</h2>
+                            <kbd id="recent-setup-shortcut">Checking…</kbd>
+                        </div>
+                        <p id="recent-mac-note" hidden>Keep <kbd>Option+Tab</kbd> if it already works in your browser. Chrome’s Mac editor can show that assignment. It uses <kbd>Tab</kbd> to move focus, so you can’t enter <kbd>Option+Tab</kbd> there. For a new shortcut, try <kbd>Option+Y</kbd>.</p>
+                        <p id="recent-other-note" hidden>If you need a shortcut, try <kbd>Ctrl+Shift+Y</kbd>.</p>
+                    </section>
+                    <p id="shortcut-return-status" role="status"></p>
                 </div>
             </article>
 
             <article class="lesson" data-guide-step="recent-tabs" aria-labelledby="recent-title" hidden>
                 <div class="lesson-copy">
                     <h1 id="recent-title" tabindex="-1">Jump back to a recent tab</h1>
-                    <p><kbd>Ctrl+Tab</kbd> uses your browser’s normal order. Recent Tabs lists up to five tabs by when you last used them, even across windows.</p>
+                    <p>Chrome’s <kbd>Ctrl+Tab</kbd> moves through the tab strip. Recent Tabs shows up to five tabs in the order you last used them, even across windows.</p>
                     <div class="binding"><span>Your shortcut</span><kbd id="recent-shortcut">Checking…</kbd></div>
                     <p id="recent-instructions" class="lesson-note" aria-live="polite"></p>
                     <p class="lesson-note">Open at least two tabs to use the picker.</p>
                     <div class="lesson-actions">
-                        <button id="setup-recent-shortcut" type="button" class="text-button shortcut-settings">Shortcut settings</button>
+                        <button id="setup-recent-shortcut" type="button" class="text-button shortcut-settings">Open keyboard shortcut settings</button>
                     </div>
                 </div>
                 <div class="demo demo-recent">
