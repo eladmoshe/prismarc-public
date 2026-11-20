@@ -14,6 +14,8 @@ This repository contains source snapshots for review. Use a link to a specific c
 
 While dragging tabs in the sidebar, hover over a space chip to preview its lists and folders. Release over the position you want, or press Escape or right-click to cancel.
 
+Use ⌘-click on macOS or Ctrl-click on Windows and Linux to add or remove individual open tabs from a selection. Shift-click selects a range. Right-click a selected tab to move the group or put it in a folder.
+
 Click a space name to collapse or expand its pinned bookmarks, or a folder name to toggle that folder’s contents. Use **Rename Space** in the space menu to edit its name.
 
 ## Build and review

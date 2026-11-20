@@ -42,7 +42,7 @@ import { loadFolderCollapsed, saveFolderCollapsed } from './folder-state.js';
 import { projectCollapsedFolder, removeProjectedAnchor, updateFolderPlaceholder } from './sidebar-folder-projection.js';
 import { bookmarkOrderBaselines, bookmarkParentIdForContent, getFlattenedPinnedSectionTabIds, getTempSectionTabIds,
     makeBookmarkDropOperation, uniqPreserveOrder } from './sidebar-drop-order.js';
-import { getContextTabIds, getTabSelectionRange } from './tab-selection.js';
+import { getContextTabIds, getTabSelectionRange, getToggledTabSelection } from './tab-selection.js';
 import { LocalStorage } from './localstorage.js';
 import { Utils } from './utils.js';
 import {
@@ -96,6 +96,7 @@ let showAllOpenTabsInCollapsedFolders = false;
 let activeChromeTabId = null;
 const selectedTabIds = new Set();
 let selectionAnchorTabId = null;
+const toggleSelectionKey = /^mac/i.test(navigator.userAgentData?.platform || navigator.platform) ? 'metaKey' : 'ctrlKey';
 let draggingTabIds = [];
 const tabDragPreview = new TabDragPreview(document, () => {
     clearFolderOpenTimer();
@@ -143,13 +144,22 @@ function selectOnlyTab(tabId) {
     syncTabSelectionUI();
 }
 
-function selectTabRange(targetTabId) {
+function isTabSelectionClick(event) {
+    return event.shiftKey || event[toggleSelectionKey];
+}
+
+function extendTabSelection(targetTabId, event) {
     const orderedIds = getSelectableTabElements().map(element => Number(element.dataset.tabId));
-    const anchorTabId = selectionAnchorTabId || getCurrentSelectableTabId();
-    const range = getTabSelectionRange(orderedIds, anchorTabId, targetTabId);
+    let nextSelection;
+    if (event.shiftKey) {
+        selectionAnchorTabId ??= getCurrentSelectableTabId() ?? targetTabId;
+        nextSelection = getTabSelectionRange(orderedIds, selectionAnchorTabId, targetTabId);
+    } else {
+        selectionAnchorTabId = targetTabId;
+        nextSelection = getToggledTabSelection(orderedIds, selectedTabIds, targetTabId);
+    }
     selectedTabIds.clear();
-    range.forEach(id => selectedTabIds.add(id));
-    if (selectionAnchorTabId == null) selectionAnchorTabId = anchorTabId || targetTabId;
+    nextSelection.forEach(id => selectedTabIds.add(id));
     syncTabSelectionUI();
 }
 
@@ -2807,6 +2817,8 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer, { force = 
     });
     pinnedContainer.appendChild(pinnedFragment);
     tempContainer.appendChild(tempFragment);
+    // A click can change the selection while the replacement rows are being built.
+    syncTabSelectionUI();
     const spaceElement = pinnedContainer.closest('.space');
     if (spaceElement) {
         spaceElement.dataset.bookmarkTreeUnavailable = treeAvailable ? 'false' : 'true';
@@ -3014,6 +3026,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
         await setBackButtonState();
 
         favicon.addEventListener('click', async (e) => {
+            if (isTabSelectionClick(e)) return;
             e.stopPropagation();
             if (!tab?.id) return;
             try {
@@ -3067,7 +3080,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
         let initialName = '';
         tabDetails.addEventListener('dblclick', (e) => {
             // Prevent dblclick on favicon or close button from triggering rename
-            if (e.target === favicon || e.target === actionButton) return;
+            if (e.target === favicon || e.target === actionButton || isTabSelectionClick(e)) return;
 
             titleDisplay.style.display = 'none';
             domainDisplay.style.display = 'none'; // Hide domain while editing
@@ -3149,12 +3162,11 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
             if (isBookmarkOnly) return;
             closeTab(tabElement, tab, isPinned, isBookmarkOnly);
         } else if (event.button === MOUSE_BUTTON.LEFT) {
-            // Don't activate tab when clicking close button
-            if (event.target === actionButton) return;
+            if (event.target === actionButton || event.target === titleInput) return;
 
-            if (!isBookmarkOnly && event.shiftKey) {
+            if (!isBookmarkOnly && isTabSelectionClick(event)) {
                 event.preventDefault();
-                selectTabRange(tab.id);
+                extendTabSelection(tab.id, event);
                 return;
             }
 

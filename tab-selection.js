@@ -8,6 +8,12 @@ export function getTabSelectionRange(orderedTabIds, anchorTabId, targetTabId) {
     return orderedTabIds.slice(start, end + 1);
 }
 
+export function getToggledTabSelection(orderedTabIds, selectedTabIds, targetTabId) {
+    // Bulk actions consume these IDs in sidebar order, regardless of click order.
+    return orderedTabIds.filter(id =>
+        id === targetTabId ? !selectedTabIds.has(id) : selectedTabIds.has(id));
+}
+
 export function getContextTabIds(selectedTabIds, targetTabId) {
     const selected = [...selectedTabIds];
     return selected.length > 1 && selected.includes(targetTabId)
