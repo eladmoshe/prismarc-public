@@ -19,7 +19,7 @@
         var(--background);
     background: var(--palette-background);
 }
-:root[data-space-color="prismarc-light"] {
+:root[data-appearance="light"] {
     color-scheme: light;
     --background: var(--prismarc-light-base);
     --text: var(--prismarc-light-ink);

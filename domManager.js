@@ -1,5 +1,5 @@
 import { isTrustedExtensionMessage } from './message-security.js';
-import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR, spacePaletteColor } from './space-colors.js';
+import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR, SPACE_COLOR_NAMES, paletteName, solidUsesLightInk } from './space-colors.js';
 import { spaceRequest } from './space-client.js';
 import { setSidebarFavicon, wrapSidebarFavicon } from './sidebar-favicon.js';
 /**
@@ -114,14 +114,19 @@ export function setupSpaceColorPicker(select, palette) {
         button.dataset.color = option.value;
         button.title = option.text;
         button.setAttribute('aria-label', option.text);
-        if (option.value === DEFAULT_SPACE_COLOR || option.value === LIGHT_SPACE_COLOR) {
+        if (option.value === DEFAULT_SPACE_COLOR) {
             button.classList.add('preset-swatch');
+            button.title = 'Use the current appearance color';
             const chip = document.createElement('span');
             chip.className = 'prismarc-color-chip';
             chip.setAttribute('aria-hidden', 'true');
             const label = document.createElement('span');
             label.textContent = option.text;
             button.append(chip, label);
+        } else {
+            button.style.backgroundImage = `var(--space-${option.value}-gradient)`;
+            button.style.backgroundColor = `var(--space-${option.value}-base)`;
+            button.style.color = `var(--space-${option.value}-ink, var(--swatch-ink))`;
         }
         button.addEventListener('click', () => {
             if (select.value === option.value) return;
@@ -225,14 +230,41 @@ export function setupSpaceOptions(container) {
     return () => { if (openSpaceOptions === options) closeSpaceOptions(true); };
 }
 
+const solidInkThemes = new Map();
+
+export function setSpaceColorOverrides(overrides) {
+    solidInkThemes.clear();
+    const style = document.documentElement.style;
+    for (const name of SPACE_COLOR_NAMES) {
+        const value = overrides?.[name];
+        const prefix = `--space-${name}-`;
+        if (/^#[0-9a-f]{6}$/i.test(value)) {
+            const lightInk = solidUsesLightInk(value);
+            style.setProperty(prefix + 'base', value);
+            style.setProperty(prefix + 'gradient', 'none');
+            style.setProperty(prefix + 'ink', lightInk ? '#fff' : '#161921');
+            solidInkThemes.set(name, lightInk ? DEFAULT_SPACE_COLOR : LIGHT_SPACE_COLOR);
+        } else {
+            for (const property of ['base', 'gradient', 'ink']) style.removeProperty(prefix + property);
+        }
+    }
+}
+
+export function spaceInkTheme(color) {
+    return solidInkThemes.get(color) ??
+        (document.documentElement.dataset.appearance === 'light' ? LIGHT_SPACE_COLOR : DEFAULT_SPACE_COLOR);
+}
+
 export function applySpaceColor(color = DEFAULT_SPACE_COLOR, { refresh = false } = {}) {
     const sidebar = document.getElementById('sidebar-container');
+    color = paletteName(color);
     if (sidebar.dataset.spaceColor === color && !refresh) return;
     sidebar.classList.add('updating-space-color');
     sidebar.dataset.spaceColor = color;
-    sidebar.dataset.spaceTheme = color;
-    sidebar.style.setProperty('--space-base-color', spacePaletteColor(color));
-    sidebar.style.setProperty('--space-base-color-dark', spacePaletteColor(color, true));
+    sidebar.dataset.spaceTheme = spaceInkTheme(color);
+    sidebar.style.setProperty('--space-gradient', `var(--space-${color}-gradient)`);
+    sidebar.style.setProperty('--space-base-color', `var(--space-${color}-base)`);
+    sidebar.style.setProperty('--space-base-color-dark', 'color-mix(in srgb, var(--space-base-color) 80%, black)');
     // Commit the new palette together, then restore transitions for hover and selection.
     void sidebar.offsetWidth;
     sidebar.classList.remove('updating-space-color');

@@ -3,7 +3,7 @@ import { isPracticeUrl } from './tour-practice.js';
 import { syncSpaceGroups } from './tab-group-sync.js';
 import { LocalStorage } from './localstorage.js';
 import { getSpaceBookmarkFolder, isFolderInBookmarkRoot } from './space-bookmarks.js';
-import { DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR } from './space-colors.js';
+import { APPEARANCE_THEME_KEY, DEFAULT_SPACE_COLOR, LIGHT_SPACE_COLOR, isAppearanceTheme } from './space-colors.js';
 import { boundRestoreRecords, matchStartupRestores, restoreLifetime, restoreUrl } from './space-restore.js';
 
 const sections = ['spaceBookmarks', 'temporaryTabs'];
@@ -62,22 +62,31 @@ export function applySpacePatch(current, before, after) {
 
 export class SpaceStore {
     constructor() { this.chain = Promise.resolve(); this.initialized = false; }
-    run(operation) {
-        const pending = this.chain.then(async () => { await this.initialize(); return operation(); });
+    enqueue(operation) {
+        const pending = this.chain.then(operation);
         this.chain = pending.catch(() => {});
         return pending;
     }
-    popupUsesLightTheme(windowId, tabId) {
-        if (!Number.isInteger(windowId) || windowId < 0) return Promise.resolve(false);
-        return this.run(async () => {
-            // The same priority as sidebar startup. Global lastActiveSpaceId
-            // can describe a different window, especially with two monitors.
-            let space = this.spaces.find(item => item.id === this.active[windowId]);
-            if (!space) {
-                const originId = tabId ?? (await chrome.tabs.query({ active: true, windowId }))[0]?.id;
-                space = ownerOf(this.spaces, originId) || this.spaces[0];
+    run(operation) {
+        return this.enqueue(async () => { await this.initialize(); return operation(); });
+    }
+    appearanceTheme({ action, theme, windowId, tabId }) {
+        return this.enqueue(async () => {
+            if (action === 'get') {
+                const stored = await chrome.storage.local.get(APPEARANCE_THEME_KEY);
+                if (isAppearanceTheme(stored[APPEARANCE_THEME_KEY])) return stored[APPEARANCE_THEME_KEY];
+                // Take one snapshot of the old per-space choice on upgrade.
+                await this.initialize();
+                const space = this.spaces.find(item => item.id === this.active[windowId])
+                    || ownerOf(this.spaces, tabId)
+                    || this.spaces.find(item => item.id === this.lastActiveSpaceId)
+                    || this.spaces[0];
+                theme = space?.color === LIGHT_SPACE_COLOR ? 'light' : 'dark';
+            } else if (action !== 'set' || !isAppearanceTheme(theme)) {
+                throw new Error('Choose a light or dark appearance.');
             }
-            return space?.color === LIGHT_SPACE_COLOR;
+            await chrome.storage.local.set({ [APPEARANCE_THEME_KEY]: theme });
+            return theme;
         });
     }
     async makeSpace(name, color, folder = null) {

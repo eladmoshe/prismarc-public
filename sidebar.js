@@ -10,7 +10,7 @@ import { setupSidebarPreviewHint } from './sidebar-preview-hint.js';
 import { setupSpaceSwipe } from './sidebar-space-swipe.js';
 import { CalendarPreview } from './calendar-preview.js';
 import { calendarFavoriteUrl } from './calendar-config.js';
-import { DEFAULT_SPACE_COLOR } from './space-colors.js';
+import { APPEARANCE_THEME_KEY, DEFAULT_SPACE_COLOR, paletteName } from './space-colors.js';
 import { invalidateSidebarFavicons, setSidebarFavicon, wrapSidebarFavicon } from './sidebar-favicon.js';
 import { beginSidebarContextMenu } from './sidebar-context-menu.js';
 /**
@@ -28,7 +28,7 @@ import { beginSidebarContextMenu } from './sidebar-context-menu.js';
  */
 
 import { ChromeHelper } from './chromeHelper.js';
-import { spaceRequest as requestSpace } from './space-client.js';
+import { getAppearanceTheme, spaceRequest as requestSpace } from './space-client.js';
 import { SpacePatchQueue } from './space-patch-queue.js';
 import { RefreshCoordinator } from './refresh-coordinator.js';
 import { EditSessionRegistry } from './edit-sessions.js';
@@ -48,6 +48,7 @@ import { Utils } from './utils.js';
 import {
     setupDOMElements,
     setupSpaceColorPicker,
+    setSpaceColorOverrides,
     setupSpaceOptions,
     applySpaceColor,
     showSpaceNameInput,
@@ -310,50 +311,6 @@ async function replaceBookmarkUrlWithCurrentUrl(tab, tabElement) {
 
         renderLiveTabLabel(tabElement, { url: newUrl, title: newTitle || tab.title });
     }
-}
-
-// Function to apply color overrides from settings
-async function applyColorOverrides() {
-    try {
-        const settings = await Utils.getSettings();
-        Logger.log('Applying color overrides, settings:', settings);
-
-        const root = document.documentElement;
-
-        // Clear any existing overrides first
-        const colorNames = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan'];
-        colorNames.forEach(colorName => {
-            root.style.removeProperty(`--user-chrome-${colorName}-color`);
-        });
-
-        // Apply new overrides if they exist
-        if (settings.colorOverrides && Object.keys(settings.colorOverrides).length > 0) {
-            Logger.log('Found color overrides:', settings.colorOverrides);
-            Object.keys(settings.colorOverrides).forEach(colorName => {
-                const colorValue = settings.colorOverrides[colorName];
-                if (colorValue) {
-                    root.style.setProperty(`--user-chrome-${colorName}-color`, colorValue);
-                    Logger.log(`Applied color override: --user-chrome-${colorName}-color = ${colorValue}`);
-                }
-            });
-        } else {
-            Logger.log('No color overrides found in settings');
-        }
-
-        // Re-apply colors to all existing spaces
-        reapplySpaceColors();
-    } catch (error) {
-        Logger.error('Error applying color overrides:', error);
-    }
-}
-
-// Function to re-apply colors to the active space
-function reapplySpaceColors() {
-    const sidebarContainer = document.getElementById('sidebar-container');
-    if (!sidebarContainer || !activeSpaceId || spaces.length === 0) return;
-
-    const activeSpace = spaces.find(space => space.id === activeSpaceId);
-    if (activeSpace) applySpaceColor(activeSpace.color, { refresh: true });
 }
 
 async function changeFavorite(action, favoriteId) {
@@ -660,7 +617,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
     refreshSearchShortcut();
     window.addEventListener('focus', refreshSearchShortcut);
-    await applyColorOverrides();
 
     // Listen for storage changes to re-apply colors when they're updated
     chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -674,11 +630,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateDeleteSpaceButtons();
         }
         if (areaName === 'local' && changes[SPACE_PIN_NAME_DEFAULTS]) scheduleBookmarkRefresh();
-        if (areaName === 'local' && changes.colorOverrides) {
-            Logger.log('Color overrides changed, re-applying...');
-            applyColorOverrides();
-        }
-
         // Re-render active space when tab order inversion setting changes
         if (areaName === 'local' && changes.invertTabOrder) {
             Logger.log('invertTabOrder changed, refreshing active space UI...');
@@ -857,10 +808,31 @@ async function adoptStoredSpaces(next, { render = true } = {}) {
 }
 
 async function initSidebar() {
+    let receivedOverrides = false;
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local' || !(changes.colorOverrides || changes[APPEARANCE_THEME_KEY])) return;
+        if (changes.colorOverrides) {
+            receivedOverrides = true;
+            setSpaceColorOverrides(changes.colorOverrides.newValue);
+        }
+        if (changes[APPEARANCE_THEME_KEY]) {
+            document.documentElement.dataset.appearance = changes[APPEARANCE_THEME_KEY].newValue || 'dark';
+        }
+        spaceSwipe?.cancel();
+        const active = spaces.find(space => space.id === activeSpaceId);
+        applySpaceColor(active?.color, { refresh: true });
+    });
     const settings = await Utils.getSettings();
+    if (!receivedOverrides) setSpaceColorOverrides(settings.colorOverrides);
     defaultSpaceName = settings.defaultSpaceName || 'Home';
     showAllOpenTabsInCollapsedFolders = Boolean(settings.showAllOpenTabsInCollapsedFolders);
     currentWindow = await chrome.windows.getCurrent({ populate: false });
+    try {
+        const theme = await getAppearanceTheme(currentWindow.id);
+        document.documentElement.dataset.appearance ??= theme;
+    } catch (error) {
+        Logger.error('Could not load appearance', error);
+    }
     if (__PRISMARC_INCLUDE_CALENDAR__ && !currentWindow.incognito) {
         const favorites = document.getElementById('pinnedFavicons');
         calendarPreview = new CalendarPreview(favorites, async (url, reuse = false) => {
@@ -971,7 +943,7 @@ function createSpaceElement(space) {
     const closeOptions = setupSpaceOptions(spaceElement.querySelector('.space-options-container'));
 
     const colorSelect = spaceElement.getElementById('spaceColorSelect');
-    colorSelect.value = space.color;
+    colorSelect.value = paletteName(space.color);
     setupSpaceColorPicker(colorSelect, spaceElement.getElementById('spaceOptionColorSwatch'));
     colorSelect.addEventListener('change', async () => {
         space.color = colorSelect.value;

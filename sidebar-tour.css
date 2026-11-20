@@ -26,15 +26,13 @@
 #arcify-tour #coach-feedback { color: var(--tour-muted); margin-top: 8px; }
 #arcify-tour #coach-feedback:empty { display: none; }
 #arcify-tour #coach-retry { margin-top: 8px; }
-@media (prefers-color-scheme: dark) {
-    #sidebar-container:not([data-space-theme="prismarc-light"]) {
-        --tour-border: color-mix(in srgb, var(--tour-accent) 85%, white);
-        --tour-surface: color-mix(in srgb, var(--tour-accent) 16%, #19212b);
-        --tour-text: #f4f7fb;
-        --tour-muted: #c9d2de;
-        --tour-button: var(--tour-accent);
-        --tour-button-text: #172334;
-    }
+:root[data-appearance="dark"] #sidebar-container {
+    --tour-border: color-mix(in srgb, var(--tour-accent) 85%, white);
+    --tour-surface: color-mix(in srgb, var(--tour-accent) 16%, #19212b);
+    --tour-text: #f4f7fb;
+    --tour-muted: #c9d2de;
+    --tour-button: color-mix(in srgb, var(--tour-accent) 42%, white);
+    --tour-button-text: #172334;
 }
 #sidebar-container[data-tour-step="favorites"] #pinnedFavicons { min-height: 52px; }
 /* Keep highlight contrast independent of the unchanged coach palette. */

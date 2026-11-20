@@ -19,7 +19,7 @@
     font: 500 14px/1.3 system-ui, sans-serif;
 }
 
-:root[data-space-color="prismarc-light"] {
+:root[data-appearance="light"] {
     color-scheme: light;
     --picker-background: var(--prismarc-light-gradient) var(--prismarc-light-base);
     --picker-edge: #51628652;
@@ -94,7 +94,7 @@ body {
         linear-gradient(140deg, hsl(var(--site-hue) 32% 35%), hsl(var(--site-hue) 23% 21%));
 }
 
-[data-space-color="prismarc-light"] .tile-art {
+[data-appearance="light"] .tile-art {
     background: radial-gradient(ellipse at 22% 0%, hsl(var(--site-hue) 62% 92%), transparent 76%),
         linear-gradient(140deg, hsl(var(--site-hue) 42% 86%), hsl(var(--site-hue) 32% 73%));
 }
@@ -268,11 +268,11 @@ body {
     outline: 1px solid var(--picker-edge);
     box-shadow: 0 12px 42px #0d122b85;
 }
-[data-inline-picker][data-space-color="prismarc-light"] .switcher { color-scheme: light; }
+[data-inline-picker][data-appearance="light"] .switcher { color-scheme: light; }
 
 @media (forced-colors: active) {
     :root,
-    :root[data-space-color="prismarc-light"] { --picker-focus: Highlight; --picker-edge: CanvasText; }
+    :root[data-appearance="light"] { --picker-focus: Highlight; --picker-edge: CanvasText; }
     .tile-art,
     .tile-badge { border: 1px solid CanvasText; }
 }

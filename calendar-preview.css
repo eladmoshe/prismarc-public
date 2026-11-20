@@ -206,19 +206,17 @@
     padding: 0 11px 11px;
 }
 
-@media (prefers-color-scheme: dark) {
-    body:not(:has(> .sidebar-container[data-space-theme="prismarc-light"])) .calendar-preview {
-        --calendar-surface: #20282d;
-        --calendar-text: #eef4f6;
-        --calendar-muted: #bcc9d0;
-        --calendar-border: #3d4b53;
-        --calendar-line: #39464c;
-        --calendar-accent: #61c2e1;
-        --calendar-accent-fill: #284c5b;
-        --calendar-event-text: #d6f3ff;
-        --calendar-hover: #354149;
-        color-scheme: dark;
-    }
+:root[data-appearance="dark"] .calendar-preview {
+    --calendar-surface: #20282d;
+    --calendar-text: #eef4f6;
+    --calendar-muted: #bcc9d0;
+    --calendar-border: #3d4b53;
+    --calendar-line: #39464c;
+    --calendar-accent: #61c2e1;
+    --calendar-accent-fill: #284c5b;
+    --calendar-event-text: #d6f3ff;
+    --calendar-hover: #354149;
+    color-scheme: dark;
 }
 
 @media (forced-colors: active) {

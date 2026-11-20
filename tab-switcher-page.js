@@ -1,4 +1,4 @@
-import { applyPopupSpaceTheme } from './space-client.js';
+import { watchAppearance } from './space-client.js';
 import { TAB_SWITCHER_SESSION } from './tab-switcher.js';
 import { describeOpenTab, usesOptionShortcut } from './tab-switcher-tabs.js';
 import { TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_EXCLUDED_DOMAINS,
@@ -358,7 +358,7 @@ function startPicker(token, inline) {
         if (version !== generation) return;
         if (!themeRequested) {
             themeRequested = true;
-            applyPopupSpaceTheme(state.originWindowId, state.originId);
+            watchAppearance(state.originWindowId, state.originId);
             if (!state.incognito) refreshPreviewHintPreferences().catch(() => {});
             // The native window can be smaller than requested or have been
             // opened by the previous worker while the updated page loads.

@@ -76,9 +76,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             return respond(authorizeQuickSwitcherWindow(chrome, sender), sendResponse, 'Could not connect Quick Switcher.');
         case 'cleanTabs':
             return handleCleanTabs(message, sender, sendResponse);
-        case 'popupSpaceTheme':
-            return respond(spaceStore.popupUsesLightTheme(message.windowId, message.tabId)
-                .then(light => ({ light })), sendResponse, 'Could not load the popup theme.');
+        case 'appearanceTheme':
+            return respond(spaceStore.appearanceTheme(message).then(theme => ({ theme })),
+                sendResponse, 'Could not update appearance.', messageError);
         case 'spaceStore':
             return respond(spaceStore.dispatch(message).then(spaces => ({ spaces })),
                 sendResponse, 'Could not complete the space operation.', messageError);

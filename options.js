@@ -12,30 +12,13 @@ import { INLINE_SWITCHER, setInlineSwitcher } from './tab-switcher-inline-settin
  * - Provides real-time feedback for setting changes
  */
 
+import { getAppearanceTheme, setAppearanceTheme } from './space-client.js';
+import { APPEARANCE_THEME_KEY, SPACE_COLOR_NAMES } from './space-colors.js';
 import { Utils } from './utils.js';
 import { LocalStorage } from './localstorage.js';
 import { Logger } from './logger.js';
 import { parsePreviewDomains, TAB_SWITCHER_EXCLUDED_DOMAINS, TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_VISIT_PERMISSION } from './tab-switcher-previews.js';
 import { enableVisitPreviews, setPreviewPreferences, TAB_PREVIEW_HINT_DISMISSED } from './tab-switcher-preview-settings.js';
-
-// Default color values (must be 6-digit hex for color picker compatibility)
-const DEFAULT_COLORS = {
-  grey: '#cccccc',
-  blue: '#8bb3f3',
-  red: '#ff9e97',
-  yellow: '#ffe29f',
-  green: '#8bda99',
-  pink: '#fbaad7',
-  purple: '#d6a6ff',
-  cyan: '#a5e2ea'
-};
-
-const COLOR_NAMES = Object.keys(DEFAULT_COLORS);
-
-// Helper to get color picker element ID from color name
-function getColorPickerId(colorName) {
-  return `color${colorName.charAt(0).toUpperCase() + colorName.slice(1)}`;
-}
 
 // Helper to safely get checkbox value with default
 function getCheckboxValue(element, defaultValue) {
@@ -62,21 +45,11 @@ function addListenerIfExists(elementId, event, handler) {
 async function saveOptions() {
   const defaultSpaceNameSelect = document.getElementById('defaultSpaceName');
 
-  // Collect color overrides (only non-default values)
-  const colorOverrides = {};
-  COLOR_NAMES.forEach(colorName => {
-    const colorPicker = document.getElementById(getColorPickerId(colorName));
-    if (colorPicker && colorPicker.value !== DEFAULT_COLORS[colorName]) {
-      colorOverrides[colorName] = colorPicker.value;
-    }
-  });
-
   const settings = {
     defaultSpaceName: defaultSpaceNameSelect?.value || 'Home',
     syncTabGroups: getCheckboxValue(document.getElementById('syncTabGroups'), false),
     invertTabOrder: getCheckboxValue(document.getElementById('invertTabOrder'), true),
     showAllOpenTabsInCollapsedFolders: getCheckboxValue(document.getElementById('showAllOpenTabsInCollapsedFolders'), false),
-    colorOverrides: Object.keys(colorOverrides).length > 0 ? colorOverrides : null,
     debugLoggingEnabled: getCheckboxValue(document.getElementById('debugLoggingEnabled'), false)
   };
 
@@ -118,15 +91,6 @@ async function restoreOptions() {
   setCheckboxValue(document.getElementById('invertTabOrder'), settings.invertTabOrder, true);
   setCheckboxValue(document.getElementById('showAllOpenTabsInCollapsedFolders'), settings.showAllOpenTabsInCollapsedFolders, false);
   setCheckboxValue(document.getElementById('debugLoggingEnabled'), settings.debugLoggingEnabled, false);
-
-  // Restore color overrides
-  const colorOverrides = settings.colorOverrides || {};
-  COLOR_NAMES.forEach(colorName => {
-    const colorPicker = document.getElementById(getColorPickerId(colorName));
-    if (colorPicker) {
-      colorPicker.value = colorOverrides[colorName] || DEFAULT_COLORS[colorName];
-    }
-  });
 }
 
 // Function to populate the spaces dropdown
@@ -211,27 +175,118 @@ function setupAdvancedOptions() {
       toggle.setAttribute('aria-expanded', String(!content.hidden));
     });
   }
+}
 
-  // Setup color reset buttons
-  document.querySelectorAll('.color-reset-btn').forEach(button => {
-    button.addEventListener('click', () => {
-      const colorName = button.dataset.color;
-      const colorPicker = document.getElementById(getColorPickerId(colorName));
-      if (colorPicker && DEFAULT_COLORS[colorName]) {
-        colorPicker.value = DEFAULT_COLORS[colorName];
-        saveOptions();
-      }
-    });
+async function setupAppearance() {
+  const select = document.getElementById('appearanceTheme');
+
+  function showTheme(theme) {
+    select.value = theme;
+    document.documentElement.dataset.appearance = theme;
+  }
+
+  let receivedTheme = false;
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes[APPEARANCE_THEME_KEY]?.newValue) {
+      receivedTheme = true;
+      showTheme(changes[APPEARANCE_THEME_KEY].newValue);
+    }
+  });
+  try {
+    const theme = await getAppearanceTheme();
+    if (!receivedTheme) showTheme(theme);
+    select.disabled = false;
+  } catch {
+    showToast('Could not load the theme. Reopen Settings to try again.');
+    return;
+  }
+
+  select.addEventListener('change', async () => {
+    const previous = document.documentElement.dataset.appearance;
+    select.disabled = true;
+    try {
+      showTheme(await setAppearanceTheme(select.value));
+      showToast();
+    } catch {
+      showTheme(previous);
+      showToast('Could not save the theme. Try again.');
+    } finally {
+      select.disabled = false;
+    }
   });
 }
 
-// Debounce function to avoid excessive saves for color pickers
-let saveTimeout;
-function debouncedSave() {
-  clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
-    saveOptions();
-  }, 500); // Wait 500ms after last change before saving
+async function setupSpaceColors() {
+  const grid = document.getElementById('spaceColors');
+  const template = document.getElementById('spaceColorRow');
+  const colors = new Map();
+
+  const gradientBase = name => getComputedStyle(document.documentElement).getPropertyValue(`--space-${name}-base`).trim();
+
+  function showColors(overrides = {}) {
+    for (const [name, { picker, reset }] of colors) {
+      const value = overrides?.[name];
+      const solid = /^#[0-9a-f]{6}$/i.test(value) ? value : null;
+      picker.value = solid || gradientBase(name);
+      picker.style.setProperty('--swatch-base', solid || `var(--space-${name}-base)`);
+      picker.style.setProperty('--swatch-gradient', solid ? 'none' : `var(--space-${name}-gradient)`);
+      picker.title = solid ? 'Change solid color' : 'Choose a solid color';
+      reset.disabled = !solid;
+    }
+  }
+
+  async function saveColor(name, value) {
+    try {
+      await navigator.locks.request('prismarc-color-overrides', async () => {
+        // Other Settings tabs may have edited a different preset.
+        const { colorOverrides } = await chrome.storage.local.get('colorOverrides');
+        const updated = { ...colorOverrides };
+        if (value) updated[name] = value;
+        else delete updated[name];
+        await chrome.storage.local.set({ colorOverrides: Object.keys(updated).length ? updated : null });
+        showColors(updated);
+      });
+      showToast();
+    } catch {
+      showToast('Could not save the space color. Try again.');
+    }
+  }
+
+  for (const name of SPACE_COLOR_NAMES) {
+    const row = template.content.firstElementChild.cloneNode(true);
+    const label = row.querySelector('label');
+    const picker = row.querySelector('input');
+    const reset = row.querySelector('button');
+    const title = name[0].toUpperCase() + name.slice(1);
+    label.textContent = title;
+    picker.id = `color${title}`;
+    label.htmlFor = picker.id;
+    picker.setAttribute('aria-label', `Choose solid color for ${name} spaces`);
+    reset.setAttribute('aria-label', `Restore ${name} gradient`);
+    reset.dataset.color = name;
+    picker.addEventListener('click', () => {
+      if (reset.disabled) picker.value = gradientBase(name);
+    });
+    picker.addEventListener('change', () => saveColor(name, picker.value));
+    reset.addEventListener('click', () => saveColor(name, null));
+    colors.set(name, { picker, reset });
+    grid.append(row);
+  }
+
+  let receivedPalette = false;
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.colorOverrides) {
+      receivedPalette = true;
+      showColors(changes.colorOverrides.newValue);
+    }
+  });
+  try {
+    const { colorOverrides } = await chrome.storage.local.get('colorOverrides');
+    if (!receivedPalette) showColors(colorOverrides);
+  } catch {
+    showColors();
+    showToast('Could not load space colors. Reopen Settings to try again.');
+  }
 }
 
 // Function to setup auto-save listeners
@@ -242,11 +297,6 @@ function setupAutoSave() {
   // Auto-save for checkboxes (most just save immediately)
   const checkboxIds = ['syncTabGroups', 'invertTabOrder', 'showAllOpenTabsInCollapsedFolders', 'debugLoggingEnabled'];
   checkboxIds.forEach(id => addListenerIfExists(id, 'change', saveOptions));
-
-  // Auto-save for color pickers (with debounce)
-  COLOR_NAMES.forEach(colorName => {
-    addListenerIfExists(getColorPickerId(colorName), 'input', debouncedSave);
-  });
 }
 
 async function setupPreviewDomains() {
@@ -456,6 +506,8 @@ function setupPagePreviews() {
 
 document.addEventListener('DOMContentLoaded', () => {
   restoreOptions();
+  setupAppearance();
+  setupSpaceColors();
   setupSectionNavigation();
   setupAdvancedOptions();
   setupAutoSave();

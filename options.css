@@ -1,3 +1,5 @@
+@import url("/prismarc-colors.css");
+
 :root {
     color-scheme: light;
     --page: #f1f0f8;
@@ -24,29 +26,27 @@
     scroll-padding-block: 1rem;
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        color-scheme: dark;
-        --page: #1c2030;
-        --page-glow: #2c2b46;
-        --surface: #272a3c;
-        --section-header: #2b2e42;
-        --nav-surface: #26283c;
-        --ink: #f3f2fc;
-        --muted: #c4c5d7;
-        --line: #40435b;
-        --control-edge: #8a8da7;
-        --accent: #b3a9fc;
-        --accent-hover: #cbc3ff;
-        --accent-ink: #221a55;
-        --selection: #3d395b;
-        --track: #686b84;
-        --thumb: #fff;
-        --error: #ffadbf;
-        --toast: #e5dfff;
-        --toast-ink: #271f43;
-        --shadow: 0 1px 3px #14152745;
-    }
+:root:not([data-appearance="light"]) {
+    color-scheme: dark;
+    --page: #1c2030;
+    --page-glow: #2c2b46;
+    --surface: #272a3c;
+    --section-header: #2b2e42;
+    --nav-surface: #26283c;
+    --ink: #f3f2fc;
+    --muted: #c4c5d7;
+    --line: #40435b;
+    --control-edge: #8a8da7;
+    --accent: #b3a9fc;
+    --accent-hover: #cbc3ff;
+    --accent-ink: #221a55;
+    --selection: #3d395b;
+    --track: #686b84;
+    --thumb: #fff;
+    --error: #ffadbf;
+    --toast: #e5dfff;
+    --toast-ink: #271f43;
+    --shadow: 0 1px 3px #14152745;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -284,6 +284,7 @@ button, input, select, textarea { font: inherit; }
 .ios-toggle:is(:disabled, [aria-disabled="true"]) + .toggle-label { opacity: .6; cursor: not-allowed; }
 .ios-toggle[aria-busy="true"] + .toggle-label { cursor: progress; }
 
+.palette-heading { margin: 0 0 .15rem; font-size: inherit; }
 .color-overrides-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .color-override-item {
     display: flex;
@@ -298,14 +299,15 @@ button, input, select, textarea { font: inherit; }
 .color-picker {
     inline-size: 45px;
     block-size: 42px;
-    padding: 5px;
+    padding: 0;
     border: 1px solid var(--control-edge);
     border-radius: 7px;
-    background: var(--surface);
+    background-color: var(--swatch-base);
+    background-image: var(--swatch-gradient, none);
     cursor: pointer;
 }
-.color-picker::-webkit-color-swatch-wrapper { padding: 0; }
-.color-picker::-webkit-color-swatch { border: 1px solid #0002; border-radius: 4px; }
+.color-picker::-webkit-color-swatch-wrapper { opacity: 0; }
+.color-picker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .advanced-options-toggle {
     display: flex;

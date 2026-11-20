@@ -1,5 +1,8 @@
+import { watchAppearance } from './space-client.js';
 import { calendarRedirectUrl, disconnectCalendar, getCalendarClient, getCalendarSession, saveCalendarClient } from './calendar-auth.js';
 import { BUNDLED_CALENDAR_CLIENT_ID, CALENDAR_CLIENT_KEY, CALENDAR_SESSION_KEY, isCalendarClientId } from './calendar-config.js';
+
+watchAppearance();
 
 const GOOGLE_CLIENTS_URL = 'https://console.cloud.google.com/auth/clients';
 const repair = !BUNDLED_CALENDAR_CLIENT_ID && new URLSearchParams(location.search).get('repair') === '1';

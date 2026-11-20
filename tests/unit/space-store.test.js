@@ -78,18 +78,42 @@ test('existing colors and recovered folder colors survive new defaults', async (
     assert.equal(local.spaceRegistry.b.color, DEFAULT_SPACE_COLOR);
 });
 
-test('popup colors follow the source window selection, then its tab, independently of global recency', async () => {
+test('appearance migrates from the active window once and persists independently of space and worker', async () => {
     local.spaces[1].color = LIGHT_SPACE_COLOR;
     session.activeSpaces = { 1: 'a', 2: 'b' };
-    session.lastActiveSpaceId = 'b';
+    session.lastActiveSpaceId = 'a';
     const store = new SpaceStore();
-    assert.equal(await store.popupUsesLightTheme(1, 2), false);
-    assert.equal(await store.popupUsesLightTheme(2, 1), true);
-    // Window 3 has no stored selection. The owner of its active tab supplies the theme.
-    tabs[1].windowId = 3;
-    assert.equal(await store.popupUsesLightTheme(3, 2), true);
-    assert.equal(await store.popupUsesLightTheme(3, 999), false);
-    assert.equal(await store.popupUsesLightTheme(undefined, 2), false);
+    const get = windowId => ({ action: 'get', windowId });
+    assert.equal(await store.appearanceTheme(get(2)), 'light');
+    assert.equal(local.appearanceTheme, 'light');
+    assert.equal(await store.appearanceTheme(get(1)), 'light');
+    assert.equal(await new SpaceStore().appearanceTheme(get(1)), 'light');
+    assert.deepEqual(local.spaces.map(item => item.color), ['blue', LIGHT_SPACE_COLOR]);
+});
+
+test('opening Settings first migrates from the last active space and named colors default to dark', async () => {
+    local.spaces[1].color = LIGHT_SPACE_COLOR;
+    local.lastActiveSpaceId = 'b';
+    const store = new SpaceStore();
+    assert.equal(await store.appearanceTheme({ action: 'get' }), 'light');
+    delete local.appearanceTheme;
+    local.spaces[1].color = 'yellow';
+    assert.equal(await new SpaceStore().appearanceTheme({ action: 'get' }), 'dark');
+});
+
+test('explicit appearance survives competing migration, validates choices, and works without bookmarks', async () => {
+    local.spaces[0].color = LIGHT_SPACE_COLOR;
+    const store = new SpaceStore();
+    const get = { action: 'get' };
+    const setDark = { action: 'set', theme: 'dark' };
+    const values = await Promise.all([store.appearanceTheme(get), store.appearanceTheme(setDark), store.appearanceTheme(get)]);
+    assert.deepEqual(values, ['light', 'dark', 'dark']);
+    await assert.rejects(store.appearanceTheme({ action: 'set', theme: 'yellow' }));
+    assert.equal(local.appearanceTheme, 'dark');
+    chrome.bookmarks.getChildren = async () => { throw new Error('Unavailable'); };
+    const next = new SpaceStore();
+    await next.appearanceTheme({ action: 'set', theme: 'light' });
+    assert.equal(await next.appearanceTheme(get), 'light');
 });
 
 test('stale panel patch preserves concurrent tabs, moves and metadata', () => {

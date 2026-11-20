@@ -45,16 +45,14 @@
 }
 #calendarSettingsStatus:not(:empty) { margin-top: 10px; }
 
-@media (prefers-color-scheme: dark) {
-    .options-page.calendar-settings-page {
-        --options-bg-color: #171e22;
-        --options-text-color: #eef4f6;
-        --options-muted-color: #bcc9d0;
-        --options-border-color: #56656d;
-        --calendar-settings-action: #9dd8ec;
-        --calendar-settings-action-text: #182b33;
-        color-scheme: dark;
-    }
-    .calendar-settings-page .options-container { background: #252e34; }
-    .calendar-settings-page .options-input { background: #1b2327; }
+:root[data-appearance="dark"] .calendar-settings-page {
+    --options-bg-color: #171e22;
+    --options-text-color: #eef4f6;
+    --options-muted-color: #bcc9d0;
+    --options-border-color: #56656d;
+    --calendar-settings-action: #9dd8ec;
+    --calendar-settings-action-text: #182b33;
+    color-scheme: dark;
 }
+:root[data-appearance="dark"] .calendar-settings-page .options-container { background: #252e34; }
+:root[data-appearance="dark"] .calendar-settings-page .options-input { background: #1b2327; }

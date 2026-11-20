@@ -1,4 +1,4 @@
-import { applyPopupSpaceTheme } from './space-client.js';
+import { watchAppearance } from './space-client.js';
 import { searchBrowser, activateBrowserResult, resolveSearchWindow, deleteHistoryResult, historyDestinationIdentity } from './quick-switcher-search.js';
 import { numberShortcutIndex, optionDigit } from './quick-switcher-keyboard.js';
 import { activateGoogleSearch } from './quick-switcher-google.js';
@@ -496,7 +496,7 @@ function startPicker(windowId, inlineClient, incognito = false, deletion) {
         if (Boolean(window.incognito) !== incognito) return null;
         return exact ? { id: window.id, incognito: false, exact: true } : window;
     }).catch(() => null);
-    contextReady.then(source => { if (source) applyPopupSpaceTheme(source.id); });
+    contextReady.then(source => { if (source) watchAppearance(source.id); });
     if (inlineClient) document.documentElement.setAttribute('data-inline-search', '');
     document.documentElement.setAttribute('data-picker-ready', '');
 

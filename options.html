@@ -25,7 +25,7 @@
                     <li><a href="#tabsHeading" aria-current="location">Tabs &amp; spaces</a></li>
                     <li><a href="#switcherHeading">Recent Tabs &amp; Quick Switcher</a></li>
                     <li><a href="#archiveHeading">Auto-archiving</a></li>
-                    <li><a href="#colorsHeading">Colors</a></li>
+                    <li><a href="#colorsHeading">Appearance</a></li>
                     <li><a href="#advancedHeading">Advanced</a></li>
                     <li><a href="#gettingStartedHeading">Getting started</a></li>
                 </ul>
@@ -133,67 +133,32 @@
 
                 <section class="options-section" aria-labelledby="colorsHeading">
                     <header class="options-section-header">
-                        <h2 id="colorsHeading" class="options-section-title" tabindex="-1">Colors</h2>
-                        <p class="options-description">Customize the palette used throughout the extension. PrismArc generates darker shades automatically.</p>
+                        <h2 id="colorsHeading" class="options-section-title" tabindex="-1">Appearance</h2>
                     </header>
-                    <div class="color-overrides-grid">
-                        <div class="color-override-item">
-                            <label for="colorGrey" class="options-label">Grey</label>
-                            <div class="color-picker-wrapper">
-                                <input type="color" id="colorGrey" class="color-picker" value="#cccccc">
-                                <button type="button" class="options-button color-reset-btn" data-color="grey" aria-label="Reset grey color to default">Reset</button>
-                            </div>
+                    <div class="options-setting-item options-setting-field">
+                        <div>
+                            <label for="appearanceTheme" class="options-label">Theme</label>
+                            <p class="options-description" id="appearanceThemeHelp">Applies to the sidebar, Quick Switcher, and Recent Tabs across all spaces.</p>
                         </div>
-                        <div class="color-override-item">
-                            <label for="colorBlue" class="options-label">Blue</label>
-                            <div class="color-picker-wrapper">
-                                <input type="color" id="colorBlue" class="color-picker" value="#8bb3f3">
-                                <button type="button" class="options-button color-reset-btn" data-color="blue" aria-label="Reset blue color to default">Reset</button>
-                            </div>
-                        </div>
-                        <div class="color-override-item">
-                            <label for="colorRed" class="options-label">Red</label>
-                            <div class="color-picker-wrapper">
-                                <input type="color" id="colorRed" class="color-picker" value="#ff9e97">
-                                <button type="button" class="options-button color-reset-btn" data-color="red" aria-label="Reset red color to default">Reset</button>
-                            </div>
-                        </div>
-                        <div class="color-override-item">
-                            <label for="colorYellow" class="options-label">Yellow</label>
-                            <div class="color-picker-wrapper">
-                                <input type="color" id="colorYellow" class="color-picker" value="#ffe29f">
-                                <button type="button" class="options-button color-reset-btn" data-color="yellow" aria-label="Reset yellow color to default">Reset</button>
-                            </div>
-                        </div>
-                        <div class="color-override-item">
-                            <label for="colorGreen" class="options-label">Green</label>
-                            <div class="color-picker-wrapper">
-                                <input type="color" id="colorGreen" class="color-picker" value="#8bda99">
-                                <button type="button" class="options-button color-reset-btn" data-color="green" aria-label="Reset green color to default">Reset</button>
-                            </div>
-                        </div>
-                        <div class="color-override-item">
-                            <label for="colorPink" class="options-label">Pink</label>
-                            <div class="color-picker-wrapper">
-                                <input type="color" id="colorPink" class="color-picker" value="#fbaad7">
-                                <button type="button" class="options-button color-reset-btn" data-color="pink" aria-label="Reset pink color to default">Reset</button>
-                            </div>
-                        </div>
-                        <div class="color-override-item">
-                            <label for="colorPurple" class="options-label">Purple</label>
-                            <div class="color-picker-wrapper">
-                                <input type="color" id="colorPurple" class="color-picker" value="#d6a6ff">
-                                <button type="button" class="options-button color-reset-btn" data-color="purple" aria-label="Reset purple color to default">Reset</button>
-                            </div>
-                        </div>
-                        <div class="color-override-item">
-                            <label for="colorCyan" class="options-label">Cyan</label>
-                            <div class="color-picker-wrapper">
-                                <input type="color" id="colorCyan" class="color-picker" value="#a5e2ea">
-                                <button type="button" class="options-button color-reset-btn" data-color="cyan" aria-label="Reset cyan color to default">Reset</button>
-                            </div>
-                        </div>
+                        <select id="appearanceTheme" class="options-input" aria-describedby="appearanceThemeHelp" disabled>
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                        </select>
                     </div>
+                    <div class="options-setting-item">
+                        <h3 class="palette-heading">Space colors</h3>
+                        <p class="options-description">Choose a swatch to set a solid color for every space using that preset. Reset restores its gradient.</p>
+                    </div>
+                    <div id="spaceColors" class="color-overrides-grid"></div>
+                    <template id="spaceColorRow">
+                        <div class="color-override-item">
+                            <label class="options-label"></label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" class="color-picker">
+                                <button type="button" class="options-button color-reset-btn" disabled>Reset</button>
+                            </div>
+                        </div>
+                    </template>
                 </section>
 
                 <section class="options-section" aria-labelledby="advancedHeading">

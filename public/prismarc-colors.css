@@ -18,3 +18,47 @@
     --prismarc-search-teal: #24464b;
     --prismarc-search-charcoal: #29292e;
 }
+
+:root {
+    --swatch-ink: #fff;
+    --space-prismarc-base: var(--prismarc-charcoal);
+    --space-prismarc-gradient: var(--prismarc-sidebar-glows);
+    --space-grey-base: #394457;
+    --space-grey-gradient: linear-gradient(158deg, var(--space-grey-base), #262d37);
+    --space-blue-base: #354f70;
+    --space-blue-gradient: linear-gradient(158deg, var(--space-blue-base), #283447);
+    --space-red-base: #654048;
+    --space-red-gradient: linear-gradient(158deg, var(--space-red-base), #382c38);
+    --space-yellow-base: #64563e;
+    --space-yellow-gradient: linear-gradient(158deg, var(--space-yellow-base), #39343a);
+    --space-green-base: #35544e;
+    --space-green-gradient: linear-gradient(158deg, var(--space-green-base), #243936);
+    --space-pink-base: #614157;
+    --space-pink-gradient: linear-gradient(158deg, var(--space-pink-base), #3b2e41);
+    --space-purple-base: #51486b;
+    --space-purple-gradient: linear-gradient(158deg, var(--space-purple-base), #322f47);
+    --space-cyan-base: #335662;
+    --space-cyan-gradient: linear-gradient(158deg, var(--space-cyan-base), #253b43);
+}
+
+:root[data-appearance="light"] {
+    --swatch-ink: #222c46;
+    --space-prismarc-base: var(--prismarc-light-base);
+    --space-prismarc-gradient: var(--prismarc-light-gradient);
+    --space-grey-base: #d3d9e2;
+    --space-grey-gradient: linear-gradient(158deg, var(--space-grey-base), #e9e8ed);
+    --space-blue-base: #b1d0f6;
+    --space-blue-gradient: linear-gradient(158deg, var(--space-blue-base), #d6dff8);
+    --space-red-base: #f6bdb9;
+    --space-red-gradient: linear-gradient(158deg, var(--space-red-base), #f7d9d3);
+    --space-yellow-base: #f4d99d;
+    --space-yellow-gradient: linear-gradient(158deg, var(--space-yellow-base), #f6ebc9);
+    --space-green-base: #b2dcc2;
+    --space-green-gradient: linear-gradient(158deg, var(--space-green-base), #d5ebcf);
+    --space-pink-base: #efbad4;
+    --space-pink-gradient: linear-gradient(158deg, var(--space-pink-base), #f5d8e9);
+    --space-purple-base: #cebdf3;
+    --space-purple-gradient: linear-gradient(158deg, var(--space-purple-base), #e4daf9);
+    --space-cyan-base: #acdee4;
+    --space-cyan-gradient: linear-gradient(158deg, var(--space-cyan-base), #d5ebf3);
+}

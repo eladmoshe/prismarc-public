@@ -15,31 +15,9 @@
 }
 
 :root {
-    --sidebar-appearance: light;
-    --chrome-prismarc-color: var(--prismarc-charcoal);
-    --chrome-prismarc-color-dark: #3a4455;
-    --chrome-prismarc-light-color: var(--prismarc-light-base);
-    --chrome-prismarc-light-color-dark: var(--prismarc-light-frost);
-
-    /* User color overrides (set via JavaScript, fallback to defaults) */
-    --chrome-grey-color: var(--user-chrome-grey-color, #cccccc);
-    --chrome-blue-color: var(--user-chrome-blue-color, #8bb3f3);
-    --chrome-red-color: var(--user-chrome-red-color, #ff9e97);
-    --chrome-yellow-color: var(--user-chrome-yellow-color, #ffe29f);
-    --chrome-green-color: var(--user-chrome-green-color, #8bda99);
-    --chrome-pink-color: var(--user-chrome-pink-color, #fbaad7);
-    --chrome-purple-color: var(--user-chrome-purple-color, #d6a6ff);
-    --chrome-cyan-color: var(--user-chrome-cyan-color, #a5e2ea);
-
-    /* Dark variants - auto-generated from base colors using color-mix */
-    --chrome-grey-color-dark: color-mix(in srgb, var(--chrome-grey-color) 85%, black);
-    --chrome-blue-color-dark: color-mix(in srgb, var(--chrome-blue-color) 75%, black);
-    --chrome-red-color-dark: color-mix(in srgb, var(--chrome-red-color) 75%, black);
-    --chrome-yellow-color-dark: color-mix(in srgb, var(--chrome-yellow-color) 80%, black);
-    --chrome-green-color-dark: color-mix(in srgb, var(--chrome-green-color) 70%, black);
-    --chrome-pink-color-dark: color-mix(in srgb, var(--chrome-pink-color) 75%, black);
-    --chrome-purple-color-dark: color-mix(in srgb, var(--chrome-purple-color) 80%, black);
-    --chrome-cyan-color-dark: color-mix(in srgb, var(--chrome-cyan-color) 80%, black);
+    --sidebar-appearance: dark;
+    --chrome-grey-color: var(--space-grey-base);
+    --chrome-blue-color: var(--space-blue-base);
 }
 
 body {
@@ -99,11 +77,6 @@ h3 {
     opacity: var(--space-swipe-progress);
     background: var(--space-swipe-gradient, none) var(--space-swipe-color);
 }
-
-.sidebar-container[data-space-color="prismarc"] { --space-gradient: var(--prismarc-sidebar-glows); }
-.sidebar-container[data-space-color="prismarc-light"] { --space-gradient: var(--prismarc-light-gradient); }
-.sidebar-container[data-swipe-target="prismarc"] { --space-swipe-gradient: var(--prismarc-sidebar-glows); }
-.sidebar-container[data-swipe-target="prismarc-light"] { --space-swipe-gradient: var(--prismarc-light-gradient); }
 
 .sidebar-container:is(.updating-space-color, .space-swipe-preview) :is(
     .space-content, .pinned-tabs, .pinned-favicon, .folder, .tab, .tab-drag-preview-row, .space-switcher button, .footer-icon-button, .sidebar-text-action,
@@ -568,8 +541,8 @@ h3 {
     height: 34px;
     padding: 0 7px;
     border-radius: 6px;
-    background: #303948;
-    color: #f2f5fb;
+    background: var(--space-control-bg);
+    color: inherit;
     font: inherit;
     text-align: start;
     white-space: nowrap;
@@ -581,7 +554,7 @@ h3 {
     height: 24px;
     border: 1px solid #a7b4d4ac;
     border-radius: 50%;
-    background: var(--prismarc-sidebar-glows) var(--prismarc-charcoal);
+    background: var(--space-prismarc-gradient) var(--space-prismarc-base);
 }
 
 .color-swatch.preset-swatch:hover { transform: none; border-color: #cad4f7; }
@@ -596,16 +569,6 @@ h3 {
     border-bottom: 2px solid;
     transform: rotate(45deg) translateY(-1px);
 }
-
-.color-swatch[data-color="prismarc-light"] {
-    color: var(--prismarc-light-ink);
-    background: #e5e8fb;
-}
-.color-swatch[data-color="prismarc-light"] .prismarc-color-chip {
-    background: var(--prismarc-light-gradient) var(--prismarc-light-base);
-    border-color: #939fc5;
-}
-.color-swatch[data-color="prismarc-light"]:is(:hover, .selected) { border-color: var(--prismarc-light-accent); }
 
 .space-options-dropdown .color-swatch {
     display: grid;
@@ -634,7 +597,7 @@ h3 {
 .space-options-dropdown .color-swatch.selected::after { visibility: visible; }
 
 .space-options-dropdown .color-swatch.preset-swatch {
-    grid-column: span 2;
+    grid-column: 1 / -1;
     grid-template-columns: 14px minmax(0, 1fr) 9px;
     justify-items: start;
     gap: 5px;
@@ -653,7 +616,7 @@ h3 {
 .space-options-dropdown .color-swatch.preset-swatch:hover { background: var(--space-menu-hover); }
 .space-options-dropdown .color-swatch.preset-swatch.selected { background: var(--space-menu-selection); }
 .space-options-dropdown .color-swatch.preset-swatch.selected::after { margin: 0; }
-.space-options-dropdown .prismarc-color-chip { width: 14px; height: 14px; border-radius: 4px; }
+.space-options-dropdown .prismarc-color-chip { width: 14px; height: 14px; }
 
 @container (max-width: 148px) {
     .space-options-dropdown .color-swatch.preset-swatch { grid-column: 1 / -1; }
@@ -668,38 +631,6 @@ h3 {
     .space-options-dropdown { --space-menu-focus: Highlight; --space-menu-danger: ButtonText; }
     .space-options-dropdown .color-swatch { forced-color-adjust: none; }
     .space-options-dropdown .color-swatch.preset-swatch { forced-color-adjust: auto; }
-}
-
-.color-swatch[data-color="grey"] {
-    background-color: #9CA3AF;
-}
-
-.color-swatch[data-color="blue"] {
-    background-color: #60A5FA;
-}
-
-.color-swatch[data-color="red"] {
-    background-color: #F87171;
-}
-
-.color-swatch[data-color="yellow"] {
-    background-color: #FBBF24;
-}
-
-.color-swatch[data-color="green"] {
-    background-color: #34D399;
-}
-
-.color-swatch[data-color="pink"] {
-    background-color: #F472B6;
-}
-
-.color-swatch[data-color="purple"] {
-    background-color: #A78BFA;
-}
-
-.color-swatch[data-color="cyan"] {
-    background-color: #22D3EE;
 }
 
 .folder {
@@ -980,12 +911,10 @@ h3 {
 }
 
 /* Dark mode toast styling */
-@media (prefers-color-scheme: dark) {
-    body:not(:has(> .sidebar-container[data-space-theme="prismarc-light"])) .url-copy-toast {
-        background-color: rgb(255, 255, 255);
-        color: #333;
-        box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
-    }
+body:has(> .sidebar-container[data-space-theme="prismarc"]) .url-copy-toast {
+    background-color: rgb(255, 255, 255);
+    color: #333;
+    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
 }
 
 /* Toast offering to undo a favorite removal */
@@ -1019,12 +948,10 @@ h3 {
     padding: 0 8px;
 }
 
-@media (prefers-color-scheme: dark) {
-    body:not(:has(> .sidebar-container[data-space-theme="prismarc-light"])) .undo-toast {
-        background-color: rgb(255, 255, 255);
-        color: #333;
-        box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
-    }
+body:has(> .sidebar-container[data-space-theme="prismarc"]) .undo-toast {
+    background-color: rgb(255, 255, 255);
+    color: #333;
+    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
 }
 
 .space-switcher {
@@ -1290,7 +1217,7 @@ h3 {
     bottom: 0;
     max-width: calc(50% - 1px);
 }
-@media (prefers-color-scheme: dark) { body:not(:has(> .sidebar-container[data-space-theme="prismarc-light"])) .tab-audio-indicator { background: #38404a; color: #eceff1; box-shadow: 0 0 0 1px rgba(255, 255, 255, .18); } }
+body:has(> .sidebar-container[data-space-theme="prismarc"]) .tab-audio-indicator { background: #38404a; color: #eceff1; box-shadow: 0 0 0 1px rgba(255, 255, 255, .18); }
 
 /* Arc-like: when a pinned tab has navigated away, favicon becomes a back-to-pinned button */
 .tab-favicon.pinned-back {
@@ -1978,37 +1905,11 @@ h3 {
     line-height: 1.4;
 }
 
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --sidebar-appearance: dark;
-        /* In dark mode, use darker variants of user colors or fallback to dark defaults */
-        --chrome-grey-color: var(--user-chrome-grey-color, #546E7A);
-        --chrome-blue-color: var(--user-chrome-blue-color, #235d8b);
-        --chrome-red-color: var(--user-chrome-red-color, #963d3d);
-        --chrome-yellow-color: var(--user-chrome-yellow-color, #a38e54);
-        --chrome-green-color: var(--user-chrome-green-color, #4f8057);
-        --chrome-pink-color: var(--user-chrome-pink-color, #b06c92);
-        --chrome-purple-color: var(--user-chrome-purple-color, #8d75a1);
-        --chrome-cyan-color: var(--user-chrome-cyan-color, #5e9299);
-
-        /* Dark variants - auto-generated, darker in dark mode */
-        --chrome-grey-color-dark: color-mix(in srgb, var(--chrome-grey-color) 70%, black);
-        --chrome-blue-color-dark: color-mix(in srgb, var(--chrome-blue-color) 60%, black);
-        --chrome-red-color-dark: color-mix(in srgb, var(--chrome-red-color) 60%, black);
-        --chrome-yellow-color-dark: color-mix(in srgb, var(--chrome-yellow-color) 65%, black);
-        --chrome-green-color-dark: color-mix(in srgb, var(--chrome-green-color) 55%, black);
-        --chrome-pink-color-dark: color-mix(in srgb, var(--chrome-pink-color) 60%, black);
-        --chrome-purple-color-dark: color-mix(in srgb, var(--chrome-purple-color) 65%, black);
-        --chrome-cyan-color-dark: color-mix(in srgb, var(--chrome-cyan-color) 65%, black);
-    }
-
-    body {
-        color: #ECEFF1;
-    }
+body:has(> .sidebar-container[data-space-theme="prismarc"]) {
+    color-scheme: dark;
+    color: #eceff1;
 }
 
-/* Theme both system-dark spaces and the fixed-dark PrismArc preset. */
 @container style(--sidebar-appearance: dark) {
     h3 {
         color: #ECEFF1;
@@ -2201,6 +2102,14 @@ h3 {
     --sidebar-appearance: dark;
     color-scheme: dark;
     color: #eceff1;
+}
+
+/* Opaque tinted controls stay readable over both the space gradient and prompt surfaces. */
+.sidebar-container[data-space-theme="prismarc"]:not([data-space-color="prismarc"]) {
+    --space-control-bg: color-mix(in srgb, var(--space-bg-color) 55%, #2a3341);
+    --space-control-hover-bg: color-mix(in srgb, var(--space-bg-color) 45%, #404c5b);
+    --space-control-active-bg: color-mix(in srgb, var(--space-bg-color) 35%, #4a5567);
+    --space-control-active-hover-bg: color-mix(in srgb, var(--space-bg-color) 35%, #596579);
 }
 
 [data-space-theme="prismarc"] .folder { background: #ffffff0b; }

@@ -7,14 +7,6 @@
     --clean-surface: color-mix(in srgb, var(--space-bg-color, #f3f4f8) 45%, #fcfdff);
 }
 
-@media (prefers-color-scheme: dark) {
-    :where(.sidebar-container:not([data-space-theme="prismarc-light"])) .temporary-tabs {
-        --clean-accent: #bfcbff;
-        --clean-accent-text: #182641;
-        --clean-surface: color-mix(in srgb, var(--space-bg-color, #2b3444) 36%, #252d3b);
-    }
-}
-
 [data-space-theme="prismarc"] .temporary-tabs {
     --clean-accent: #bfcbff;
     --clean-accent-text: #182641;

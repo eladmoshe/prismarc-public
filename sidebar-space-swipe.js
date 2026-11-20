@@ -1,4 +1,5 @@
-import { spacePaletteColor } from './space-colors.js';
+import { paletteName } from './space-colors.js';
+import { spaceInkTheme } from './domManager.js';
 
 const INTENT_DISTANCE = 7;
 const COMMIT_DISTANCE = 84;
@@ -17,23 +18,26 @@ export function setupSpaceSwipe(sidebar, { getSpace, canSwipe, activate, onError
         if (!sidebar.classList.contains('space-swipe-preview')) return;
         sidebar.classList.remove('space-swipe-preview');
         delete sidebar.dataset.swipeTarget;
-        sidebar.dataset.spaceTheme = sidebar.dataset.spaceColor;
+        sidebar.dataset.spaceTheme = spaceInkTheme(sidebar.dataset.spaceColor);
+        sidebar.style.removeProperty('--space-swipe-gradient');
         sidebar.style.removeProperty('--space-swipe-color');
         sidebar.style.removeProperty('--space-swipe-color-dark');
         sidebar.style.removeProperty(PROGRESS);
     }
 
     function renderPreview(sourceColor, target, progress) {
-        if (staticTint.matches || !target || sourceColor === target.color || progress === 0) {
+        if (staticTint.matches || !target || paletteName(sourceColor) === paletteName(target.color) || progress === 0) {
             clearPreview();
             return;
         }
         if (sidebar.dataset.swipeTarget !== target.color) {
             sidebar.dataset.swipeTarget = target.color;
-            sidebar.style.setProperty('--space-swipe-color', spacePaletteColor(target.color));
-            sidebar.style.setProperty('--space-swipe-color-dark', spacePaletteColor(target.color, true));
+            const color = paletteName(target.color);
+            sidebar.style.setProperty('--space-swipe-gradient', `var(--space-${color}-gradient)`);
+            sidebar.style.setProperty('--space-swipe-color', `var(--space-${color}-base)`);
+            sidebar.style.setProperty('--space-swipe-color-dark', 'color-mix(in srgb, var(--space-swipe-color) 80%, black)');
         }
-        sidebar.dataset.spaceTheme = progress >= 0.5 ? target.color : sourceColor;
+        sidebar.dataset.spaceTheme = spaceInkTheme(progress >= 0.5 ? target.color : sourceColor);
         sidebar.style.setProperty(PROGRESS, String(progress));
         sidebar.classList.add('space-swipe-preview');
     }
@@ -79,7 +83,7 @@ export function setupSpaceSwipe(sidebar, { getSpace, canSwipe, activate, onError
                     const syncReturningTheme = () => {
                         if (animation.playState !== 'running' || !sidebar.classList.contains('space-swipe-preview')) return;
                         if (Number(getComputedStyle(sidebar).getPropertyValue(PROGRESS)) < 0.5) {
-                            sidebar.dataset.spaceTheme = ended.sourceColor;
+                            sidebar.dataset.spaceTheme = spaceInkTheme(ended.sourceColor);
                         } else {
                             requestAnimationFrame(syncReturningTheme);
                         }
