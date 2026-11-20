@@ -58,19 +58,6 @@ function addListenerIfExists(elementId, event, handler) {
   return element;
 }
 
-// Function to apply color overrides to CSS variables
-function applyColorOverrides(colorOverrides) {
-  const root = document.documentElement;
-  COLOR_NAMES.forEach(colorName => {
-    const colorValue = colorOverrides?.[colorName];
-    if (colorValue) {
-      root.style.setProperty(`--user-chrome-${colorName}-color`, colorValue);
-    } else {
-      root.style.removeProperty(`--user-chrome-${colorName}-color`);
-    }
-  });
-}
-
 // Function to save options to chrome.storage
 async function saveOptions() {
   const defaultSpaceNameSelect = document.getElementById('defaultSpaceName');
@@ -97,7 +84,6 @@ async function saveOptions() {
     await chrome.storage.local.set(settings);
     Logger.log('Settings saved:', settings);
 
-    applyColorOverrides(settings.colorOverrides);
     showToast();
   } catch (error) {
     Logger.error('Error saving settings:', error);
@@ -141,8 +127,6 @@ async function restoreOptions() {
       colorPicker.value = colorOverrides[colorName] || DEFAULT_COLORS[colorName];
     }
   });
-
-  applyColorOverrides(colorOverrides);
 }
 
 // Function to populate the spaces dropdown
@@ -183,17 +167,48 @@ async function populateSpacesDropdown(selectedSpaceName) {
   }
 }
 
-// Function to setup advanced options toggle
+function setupSectionNavigation() {
+  const items = [...document.querySelectorAll('.options-nav a')].map(link => {
+    const heading = document.getElementById(link.hash.slice(1));
+    return { link, section: heading.closest('.options-section') };
+  });
+  let currentLink;
+  let frame;
+
+  function update() {
+    frame = undefined;
+    const anchor = document.getElementById(location.hash.slice(1));
+    const anchorBounds = anchor?.getBoundingClientRect();
+    const viewportHeight = document.documentElement.clientHeight;
+    // A direct link can land short of the viewport top near the end of the page.
+    const linkedItem = anchorBounds?.bottom > 0 && anchorBounds.top < viewportHeight
+      ? items.find(({ section }) => section.contains(anchor))
+      : undefined;
+    const threshold = Math.min(96, viewportHeight / 5);
+    const visibleItem = items.findLast(({ section }) => section.getBoundingClientRect().top <= threshold);
+    const { link } = linkedItem ?? visibleItem ?? items[0];
+    if (currentLink === link) return;
+    for (const item of items) item.link.removeAttribute('aria-current');
+    link.setAttribute('aria-current', 'location');
+    currentLink = link;
+  }
+
+  function updateOnFrame() {
+    frame ??= requestAnimationFrame(update);
+  }
+
+  for (const event of ['hashchange', 'resize', 'scroll']) window.addEventListener(event, updateOnFrame);
+  updateOnFrame();
+}
+
 function setupAdvancedOptions() {
   const toggle = document.getElementById('advancedOptionsToggle');
   const content = document.getElementById('advancedOptionsContent');
 
   if (toggle && content) {
     toggle.addEventListener('click', () => {
-      const isExpanded = content.style.display !== 'none';
-      content.style.display = isExpanded ? 'none' : 'block';
-      toggle.classList.toggle('expanded', !isExpanded);
-      toggle.setAttribute('aria-expanded', String(!isExpanded));
+      content.hidden = !content.hidden;
+      toggle.setAttribute('aria-expanded', String(!content.hidden));
     });
   }
 
@@ -235,32 +250,52 @@ function setupAutoSave() {
 }
 
 async function setupPreviewDomains() {
+  const form = document.getElementById('previewDomainsForm');
   const field = document.getElementById(TAB_SWITCHER_EXCLUDED_DOMAINS);
   const save = document.getElementById('savePreviewDomains');
+  const status = document.getElementById('previewDomainsStatus');
+  function report(message, error = false) {
+    status.textContent = message;
+    status.toggleAttribute('data-error', error);
+  }
   try {
     const settings = await chrome.storage.local.get(TAB_SWITCHER_EXCLUDED_DOMAINS);
     field.value = (settings[TAB_SWITCHER_EXCLUDED_DOMAINS] ?? []).join(', ');
     field.disabled = save.disabled = false;
   } catch {
-    showToast('Could not load excluded sites.');
+    report('Could not load excluded sites.', true);
     return;
   }
-  save.addEventListener('click', async () => {
+  field.addEventListener('input', () => {
+    field.removeAttribute('aria-invalid');
+    report('');
+  });
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (save.disabled) return;
+    const draft = field.value;
     let domains;
     try {
-      domains = parsePreviewDomains(field.value);
+      domains = parsePreviewDomains(draft);
     } catch (error) {
-      showToast(error.message);
+      field.setAttribute('aria-invalid', 'true');
+      report(error.message, true);
       field.focus();
       return;
     }
+    field.removeAttribute('aria-invalid');
     save.disabled = true;
+    report('Saving excluded sites…');
     try {
       await setPreviewPreferences(chrome, { [TAB_SWITCHER_EXCLUDED_DOMAINS]: domains });
-      field.value = domains.join(', ');
-      showToast();
+      if (field.value === draft) {
+        field.value = domains.join(', ');
+        report('Excluded sites saved.');
+      } else {
+        report('Select Save excluded sites to apply your latest edits.');
+      }
     } catch {
-      showToast('Could not save excluded sites.');
+      report('Could not save excluded sites. Try again.', true);
     } finally {
       save.disabled = false;
     }
@@ -348,7 +383,10 @@ function setupPagePreviews() {
       visitToggle.disabled = !checkbox.checked;
       if (focusPreviewAction && !visitToggle.disabled) {
         focusPreviewAction = false;
-        if (document.activeElement === document.body) visitToggle.focus();
+        if (document.activeElement === document.body) {
+          visitToggle.focus({ preventScroll: true });
+          visitToggle.closest('.options-setting-item').scrollIntoView({ block: 'nearest' });
+        }
       }
     } catch {
       // Leave the controls at their last readable state if Chrome rejects the request.
@@ -418,6 +456,7 @@ function setupPagePreviews() {
 
 document.addEventListener('DOMContentLoaded', () => {
   restoreOptions();
+  setupSectionNavigation();
   setupAdvancedOptions();
   setupAutoSave();
   setupInlineSwitcher();

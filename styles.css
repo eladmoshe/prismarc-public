@@ -1647,7 +1647,6 @@ h3 {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.options-header { margin-bottom: 2rem; }
 .options-title {
     margin-bottom: 0.5rem;
     color: var(--options-primary-color);
@@ -1656,21 +1655,12 @@ h3 {
     line-height: 1.25;
 }
 
-.options-section { margin-bottom: 2rem; }
 .options-section-title {
     font-size: 1.125rem;
     font-weight: 600;
     margin-bottom: 0.5rem;
 }
 
-.options-setting-item {
-    display: grid;
-    gap: 1rem;
-    align-items: start;
-    padding: 1rem 0;
-}
-.options-setting-item + .options-setting-item { border-top: 1px solid var(--options-border-color); }
-.options-setting-copy { min-width: 0; }
 .options-label {
     display: block;
     font-size: 0.9375rem;
@@ -1687,7 +1677,6 @@ h3 {
     max-width: 70ch;
     overflow-wrap: anywhere;
 }
-.options-setting-field { grid-template-columns: minmax(0, 1fr) 11rem; }
 .options-input {
     width: 100%;
     min-width: 0;
@@ -1707,57 +1696,6 @@ h3 {
     outline-offset: 4px;
 }
 .options-page ::selection { background: #f4cccc; color: #333; }
-
-/* Toast notification styles */
-.save-toast {
-    position: fixed;
-    bottom: 2rem;
-    left: 50%;
-    transform: translateX(-50%) translateY(100px);
-    background-color: #2d2d2d;
-    color: white;
-    padding: 1rem 1.5rem;
-    border-radius: 12px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    font-size: 0.95rem;
-    font-weight: 500;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 10000;
-}
-
-.save-toast.show {
-    opacity: 1;
-    visibility: visible;
-    transform: translateX(-50%) translateY(0);
-}
-
-.toast-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    background-color: #4ade80;
-    border-radius: 50%;
-    line-height: 0;
-    color: white;
-}
-
-.toast-icon svg {
-    display: block;
-    width: 12px;
-    height: 12px;
-}
-
-.toast-message {
-    white-space: nowrap;
-}
-
 
 /* Archive Section Styles */
 .archive-section {
@@ -1866,173 +1804,9 @@ h3 {
     opacity: 0.7;
 }
 
-/* Settings rows keep each switch beside its label, including at narrow widths. */
-.options-setting-toggle { grid-template-columns: minmax(0, 1fr) 51px; }
-.advanced-options-section { border-top: 1px solid var(--options-border-color); padding-top: 1rem; }
-.advanced-options-toggle {
-    width: 100%;
-    min-height: 44px;
-    background: none;
-    border: none;
-    padding: 0.5rem 0;
-    cursor: pointer;
-    display: flex;
-    gap: 1rem;
-    justify-content: space-between;
-    align-items: center;
-    font: inherit;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--options-text-color);
-    text-align: left;
-}
-.advanced-options-toggle:hover { color: var(--options-primary-color); }
-.advanced-options-chevron {
-    width: 8px;
-    height: 8px;
-    flex-shrink: 0;
-    margin-right: 0.25rem;
-    border-right: 2px solid currentColor;
-    border-bottom: 2px solid currentColor;
-    transform: rotate(45deg);
-    transition: transform 0.2s ease;
-}
-.advanced-options-toggle.expanded .advanced-options-chevron { transform: rotate(-135deg); }
-.color-overrides-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 2rem;
-    margin-top: 1rem;
-}
-.color-override-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.75rem 0;
-    border-bottom: 1px solid var(--options-border-color);
-}
-.color-override-label { font-weight: 500; cursor: pointer; }
-.color-picker-wrapper { display: flex; align-items: center; gap: 0.5rem; }
-.color-picker {
-    width: 52px;
-    height: 44px;
-    border: 1px solid #858b94;
-    border-radius: 6px;
-    cursor: pointer;
-    padding: 4px;
-    background: white;
-}
-.color-picker::-webkit-color-swatch-wrapper { padding: 0; }
-.color-picker::-webkit-color-swatch { border: none; border-radius: 3px; }
-.color-reset-btn {
-    min-height: 44px;
-    padding: 0.5rem 0.75rem;
-    background: #f5f7fa;
-    border: 1px solid var(--options-border-color);
-    border-radius: 6px;
-    cursor: pointer;
-    font: inherit;
-    font-size: 0.8125rem;
-    color: var(--options-text-color);
-}
-.color-reset-btn:hover { background: #e8ebef; border-color: #858b94; }
-.options-page .toggle-switch-container { height: 44px; }
-.options-page .toggle-label { top: 6px; bottom: 7px; background: #767c85; }
-.options-page .ios-toggle:focus-visible + .toggle-label {
-    outline: 2px solid var(--options-primary-color);
-    outline-offset: 4px;
-    box-shadow: none;
-}
-.options-page .ios-toggle:checked + .toggle-label { background: #27833e; }
-.options-page .ios-toggle:is(:disabled, [aria-disabled="true"]) + .toggle-label {
-    cursor: not-allowed;
-    opacity: 0.6;
-}
-.options-page .ios-toggle[aria-busy="true"] + .toggle-label { cursor: progress; }
-.options-page .toggle-label,
-.options-page .toggle-label::before { transition-duration: 0.2s; }
-.options-page .save-toast { max-width: calc(100% - 2rem); pointer-events: none; }
 @media (max-width: 600px) {
     .options-page { padding: 1rem; }
     .options-container { padding: 1.5rem; }
-    .options-setting-field { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
-    .color-overrides-grid { grid-template-columns: minmax(0, 1fr); }
-}
-@media (prefers-reduced-motion: reduce) {
-    .options-page .toggle-label,
-    .options-page .toggle-label::before,
-    .options-page .advanced-options-chevron,
-    .options-page .save-toast { transition: none; }
-}
-
-.toggle-switch-container {
-    position: relative;
-    display: inline-block;
-    width: 51px;
-    /* Standard iOS toggle width */
-    height: 31px;
-    /* Standard iOS toggle height */
-}
-
-/* Hide the default checkbox */
-.ios-toggle {
-    opacity: 0;
-    width: 0;
-    height: 0;
-    position: absolute;
-}
-
-/* Style the visual label (the track) */
-.toggle-label {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: #ccc;
-    /* Default track color (off) */
-    transition: .4s;
-    border-radius: 34px;
-    /* Make it rounded */
-}
-
-/* Style the knob (the circle) */
-.toggle-label:before {
-    position: absolute;
-    content: "";
-    height: 27px;
-    /* Knob height */
-    width: 27px;
-    /* Knob width */
-    left: 2px;
-    /* Initial position (off) */
-    bottom: 2px;
-    /* Position from bottom */
-    background-color: white;
-    transition: .4s;
-    border-radius: 50%;
-    /* Make it a circle */
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-    /* Subtle shadow */
-}
-
-/* Change track color when checked */
-.ios-toggle:checked+.toggle-label {
-    background-color: #4CD964;
-    /* iOS green */
-}
-
-/* Move the knob when checked */
-.ios-toggle:checked+.toggle-label:before {
-    transform: translateX(20px);
-    /* Move knob to the right */
-}
-
-/* Optional: Add focus style for accessibility */
-.ios-toggle:focus+.toggle-label {
-    box-shadow: 0 0 1px #4CD964;
 }
 
 .placeholder-container {

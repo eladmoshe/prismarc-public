@@ -1,215 +1,235 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
     <title>PrismArc Settings</title>
-    <style>
-        .varela-round-regular {
-            font-family: "Varela Round", sans-serif;
-            font-weight: 400;
-            font-style: normal;
-        }
-
-        h1, h2, h3, h4, h5, h6 {
-            font-family: "Varela Round", sans-serif;
-            font-style: normal;
-        }
-    </style>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="options.css">
 </head>
 
 <body class="options-page">
     <main class="options-container">
         <header class="options-header">
-            <h1 class="options-title">PrismArc Settings</h1>
-            <p class="options-description">Changes save automatically.</p>
+            <img class="options-mark" src="assets/icon-48.png" alt="" width="42" height="42">
+            <div>
+                <h1 class="options-title">PrismArc Settings</h1>
+                <p class="options-description">Most changes save automatically.</p>
+            </div>
         </header>
 
-        <section class="options-section" aria-labelledby="gettingStartedHeading">
-            <h2 id="gettingStartedHeading" class="options-section-title">Getting started</h2>
-            <p class="options-description">Explore spaces, pinned tabs, folders, favorites, and archiving with highlights in your sidebar.</p>
-            <a href="installation-onboarding.html?replay=1" target="_blank" rel="noopener" class="options-label">Replay the interactive guide</a>
-        </section>
+        <div class="options-layout">
+            <nav class="options-nav" aria-label="Settings sections">
+                <ul>
+                    <li><a href="#tabsHeading" aria-current="location">Tabs &amp; spaces</a></li>
+                    <li><a href="#switcherHeading">Recent Tabs &amp; Quick Switcher</a></li>
+                    <li><a href="#archiveHeading">Auto-archiving</a></li>
+                    <li><a href="#colorsHeading">Colors</a></li>
+                    <li><a href="#advancedHeading">Advanced</a></li>
+                    <li><a href="#gettingStartedHeading">Getting started</a></li>
+                </ul>
+            </nav>
 
-        <section class="options-section" aria-labelledby="tabsHeading">
-            <h2 id="tabsHeading" class="options-section-title">Tabs &amp; spaces</h2>
-            <div class="options-setting-item options-setting-field">
-                <div class="options-setting-copy">
-                    <label for="defaultSpaceName" class="options-label">Default space</label>
-                    <p id="defaultSpaceDescription" class="options-description">Tabs without an opener or an active space for their window start in this space.</p>
-                </div>
-                <select id="defaultSpaceName" class="options-input" aria-describedby="defaultSpaceDescription">
-                    <option value="">Loading spaces...</option>
-                </select>
-            </div>
-            <div class="options-setting-item options-setting-toggle">
-                <div class="options-setting-copy">
-                    <label for="invertTabOrder" class="options-label">Show new tabs at the top</label>
-                    <p id="invertTabOrderDescription" class="options-description">Turn off to show new tabs at the bottom. Favorites always follow bookmark order.</p>
-                </div>
-                <div class="toggle-switch-container">
-                    <input type="checkbox" id="invertTabOrder" class="ios-toggle" aria-describedby="invertTabOrderDescription">
-                    <label for="invertTabOrder" class="toggle-label" aria-hidden="true"></label>
-                </div>
-            </div>
-            <div class="options-setting-item options-setting-toggle">
-                <div class="options-setting-copy">
-                    <label for="showAllOpenTabsInCollapsedFolders" class="options-label">Show all open tabs in collapsed folders</label>
-                    <p id="showAllOpenTabsInCollapsedFoldersDescription" class="options-description">When off, collapsing a folder hides all its bookmarks, including open tabs.</p>
-                </div>
-                <div class="toggle-switch-container">
-                    <input type="checkbox" id="showAllOpenTabsInCollapsedFolders" class="ios-toggle" aria-describedby="showAllOpenTabsInCollapsedFoldersDescription">
-                    <label for="showAllOpenTabsInCollapsedFolders" class="toggle-label" aria-hidden="true"></label>
-                </div>
-            </div>
-            <div class="options-setting-item options-setting-toggle">
-                <div class="options-setting-copy">
-                    <label for="syncTabGroups" class="options-label">Sync spaces to Chrome tab groups</label>
-                    <p id="syncTabGroupsDescription" class="options-description">Mirror space membership, names, colors, and tab order to Chrome groups. Spaces stay saved independently. Turning this off leaves existing groups unchanged.</p>
-                </div>
-                <div class="toggle-switch-container">
-                    <input type="checkbox" id="syncTabGroups" class="ios-toggle" aria-describedby="syncTabGroupsDescription">
-                    <label for="syncTabGroups" class="toggle-label" aria-hidden="true"></label>
-                </div>
-            </div>
-        </section>
+            <div class="options-content">
+                <section class="options-section" aria-labelledby="tabsHeading">
+                    <header class="options-section-header">
+                        <h2 id="tabsHeading" class="options-section-title" tabindex="-1">Tabs &amp; spaces</h2>
+                    </header>
+                    <div class="options-setting-item options-setting-field">
+                        <div>
+                            <label for="defaultSpaceName" class="options-label">Default space</label>
+                            <p id="defaultSpaceDescription" class="options-description">Tabs without an opener or an active space for their window start here.</p>
+                        </div>
+                        <select id="defaultSpaceName" class="options-input" aria-describedby="defaultSpaceDescription">
+                            <option value="">Loading spaces…</option>
+                        </select>
+                    </div>
+                    <div class="options-setting-item options-setting-toggle">
+                        <div>
+                            <label for="invertTabOrder" class="options-label">Show new tabs at the top</label>
+                            <p id="invertTabOrderDescription" class="options-description">Turn off to put new tabs at the bottom. Favorites always follow bookmark order.</p>
+                        </div>
+                        <div class="toggle-switch-container">
+                            <input type="checkbox" id="invertTabOrder" class="ios-toggle" aria-describedby="invertTabOrderDescription">
+                            <label for="invertTabOrder" class="toggle-label" aria-hidden="true"></label>
+                        </div>
+                    </div>
+                    <div class="options-setting-item options-setting-toggle">
+                        <div>
+                            <label for="showAllOpenTabsInCollapsedFolders" class="options-label">Show all open tabs in collapsed folders</label>
+                            <p id="showAllOpenTabsInCollapsedFoldersDescription" class="options-description">Keep open bookmark tabs visible beneath collapsed folders.</p>
+                        </div>
+                        <div class="toggle-switch-container">
+                            <input type="checkbox" id="showAllOpenTabsInCollapsedFolders" class="ios-toggle" aria-describedby="showAllOpenTabsInCollapsedFoldersDescription">
+                            <label for="showAllOpenTabsInCollapsedFolders" class="toggle-label" aria-hidden="true"></label>
+                        </div>
+                    </div>
+                    <div class="options-setting-item options-setting-toggle">
+                        <div>
+                            <label for="syncTabGroups" class="options-label">Sync spaces to Chrome tab groups</label>
+                            <p id="syncTabGroupsDescription" class="options-description">Mirror space membership, names, colors, and tab order to Chrome groups. Turning this off stops future updates to those groups. Your spaces are saved separately.</p>
+                        </div>
+                        <div class="toggle-switch-container">
+                            <input type="checkbox" id="syncTabGroups" class="ios-toggle" aria-describedby="syncTabGroupsDescription">
+                            <label for="syncTabGroups" class="toggle-label" aria-hidden="true"></label>
+                        </div>
+                    </div>
+                </section>
 
-        <section class="options-section" aria-labelledby="switcherHeading">
-            <h2 id="switcherHeading" class="options-section-title">Recent Tabs and Quick Switcher</h2>
-            <p class="options-description">Recent Tabs cycles through tabs you just used with Option+Tab on Mac. Quick Switcher searches open tabs, bookmarks, and history.</p>
-            <div class="options-setting-item options-setting-toggle">
-                <div>
-                    <label for="tabSwitcherInline" class="options-label">Show PrismArc popups over webpages</label>
-                    <p id="tabSwitcherInlineDescription" class="options-description">Open Quick Switcher and Recent Tabs over supported webpages. Chrome asks for access to all sites to run the popups. They open in separate windows when this is off or Chrome cannot show them over the page.</p>
-                </div>
-                <div class="toggle-switch-container">
-                    <input type="checkbox" id="tabSwitcherInline" class="ios-toggle" role="switch" disabled aria-describedby="tabSwitcherInlineDescription">
-                    <label for="tabSwitcherInline" class="toggle-label" aria-hidden="true"></label>
-                </div>
-            </div>
-            <div class="options-setting-item options-setting-toggle">
-                <div>
-                    <label for="tabSwitcherPagePreviews" class="options-label">Recent Tabs page previews</label>
-                    <p id="tabSwitcherPagePreviewsDescription" class="options-description">Show page images when you use Recent Tabs. Shortcut previews stay on this device for up to ten minutes.</p>
-                </div>
-                <div class="toggle-switch-container">
-                    <input type="checkbox" id="tabSwitcherPagePreviews" class="ios-toggle" role="switch" disabled aria-describedby="tabSwitcherPagePreviewsDescription">
-                    <label for="tabSwitcherPagePreviews" class="toggle-label" aria-hidden="true"></label>
-                </div>
-            </div>
-            <div class="options-setting-item options-setting-toggle">
-                <div>
-                    <label for="tabSwitcherCaptureOnVisit" class="options-label">Capture previews while browsing</label>
-                    <p id="tabSwitcherCaptureOnVisitDescription" class="options-description">Chrome asks for access to all sites to capture pages you view. The five latest previews stay encrypted on this device and are available only during this browser session.</p>
-                </div>
-                <div class="toggle-switch-container">
-                    <input type="checkbox" id="tabSwitcherCaptureOnVisit" class="ios-toggle" role="switch" disabled aria-describedby="tabSwitcherCaptureOnVisitDescription">
-                    <label for="tabSwitcherCaptureOnVisit" class="toggle-label" aria-hidden="true"></label>
-                </div>
-            </div>
-            <div class="options-setting-item">
-                <label class="options-label" for="tabSwitcherExcludedDomains">Never preview these sites</label>
-                <p id="previewDomainsHelp" class="options-description">Enter domains separated by commas or spaces. Each entry also excludes its subdomains.</p>
-                <textarea class="options-input" id="tabSwitcherExcludedDomains" rows="2" maxlength="16000" disabled aria-describedby="previewDomainsHelp"></textarea>
-                <button type="button" id="savePreviewDomains" class="options-input" disabled>Save excluded sites</button>
-            </div>
-        </section>
+                <section class="options-section" aria-labelledby="switcherHeading">
+                    <header class="options-section-header">
+                        <h2 id="switcherHeading" class="options-section-title" tabindex="-1">Recent Tabs &amp; Quick Switcher</h2>
+                        <p class="options-description">Cycle through recent tabs with Option+Tab on Mac. Use Quick Switcher to search open tabs, bookmarks, and history.</p>
+                    </header>
+                    <div class="options-setting-item options-setting-toggle">
+                        <div>
+                            <label for="tabSwitcherInline" class="options-label">Show PrismArc popups over webpages</label>
+                            <p id="tabSwitcherInlineDescription" class="options-description">Chrome asks for access to all sites to show the switchers over supported pages. The switchers use separate windows when this is off or Chrome cannot place them over the page.</p>
+                        </div>
+                        <div class="toggle-switch-container">
+                            <input type="checkbox" id="tabSwitcherInline" class="ios-toggle" role="switch" disabled aria-describedby="tabSwitcherInlineDescription">
+                            <label for="tabSwitcherInline" class="toggle-label" aria-hidden="true"></label>
+                        </div>
+                    </div>
+                    <div class="options-setting-item options-setting-toggle">
+                        <div>
+                            <label for="tabSwitcherPagePreviews" class="options-label">Recent Tabs page previews</label>
+                            <p id="tabSwitcherPagePreviewsDescription" class="options-description">Show page images when you use Recent Tabs. Shortcut previews stay on this device for up to ten minutes.</p>
+                        </div>
+                        <div class="toggle-switch-container">
+                            <input type="checkbox" id="tabSwitcherPagePreviews" class="ios-toggle" role="switch" disabled aria-describedby="tabSwitcherPagePreviewsDescription">
+                            <label for="tabSwitcherPagePreviews" class="toggle-label" aria-hidden="true"></label>
+                        </div>
+                    </div>
+                    <div class="options-setting-item options-setting-toggle">
+                        <div>
+                            <label for="tabSwitcherCaptureOnVisit" class="options-label">Capture previews while browsing</label>
+                            <p id="tabSwitcherCaptureOnVisitDescription" class="options-description">Chrome asks for access to all sites to capture pages you view. The five latest previews stay encrypted on this device for the browser session.</p>
+                        </div>
+                        <div class="toggle-switch-container">
+                            <input type="checkbox" id="tabSwitcherCaptureOnVisit" class="ios-toggle" role="switch" disabled aria-describedby="tabSwitcherCaptureOnVisitDescription">
+                            <label for="tabSwitcherCaptureOnVisit" class="toggle-label" aria-hidden="true"></label>
+                        </div>
+                    </div>
+                    <form id="previewDomainsForm" class="options-setting-item" novalidate>
+                        <label class="options-label" for="tabSwitcherExcludedDomains">Never preview these sites</label>
+                        <p id="previewDomainsHelp" class="options-description">Separate domains with commas or spaces. Entries include their subdomains. Select <strong>Save excluded sites</strong> to apply your edits.</p>
+                        <div class="options-form-controls">
+                            <textarea class="options-input" id="tabSwitcherExcludedDomains" rows="2" maxlength="16000" disabled
+                                placeholder="example.com, docs.example.org" spellcheck="false" aria-describedby="previewDomainsHelp previewDomainsStatus"></textarea>
+                            <button type="submit" id="savePreviewDomains" class="options-button options-button-primary" disabled>Save excluded sites</button>
+                        </div>
+                        <p id="previewDomainsStatus" class="options-form-status" role="status"></p>
+                    </form>
+                </section>
 
-        <section class="options-section" aria-labelledby="archiveHeading">
-            <h2 id="archiveHeading" class="options-section-title">Auto-archiving</h2>
-            <p class="options-description">Open <strong>Clean</strong> in the PrismArc sidebar to manage auto-archiving for all spaces.</p>
-        </section>
+                <section class="options-section" aria-labelledby="archiveHeading">
+                    <header class="options-section-header">
+                        <h2 id="archiveHeading" class="options-section-title" tabindex="-1">Auto-archiving</h2>
+                        <p class="options-description">Open <strong>Clean</strong> in the PrismArc sidebar to manage auto-archiving for all spaces.</p>
+                    </header>
+                </section>
 
-        <section class="options-section" aria-labelledby="colorsHeading">
-            <h2 id="colorsHeading" class="options-section-title">Colors</h2>
-            <p class="options-description">Customize the palette used throughout the extension. Dark variants are generated automatically.</p>
-            <div class="color-overrides-grid">
-                <div class="color-override-item">
-                    <label for="colorGrey" class="color-override-label">Grey</label>
-                    <div class="color-picker-wrapper">
-                        <input type="color" id="colorGrey" class="color-picker" value="#cccccc">
-                        <button type="button" class="color-reset-btn" data-color="grey" aria-label="Reset grey color to default">Reset</button>
+                <section class="options-section" aria-labelledby="colorsHeading">
+                    <header class="options-section-header">
+                        <h2 id="colorsHeading" class="options-section-title" tabindex="-1">Colors</h2>
+                        <p class="options-description">Customize the palette used throughout the extension. PrismArc generates darker shades automatically.</p>
+                    </header>
+                    <div class="color-overrides-grid">
+                        <div class="color-override-item">
+                            <label for="colorGrey" class="options-label">Grey</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="colorGrey" class="color-picker" value="#cccccc">
+                                <button type="button" class="options-button color-reset-btn" data-color="grey" aria-label="Reset grey color to default">Reset</button>
+                            </div>
+                        </div>
+                        <div class="color-override-item">
+                            <label for="colorBlue" class="options-label">Blue</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="colorBlue" class="color-picker" value="#8bb3f3">
+                                <button type="button" class="options-button color-reset-btn" data-color="blue" aria-label="Reset blue color to default">Reset</button>
+                            </div>
+                        </div>
+                        <div class="color-override-item">
+                            <label for="colorRed" class="options-label">Red</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="colorRed" class="color-picker" value="#ff9e97">
+                                <button type="button" class="options-button color-reset-btn" data-color="red" aria-label="Reset red color to default">Reset</button>
+                            </div>
+                        </div>
+                        <div class="color-override-item">
+                            <label for="colorYellow" class="options-label">Yellow</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="colorYellow" class="color-picker" value="#ffe29f">
+                                <button type="button" class="options-button color-reset-btn" data-color="yellow" aria-label="Reset yellow color to default">Reset</button>
+                            </div>
+                        </div>
+                        <div class="color-override-item">
+                            <label for="colorGreen" class="options-label">Green</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="colorGreen" class="color-picker" value="#8bda99">
+                                <button type="button" class="options-button color-reset-btn" data-color="green" aria-label="Reset green color to default">Reset</button>
+                            </div>
+                        </div>
+                        <div class="color-override-item">
+                            <label for="colorPink" class="options-label">Pink</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="colorPink" class="color-picker" value="#fbaad7">
+                                <button type="button" class="options-button color-reset-btn" data-color="pink" aria-label="Reset pink color to default">Reset</button>
+                            </div>
+                        </div>
+                        <div class="color-override-item">
+                            <label for="colorPurple" class="options-label">Purple</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="colorPurple" class="color-picker" value="#d6a6ff">
+                                <button type="button" class="options-button color-reset-btn" data-color="purple" aria-label="Reset purple color to default">Reset</button>
+                            </div>
+                        </div>
+                        <div class="color-override-item">
+                            <label for="colorCyan" class="options-label">Cyan</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="colorCyan" class="color-picker" value="#a5e2ea">
+                                <button type="button" class="options-button color-reset-btn" data-color="cyan" aria-label="Reset cyan color to default">Reset</button>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="color-override-item">
-                    <label for="colorBlue" class="color-override-label">Blue</label>
-                    <div class="color-picker-wrapper">
-                        <input type="color" id="colorBlue" class="color-picker" value="#8bb3f3">
-                        <button type="button" class="color-reset-btn" data-color="blue" aria-label="Reset blue color to default">Reset</button>
+                </section>
+
+                <section class="options-section" aria-labelledby="advancedHeading">
+                    <h2 id="advancedHeading" class="options-section-title" tabindex="-1">
+                        <button type="button" class="advanced-options-toggle" id="advancedOptionsToggle" aria-expanded="false" aria-controls="advancedOptionsContent">
+                            Advanced
+                            <span class="advanced-options-chevron" aria-hidden="true"></span>
+                        </button>
+                    </h2>
+                    <div id="advancedOptionsContent" hidden>
+                        <div class="options-setting-item options-setting-toggle">
+                            <div>
+                                <label for="debugLoggingEnabled" class="options-label">Enable debug logging</label>
+                                <p id="debugLoggingEnabledDescription" class="options-description">Write detailed logs to the console for troubleshooting. Logs can include browsing details.</p>
+                            </div>
+                            <div class="toggle-switch-container">
+                                <input type="checkbox" id="debugLoggingEnabled" class="ios-toggle" aria-describedby="debugLoggingEnabledDescription">
+                                <label for="debugLoggingEnabled" class="toggle-label" aria-hidden="true"></label>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="color-override-item">
-                    <label for="colorRed" class="color-override-label">Red</label>
-                    <div class="color-picker-wrapper">
-                        <input type="color" id="colorRed" class="color-picker" value="#ff9e97">
-                        <button type="button" class="color-reset-btn" data-color="red" aria-label="Reset red color to default">Reset</button>
-                    </div>
-                </div>
-                <div class="color-override-item">
-                    <label for="colorYellow" class="color-override-label">Yellow</label>
-                    <div class="color-picker-wrapper">
-                        <input type="color" id="colorYellow" class="color-picker" value="#ffe29f">
-                        <button type="button" class="color-reset-btn" data-color="yellow" aria-label="Reset yellow color to default">Reset</button>
-                    </div>
-                </div>
-                <div class="color-override-item">
-                    <label for="colorGreen" class="color-override-label">Green</label>
-                    <div class="color-picker-wrapper">
-                        <input type="color" id="colorGreen" class="color-picker" value="#8bda99">
-                        <button type="button" class="color-reset-btn" data-color="green" aria-label="Reset green color to default">Reset</button>
-                    </div>
-                </div>
-                <div class="color-override-item">
-                    <label for="colorPink" class="color-override-label">Pink</label>
-                    <div class="color-picker-wrapper">
-                        <input type="color" id="colorPink" class="color-picker" value="#fbaad7">
-                        <button type="button" class="color-reset-btn" data-color="pink" aria-label="Reset pink color to default">Reset</button>
-                    </div>
-                </div>
-                <div class="color-override-item">
-                    <label for="colorPurple" class="color-override-label">Purple</label>
-                    <div class="color-picker-wrapper">
-                        <input type="color" id="colorPurple" class="color-picker" value="#d6a6ff">
-                        <button type="button" class="color-reset-btn" data-color="purple" aria-label="Reset purple color to default">Reset</button>
-                    </div>
-                </div>
-                <div class="color-override-item">
-                    <label for="colorCyan" class="color-override-label">Cyan</label>
-                    <div class="color-picker-wrapper">
-                        <input type="color" id="colorCyan" class="color-picker" value="#a5e2ea">
-                        <button type="button" class="color-reset-btn" data-color="cyan" aria-label="Reset cyan color to default">Reset</button>
-                    </div>
-                </div>
+                </section>
+
+                <section class="options-section" aria-labelledby="gettingStartedHeading">
+                    <header class="options-section-header">
+                        <h2 id="gettingStartedHeading" class="options-section-title" tabindex="-1">Getting started</h2>
+                        <p class="options-description">Explore spaces, pinned tabs, folders, favorites, and archiving with highlights in your sidebar.</p>
+                        <a href="installation-onboarding.html?replay=1" target="_blank" rel="noopener" class="options-guide-link">Replay the interactive guide</a>
+                    </header>
+                </section>
             </div>
-
-        </section>
-
-        <section class="advanced-options-section" aria-labelledby="advancedOptionsToggle">
-            <h2>
-                <button type="button" class="advanced-options-toggle" id="advancedOptionsToggle" aria-expanded="false" aria-controls="advancedOptionsContent">
-                    <span class="advanced-options-toggle-text">Advanced Options</span>
-                    <span class="advanced-options-chevron" aria-hidden="true"></span>
-                </button>
-            </h2>
-            <div class="advanced-options-content" id="advancedOptionsContent" style="display: none;">
-                <div class="options-setting-item options-setting-toggle">
-                    <div class="options-setting-copy">
-                        <label for="debugLoggingEnabled" class="options-label">Enable debug logging</label>
-                        <p id="debugLoggingEnabledDescription" class="options-description">Write detailed logs to the console for troubleshooting.</p>
-                    </div>
-                    <div class="toggle-switch-container">
-                        <input type="checkbox" id="debugLoggingEnabled" class="ios-toggle" aria-describedby="debugLoggingEnabledDescription">
-                        <label for="debugLoggingEnabled" class="toggle-label" aria-hidden="true"></label>
-                    </div>
-                </div>
-            </div>
-        </section>
+        </div>
     </main>
 
     <div id="saveToast" class="save-toast" role="status" aria-live="polite" aria-atomic="true">
-        <span class="toast-message">Settings saved</span>
+        <span class="toast-message"></span>
     </div>
     <script type="module" src="options.js"></script>
 </body>
