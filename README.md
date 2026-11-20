@@ -2,6 +2,11 @@
 
 PrismArc is a fork of [Arcify](https://github.com/nisargkolhe/arcify), originally created by Nisarg Kolhe and maintained by the Arcify contributors. It provides a vertical sidebar for organizing tabs into spaces, saving favorites, and moving between tabs.
 
+The first-run guide covers Quick Switcher, Recent Tabs, using the sidebar, and
+pinning tabs in a Space. It shows shortcuts as assigned in Chrome and includes
+sample tabs for practicing switching and pinning. Replay it from
+**Settings → Getting started**.
+
 In a regular window, closing a tab with **⌘W** leaves its square Favorite at the top of the sidebar. Click the square to reopen its saved address.
 
 **Delete Space** is disabled for the default space, initially **Home**. To delete it, first choose another space under **Settings → Default space**.

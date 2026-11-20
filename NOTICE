@@ -18,7 +18,7 @@ handling, and packaged extension build and release verification.
 
 2026-11-20: The fork unified optional in-page placement for its switchers,
 retained native window fallback and history-deletion confirmation, and
-redesigned the Space options menu and Settings page.
+redesigned the Space options menu, Settings page, and first-run guide.
 
 Original source: https://github.com/nisargkolhe/arcify
 PrismArc source snapshots: https://github.com/eladmoshe/prismarc-public

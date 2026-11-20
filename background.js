@@ -101,8 +101,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     switch (message.action) {
         case 'openQuickSwitcher':
-            return respond(toggleQuickSwitcher(chrome, sender.tab?.windowId ?? message.windowId, tabSwitcherOverlay),
-                sendResponse, 'Could not open Quick Switcher.');
+            return respond(toggleQuickSwitcher(chrome, sender.tab?.windowId ?? message.windowId, tabSwitcherOverlay)
+                .then(handled => ({ handled })), sendResponse, 'Could not open Quick Switcher.');
         case 'updateAutoArchiveSettings':
             return respond(setupAutoArchiveAlarm(), sendResponse, 'Could not update the auto-archive alarm.');
         case 'openNewTab':

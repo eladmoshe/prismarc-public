@@ -29,7 +29,7 @@ function fixture() {
 
 test('palette opens centered on the invoking Chrome window, including negative monitor coordinates', async () => {
     const { api, calls, url, stored } = fixture();
-    await toggleQuickSwitcher(api);
+    assert.equal(await toggleQuickSwitcher(api), true);
     assert.match(stored.quickSwitcherWindow.nonce, /^[a-f0-9-]{36}$/);
     assert.equal(stored.quickSwitcherWindow.popupId, 77);
     assert.deepEqual(calls, [['create', { url: `${url}&invocation=${stored.quickSwitcherWindow.nonce}`, type: 'popup', incognito: false, width: 640, height: 560,
@@ -46,7 +46,7 @@ test('existing palette is reused after a worker restart and unrelated popup URLs
     assert.equal(f.calls[1][2].focused, true);
     assert.equal(f.stored.quickSwitcherWindow.popupId, 41);
     f.setSource({ id: 41 });
-    await toggleQuickSwitcher(f.api);
+    assert.equal(await toggleQuickSwitcher(f.api), true);
     assert.deepEqual(f.calls[2], ['remove', 41]);
 });
 
@@ -123,14 +123,14 @@ test('Quick Switcher prefers the focused source tab inline and never falls back 
     const f = fixture();
     const active = { id: 32, active: true };
     f.setSource({ id: 1, type: 'normal', focused: true, tabs: [active] });
-    await toggleQuickSwitcher(f.api, 1, { async openSearch(tab) {
+    assert.equal(await toggleQuickSwitcher(f.api, 1, { async openSearch(tab) {
         assert.equal(tab, active);
         return true;
-    } });
-    await toggleQuickSwitcher(f.api, 1, { async openSearch() {
+    } }), true);
+    assert.equal(await toggleQuickSwitcher(f.api, 1, { async openSearch() {
         f.setSource({ id: 1, focused: true, tabs: [{ id: 33, active: true }] });
         return false;
-    } });
+    } }), false);
     assert.deepEqual(f.calls, []);
 });
 
@@ -138,13 +138,13 @@ test('a failed inline invocation does not pop up over a new route in the same ta
     const f = fixture();
     const active = { id: 32, active: true, url: 'https://source.test/start' };
     f.setSource({ id: 1, type: 'normal', focused: true, tabs: [active] });
-    await toggleQuickSwitcher(f.api, 1, { async openSearch() {
+    assert.equal(await toggleQuickSwitcher(f.api, 1, { async openSearch() {
         f.setSource({ id: 1, type: 'normal', focused: true, tabs: [{ ...active, url: 'https://source.test/later' }] });
         return false;
-    } });
+    } }), false);
     f.api.windows.get = async () => ({ id: 1, type: 'normal', focused: false, tabs: [active] });
     f.setSource({ id: 2, type: 'normal', focused: true, tabs: [] });
-    await toggleQuickSwitcher(f.api, 1);
+    assert.equal(await toggleQuickSwitcher(f.api, 1), false);
     assert.deepEqual(f.calls, []);
 });
 

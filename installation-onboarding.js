@@ -1,169 +1,273 @@
-import setupAnimationUrl from './assets/chrometutorial.gif';
-import { TOUR_KEY, tourAction } from './tour-state.js';
 import { readBookmarkSpaces } from './onboarding-bookmarks.js';
-const $ = id => document.getElementById(id);
+import { watchAppearance } from './space-client.js';
+import { usesOptionShortcut } from './tab-switcher-tabs.js';
+
+const el = id => document.getElementById(id);
+const lessons = [...document.querySelectorAll('[data-guide-step]')];
+const progressDots = [...el('guide-dots').children];
+const replay = new URLSearchParams(location.search).get('replay') === '1';
+let lessonIndex = 0;
+let windowId;
 let bookmarkFolderId;
-let setupStep = 0;
-const setupPanels = ['step-bookmarks', 'step-placement', 'step-shortcuts'];
-const stepButtons = [...document.querySelectorAll('[data-setup-step]')];
-function showSetupStep(index, focus = true) {
-    setupStep = Math.max(0, Math.min(setupPanels.length - 1, index));
-    setupPanels.forEach((id, position) => { $(id).hidden = position !== setupStep; });
-    stepButtons.forEach((button, position) => {
-        if (position === setupStep) button.setAttribute('aria-current', 'step');
-        else button.removeAttribute('aria-current');
-        button.classList.toggle('visited', position < setupStep);
-    });
-    const last = setupStep === setupPanels.length - 1;
-    $('setup-back').hidden = setupStep === 0;
-    $('setup-next').hidden = last;
-    $('start').hidden = !last;
-    $('practice-note').hidden = !last;
-    $('setup-progress').textContent = `Step ${setupStep + 1} of ${setupPanels.length}`;
-    if (focus) $(setupPanels[setupStep]).querySelector('h2').focus({ preventScroll: true });
-    updateMotion();
+let shortcutRevision = 0;
+let bookmarkRevision = 0;
+let completing = false;
+
+function showError(message) {
+    el('error').textContent = message;
+    el('error').hidden = false;
 }
-let state, windowId, handedOff = false, paused = false;
-const motion = __PRISMARC_STORE_BUILD__ ? null : matchMedia('(prefers-reduced-motion: reduce)');
-function updateMotion() {
-    if (__PRISMARC_STORE_BUILD__) return;
-    const stopped = paused || motion.matches || document.hidden || handedOff || setupStep !== 1;
-    $('setup-gif').hidden = stopped;
-    // Remove the animated source while stopped, so the GIF does not keep decoding.
-    if (stopped) $('setup-gif').removeAttribute('src');
-    else if (!$('setup-gif').hasAttribute('src')) $('setup-gif').src = setupAnimationUrl;
-    $('motion-still').hidden = !stopped;
-    $('pause').textContent = motion.matches ? 'Motion reduced' : paused ? 'Play animation' : 'Pause animation';
-    $('pause').disabled = motion.matches;
-    $('pause').setAttribute('aria-pressed', String(paused || motion.matches));
+
+function focusHeading(container) {
+    window.scrollTo(0, 0);
+    container.querySelector('h1').focus({ preventScroll: true });
 }
-function render(next) {
-    state = next;
-    if (state?.status === 'active' && state.windowId === windowId) handedOff = true;
-    $('setup').hidden = handedOff;
-    $('handoff').hidden = !handedOff;
-    $('skip').hidden = handedOff;
-    if (handedOff) {
-        const finished = state?.status === 'completed';
-        const skipped = state?.status === 'skipped';
-        $('handoff-title').textContent = finished || skipped ? 'Make yourself at home.' : 'Continue the tutorial in your sidebar.';
-        $('handoff-copy').textContent = finished || skipped ? 'Your sidebar is ready. Replay the tutorial anytime from PrismArc Settings.' : 'Follow the highlights in PrismArc. Everything you need, including practice tabs, is waiting there.';
+
+function showLesson(index) {
+    const lesson = lessons[index];
+    if (!lesson) return;
+    lessonIndex = index;
+    lessons.forEach(panel => { panel.hidden = panel !== lesson; });
+    progressDots.forEach((dot, position) => dot.classList.toggle('current', position <= index));
+    el('guide-progress').textContent = `Step ${index + 1} of ${lessons.length}`;
+    el('guide-back').hidden = index === 0;
+    const last = index === lessons.length - 1;
+    el('guide-next').hidden = last;
+    el('guide-finish').hidden = !last;
+    el('error').hidden = true;
+    focusHeading(lesson);
+}
+
+function setOptionalSetup(open) {
+    const settings = el('optional-settings');
+    settings.hidden = !open;
+    el('guide-lessons').hidden = open;
+    el('error').hidden = true;
+    if (open) {
+        focusHeading(settings);
+        loadBookmarkSpaces();
+    } else {
+        window.scrollTo(0, 0);
+        el('optional-setup').focus({ preventScroll: true });
     }
-    updateMotion();
 }
-function showError(error) { $('error').hidden = false; $('error').textContent = `${error.message}. Try again, or open PrismArc from its toolbar icon.`; }
-$('setup-next').addEventListener('click', () => showSetupStep(setupStep + 1));
-$('setup-back').addEventListener('click', () => showSetupStep(setupStep - 1));
-stepButtons.forEach((button, index) => button.addEventListener('click', () => showSetupStep(index)));
-$('start').addEventListener('click', async () => {
-    $('error').hidden = true;
+
+function openSettings(url, error) {
+    el('error').hidden = true;
+    chrome.tabs.create({ url }).catch(() => showError(error));
+}
+
+function openSidebar() {
+    el('error').hidden = true;
+    // Chrome requires the call to run directly in the click gesture.
+    chrome.sidePanel.open({ windowId }).catch(() => showError('Click the PrismArc toolbar icon to open the sidebar.'));
+}
+
+async function openQuickSwitcher() {
+    el('error').hidden = true;
     try {
-        // Chrome requires sidePanel.open to run directly within the click gesture.
-        const opening = chrome.sidePanel.open({ windowId });
-        await opening;
-        render(await tourAction({ action: 'start', windowId, runId: crypto.randomUUID(), step: 0 }));
-    } catch (error) { showError(error); }
-});
-$('reopen').addEventListener('click', () => chrome.sidePanel.open({ windowId }).catch(showError));
-$('skip').addEventListener('click', async () => {
+        const response = await chrome.runtime.sendMessage({ action: 'openQuickSwitcher', windowId });
+        if (response?.success && response.handled === true) return;
+    } catch { /* Show the same recovery hint if the worker cannot reply. */ }
+    showError('Could not open Quick Switcher. Return to this Chrome window and try again, or use the search button in the sidebar.');
+}
+
+async function completeGuide() {
+    if (completing) return;
+    completing = true;
+    el('error').hidden = true;
     try {
-        await chrome.storage.local.set({ onboardingCompleted: true, onboardingVersion: chrome.runtime.getManifest().version });
-        handedOff = true;
-        render({ status: 'skipped' });
-    } catch (error) { showError(error); }
-});
-if (!__PRISMARC_STORE_BUILD__) {
-    $('pause').addEventListener('click', () => { paused = !paused; updateMotion(); });
-    document.addEventListener('visibilitychange', updateMotion);
-    motion.addEventListener('change', updateMotion);
-}
-$('appearance').addEventListener('click', () => chrome.tabs.create({ url: 'chrome://settings/appearance' }).catch(showError));
-function openShortcutSettings() {
-    chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }).catch(showError);
-}
-$('customize').addEventListener('click', openShortcutSettings);
-chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes[TOUR_KEY]) render(changes[TOUR_KEY].newValue); });
-async function loadShortcuts() {
-    const [commands, platform] = await Promise.all([chrome.commands.getAll(), chrome.runtime.getPlatformInfo()]);
-    const mod = platform.os === 'mac' ? '⌘' : 'Ctrl';
-    const recommendations = [
-        ['_execute_action', 'Show / hide sidebar', `${mod}+S`],
-        ['quickPinToggle', 'Pin / unpin a tab', platform.os === 'mac' ? '⌥+D' : 'Alt+D'],
-        ['NextTabInSpace', 'Next tab in space', platform.os === 'mac' ? '⌥+J' : 'Alt+J'],
-        ['PrevTabInSpace', 'Previous tab in space', platform.os === 'mac' ? '⌥+K' : 'Alt+K'],
-        ['copyCurrentUrl', 'Copy current tab URL', platform.os === 'mac' ? '⌘⇧C' : 'Ctrl+Shift+C']
-    ];
-    $('shortcuts').replaceChildren();
-    for (const [name, label, suggestion] of recommendations) {
-        const card = document.createElement('li');
-        card.className = 'shortcut-card';
-        const recommendation = document.createElement('span');
-        recommendation.className = 'shortcut-label';
-        recommendation.textContent = 'Recommended';
-        const key = document.createElement('kbd');
-        key.className = 'shortcut-key';
-        key.textContent = suggestion;
-        const title = document.createElement('h3');
-        title.className = 'shortcut-title';
-        title.textContent = label;
-        const current = document.createElement('p');
-        current.className = 'shortcut-description';
-        const assigned = commands.find(command => command.name === name)?.shortcut;
-        current.textContent = `Currently set: ${assigned || 'Not assigned'}`;
-        card.append(recommendation, key, title, current);
-        if (name === 'copyCurrentUrl') {
-            const instructions = document.createElement('p');
-            instructions.className = 'shortcut-description';
-            instructions.textContent = 'In Chrome, find PrismArc, edit this command, and press your shortcut.';
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.id = 'setup-copy-shortcut';
-            button.className = 'secondary';
-            button.textContent = assigned ? 'Change shortcut' : `Set up ${suggestion}`;
-            button.addEventListener('click', openShortcutSettings);
-            card.append(instructions, button);
+        if (!replay) {
+            await chrome.storage.local.set({
+                onboardingCompleted: true,
+                onboardingVersion: chrome.runtime.getManifest().version
+            });
         }
-        $('shortcuts').append(card);
-    }
-}
-async function loadBookmarkSpaces() {
-    try {
-        const { folderId, names } = await readBookmarkSpaces();
-        bookmarkFolderId = folderId;
-        $('bookmark-title').textContent = names.length
-            ? `We found ${names.length === 1 ? 'an existing space' : `${names.length} existing spaces`}.`
-            : 'Bring your bookmarks along.';
-        $('bookmark-copy').textContent = names.length
-            ? "The folders in your PrismArc bookmark folder are ready to become spaces, with their bookmarks as pinned tabs. Copy more folders into the PrismArc bookmark folder anytime."
-            : "In Chrome's bookmark manager, copy folders into the PrismArc bookmark folder. Each folder becomes a space, and the bookmarks inside become pinned tabs.";
-        if (!folderId) $('bookmark-copy').textContent += ' Open the sidebar once to set up the folder if you haven’t already.';
-        $('bookmark-detected').hidden = !names.length;
-        $('bookmark-detected').textContent = names.slice(0, 3).join(' · ') + (names.length > 3 ? ` · and ${names.length - 3} more` : '');
-        $('bookmarks').textContent = folderId ? 'Open PrismArc bookmarks ↗' : 'Open bookmark manager ↗';
+        el('guide-lessons').hidden = true;
+        el('optional-settings').hidden = true;
+        el('skip').hidden = true;
+        const complete = el('guide-complete');
+        complete.hidden = false;
+        focusHeading(complete);
     } catch {
-        // Optional discovery must not block setup or claim spaces were detected.
-        bookmarkFolderId = undefined;
-        $('bookmark-title').textContent = 'Bring your bookmarks along.';
-        $('bookmark-copy').textContent = "Open Chrome's bookmark manager and copy folders into the PrismArc bookmark folder. Each folder becomes a space, and its bookmarks become pinned tabs. Open the sidebar once to set up the folder if needed.";
-        $('bookmark-detected').hidden = true;
-        $('bookmarks').textContent = 'Open bookmark manager ↗';
+        showError('Could not save your guide progress. Try again.');
+    } finally {
+        completing = false;
     }
 }
-$('bookmarks').addEventListener('click', () => chrome.tabs.create({
-    url: bookmarkFolderId ? `chrome://bookmarks/?id=${encodeURIComponent(bookmarkFolderId)}` : 'chrome://bookmarks/'
-}).catch(showError));
+
+function showShortcut(id, binding) {
+    el(`${id}-shortcut`).textContent = binding || 'Not assigned';
+}
+
+async function loadShortcuts() {
+    const revision = ++shortcutRevision;
+    try {
+        const [commands, platform] = await Promise.all([chrome.commands.getAll(), chrome.runtime.getPlatformInfo()]);
+        if (revision !== shortcutRevision) return;
+        const mac = platform.os === 'mac';
+        const shortcut = name => commands.find(command => command.name === name)?.shortcut;
+        const quick = shortcut('mockQuickSwitcher');
+        const recent = shortcut('cycleOpenTabs');
+        const sidebar = shortcut('_execute_action');
+        const pin = shortcut('quickPinToggle');
+        const copy = shortcut('copyCurrentUrl');
+        showShortcut('quick', quick);
+        showShortcut('recent', recent);
+        showShortcut('sidebar', sidebar);
+        showShortcut('pin', pin);
+        showShortcut('copy', copy);
+
+        const usesCommandT = /^(?:⌘|Command|Cmd)\s*\+?\s*T$/i.test(quick?.trim() ?? '');
+        el('quick-mac-note').hidden = !mac || usesCommandT;
+        el('quick-setup-note').hidden = mac || Boolean(quick);
+        el('setup-quick-shortcut').hidden = false;
+        el('setup-sidebar-shortcut').hidden = Boolean(sidebar);
+        el('setup-pin-shortcut').hidden = Boolean(pin);
+        const copyButton = el('setup-copy-shortcut');
+        copyButton.textContent = copy ? 'Change shortcut' : mac ? 'Set up ⌘⇧C' : 'Set up Ctrl+Shift+C';
+        copyButton.disabled = false;
+
+        const recentInstructions = el('recent-instructions');
+        if (mac && usesOptionShortcut(commands)) {
+            const optionTab = /^(?:⌥|Alt|Option)\s*\+?\s*(?:Tab|⇥)$/i.test(recent.trim());
+            recentInstructions.textContent = optionTab
+                ? 'Tap Option+Tab to return to the previous tab. To choose another, hold Option, tap Tab to move, then release Option.'
+                : 'Press your shortcut and keep holding Option. Tap Tab to move, then release Option to switch.';
+        } else if (recent) {
+            recentInstructions.textContent = 'Press your shortcut to open the picker. Use the arrow keys to move and Enter to switch.';
+            if (mac) recentInstructions.textContent += ' With Option+Tab assigned, hold Option, tap Tab, then release Option to switch.';
+        } else {
+            recentInstructions.textContent = mac
+                ? 'Assign Option+Tab to “Cycle through open tabs” in extension shortcuts. Hold Option, tap Tab to move, and release Option to switch.'
+                : 'Assign an available shortcut to “Cycle through open tabs” in extension shortcuts. In the picker, use the arrow keys and Enter.';
+        }
+    } catch {
+        if (revision !== shortcutRevision) return;
+        for (const id of ['quick', 'recent', 'sidebar', 'pin', 'copy']) el(`${id}-shortcut`).textContent = 'Unavailable';
+        for (const button of document.querySelectorAll('.shortcut-settings')) button.hidden = button.disabled = false;
+        el('recent-instructions').textContent = 'Check Chrome’s extension shortcuts for the current assignment.';
+    }
+}
+
+async function loadBookmarkSpaces() {
+    const revision = ++bookmarkRevision;
+    let names = [];
+    let folderId;
+    try {
+        ({ folderId, names } = await readBookmarkSpaces());
+    } catch { /* The bookmark manager can still be opened without discovery. */ }
+    if (revision !== bookmarkRevision) return;
+    bookmarkFolderId = folderId;
+    el('bookmark-title').textContent = names.length ? `Found ${names.length} existing ${names.length === 1 ? 'Space' : 'Spaces'}` : 'Bring your bookmarks';
+    el('bookmark-copy').textContent = folderId
+        ? 'Copy folders into the PrismArc bookmark folder in Chrome’s bookmark manager. Each folder becomes a Space and its bookmarks become pinned tabs.'
+        : 'Open the sidebar once to create the PrismArc bookmark folder. Then copy folders into it in Chrome’s bookmark manager.';
+    el('bookmark-detected').hidden = !names.length;
+    el('bookmark-detected').textContent = names.slice(0, 3).join(' · ') + (names.length > 3 ? ` · and ${names.length - 3} more` : '');
+    el('bookmarks').textContent = folderId ? 'Open PrismArc bookmarks' : 'Open bookmark manager';
+}
+
+const previewCards = [...el('recent-preview').querySelectorAll('li')];
+let previewIndex = 0;
+
+el('recent-preview-next').addEventListener('click', () => {
+    previewIndex = (previewIndex + 1) % previewCards.length;
+    previewCards.forEach((card, index) => { card.dataset.selected = String(index === previewIndex); });
+    el('recent-preview-switch').disabled = false;
+    el('recent-preview-status').textContent = `Selected ${previewCards[previewIndex].querySelector('strong').textContent}.`;
+});
+
+el('recent-preview-switch').addEventListener('click', () => {
+    previewCards.forEach(card => {
+        card.removeAttribute('aria-current');
+        card.dataset.selected = 'false';
+    });
+    const active = previewCards[previewIndex];
+    active.setAttribute('aria-current', 'true');
+    el('recent-preview-status').textContent = `Switched to ${active.querySelector('strong').textContent}.`;
+    el('recent-preview-next').focus();
+    el('recent-preview-switch').disabled = true;
+});
+
+const pinExampleTab = el('pin-example-tab');
+const pinDropZones = [...document.querySelectorAll('[data-pin-drop]')];
+let draggingPinExample = false;
+
+function movePinExample(destination) {
+    const section = el(`pin-preview-${destination}`);
+    if (pinExampleTab.parentElement === section) return;
+    section.append(pinExampleTab);
+    const pinned = destination === 'saved';
+    el('pin-preview-toggle').textContent = pinned ? 'Unpin sample tab' : 'Pin sample tab';
+    el('pin-preview-status').textContent = pinned ? 'Project plan is pinned.' : 'Project plan is back in Open tabs.';
+}
+
+el('pin-preview-toggle').addEventListener('click', () => {
+    movePinExample(pinExampleTab.parentElement.id === 'pin-preview-open' ? 'saved' : 'open');
+});
+
+pinExampleTab.addEventListener('dragstart', event => {
+    draggingPinExample = true;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', 'Project plan');
+});
+function endPinDrag() {
+    draggingPinExample = false;
+    for (const zone of pinDropZones) zone.classList.remove('drag-target');
+}
+pinExampleTab.addEventListener('dragend', endPinDrag);
+for (const zone of pinDropZones) {
+    zone.addEventListener('dragover', event => {
+        if (!draggingPinExample) return;
+        event.preventDefault();
+        for (const target of pinDropZones) target.classList.toggle('drag-target', target === zone);
+    });
+    zone.addEventListener('drop', event => {
+        if (!draggingPinExample) return;
+        event.preventDefault();
+        endPinDrag();
+        movePinExample(zone.dataset.pinDrop);
+    });
+}
+
+el('guide-next').addEventListener('click', () => showLesson(lessonIndex + 1));
+el('guide-back').addEventListener('click', () => showLesson(lessonIndex - 1));
+el('optional-setup').addEventListener('click', () => setOptionalSetup(true));
+el('optional-back').addEventListener('click', () => setOptionalSetup(false));
+el('guide-finish').addEventListener('click', completeGuide);
+el('skip').addEventListener('click', completeGuide);
+el('open-quick-switcher').addEventListener('click', openQuickSwitcher);
+el('open-sidebar').addEventListener('click', openSidebar);
+el('complete-open-sidebar').addEventListener('click', openSidebar);
+for (const button of document.querySelectorAll('.shortcut-settings')) {
+    button.addEventListener('click', () => openSettings('chrome://extensions/shortcuts', 'Could not open Chrome’s extension shortcuts.'));
+}
+el('appearance').addEventListener('click', () => openSettings('chrome://settings/appearance', 'Could not open Chrome’s Appearance settings.'));
+el('bookmarks').addEventListener('click', () => openSettings(
+    bookmarkFolderId ? `chrome://bookmarks/?id=${encodeURIComponent(bookmarkFolderId)}` : 'chrome://bookmarks/',
+    'Could not open Chrome’s bookmark manager.'
+));
+
+function refreshSettings() {
+    loadShortcuts();
+    if (!el('optional-settings').hidden) loadBookmarkSpaces();
+}
+
 async function initialize() {
+    refreshSettings();
     try {
         const tab = await chrome.tabs.getCurrent();
+        if (!Number.isInteger(tab?.windowId)) return;
         windowId = tab.windowId;
-        // The address bar can retain keyboard focus when the user switches back.
+        el('open-sidebar').disabled = el('complete-open-sidebar').disabled = false;
+        watchAppearance(tab.windowId, tab.id);
+        // Chrome may keep focus in its address bar when the guide tab is reactivated.
         chrome.tabs.onActivated.addListener(({ tabId }) => {
-            if (tabId === tab.id) loadShortcuts().catch(showError);
+            if (tabId === tab.id) refreshSettings();
         });
-        render((await chrome.storage.local.get(TOUR_KEY))[TOUR_KEY]);
-        $('start').disabled = false;
-        await Promise.all([loadShortcuts(), loadBookmarkSpaces()]);
-    } catch (error) { showError(error); }
+    } catch { /* The four lessons and their previews remain usable. */ }
 }
-window.addEventListener('focus', () => { loadShortcuts().catch(showError); loadBookmarkSpaces(); });
+
+window.addEventListener('focus', refreshSettings);
 initialize();

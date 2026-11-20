@@ -3,47 +3,173 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Welcome to PrismArc</title>
+    <title>Getting started with PrismArc</title>
     <link rel="icon" href="assets/icon.png">
     <link rel="stylesheet" href="installation-onboarding.css">
 </head>
 <body>
-    <header><span class="brand"><img src="assets/icon.png" width="32" height="32" alt="">PrismArc</span><button id="skip" class="text-button">I'll explore on my own</button></header>
-    <main>
-        <section id="setup">
-            <div class="welcome"><p class="eyebrow">MAKE YOURSELF AT HOME</p><h1>Your sidebar. Your way.</h1><p>A couple of optional tweaks, then a little hands-on exploring.</p></div>
-            <nav aria-label="Installation steps" class="setup-steps"><ol>
-                <li><button type="button" data-setup-step="0" aria-current="step" aria-controls="step-bookmarks"><span class="step-number">1</span>Bookmarks</button></li>
-                <li><button type="button" data-setup-step="1" aria-controls="step-placement"><span class="step-number">2</span>Sidebar location</button></li>
-                <li><button type="button" data-setup-step="2" aria-controls="step-shortcuts"><span class="step-number">3</span>Shortcuts</button></li>
-            </ol></nav>
-            <div class="setup-content">
-            <section id="step-bookmarks" class="bookmark-import" aria-labelledby="bookmark-title">
-                <div aria-live="polite"><h2 id="bookmark-title" tabindex="-1">Bring your bookmarks along.</h2><p id="bookmark-copy">In Chrome's bookmark manager, copy folders into the <strong>PrismArc</strong> bookmark folder. Each folder becomes a space, and the bookmarks inside become pinned tabs.</p><p id="bookmark-detected" class="small" hidden></p></div>
-                <button id="bookmarks" class="secondary">Open bookmark manager ↗</button>
-            </section>
-            <section id="step-placement" hidden class="placement" aria-labelledby="placement-title">
-                <div class="placement-copy"><p class="eyebrow">SIDEBAR LOCATION</p><h2 id="placement-title" tabindex="-1">Feel at home on the left.</h2><p>In Chrome's Appearance settings, find <strong>Side panel position</strong> and choose <strong>Show on left</strong>. Prefer the right? Keep it there.</p><button id="appearance" class="secondary">Open Appearance settings ↗</button><p class="small">Return to this tab when you're ready.</p></div>
-                <!-- pin-guide:local -->
-                <div class="gif-container"><img id="setup-gif" hidden alt="Demonstration of changing Chrome's side panel position and extension shortcuts"><div id="motion-still" hidden>Chrome Settings → Appearance<br><strong>Side panel position → Show on left</strong></div><button id="pause" class="text-button" aria-pressed="false">Pause animation</button></div>
-                <!-- /pin-guide:local -->
-                <!-- pin-guide:store -->
-                <div class="toolbar-guide">
-                    <h3>Keep PrismArc on your toolbar</h3>
-                    <ol>
-                        <li>Click <strong>Extensions</strong>, the puzzle-piece icon in Chrome’s toolbar.</li>
-                        <li>Click the <strong>pin</strong> next to PrismArc.</li>
-                        <li>Click the PrismArc icon to open the sidebar.</li>
-                    </ol>
-                </div>
-                <!-- /pin-guide:store -->
-            </section>
-            <section id="step-shortcuts" hidden class="shortcuts" aria-labelledby="shortcuts-title"><div><p class="eyebrow">KEYBOARD SHORTCUTS</p><h2 id="shortcuts-title" tabindex="-1">A familiar key, a little faster.</h2><p>Set these in Chrome's extension shortcuts. Your current assignments are shown alongside our suggestions.</p></div><ul id="shortcuts" class="shortcuts-grid" aria-label="Recommended keyboard shortcuts"></ul><p class="small">Chrome may reserve some combinations. Choose an available alternative if a suggestion isn't accepted.</p><button id="customize" class="secondary">Customize shortcuts ↗</button></section>
+    <header class="guide-header">
+        <span class="brand"><img src="assets/icon.png" width="28" height="28" alt="">PrismArc</span>
+        <button id="skip" class="text-button" type="button">Skip guide</button>
+    </header>
+    <main class="guide">
+        <section id="guide-lessons" class="guide-shell" aria-label="Getting started">
+            <div class="guide-progress">
+                <p id="guide-progress">Step 1 of 4</p>
+                <div id="guide-dots" aria-hidden="true"><span class="current"></span><span></span><span></span><span></span></div>
             </div>
-            <div class="setup-navigation"><button id="setup-back" class="text-button" hidden>Back</button><p id="setup-progress" class="small">Step 1 of 3</p><button id="setup-next" class="primary">Next →</button><button id="start" class="primary" disabled hidden>Open sidebar & start tutorial ↗</button></div>
-            <p id="practice-note" class="small practice-note" hidden>We'll add practice tabs for you. Skip any tip, anytime.</p>
+
+            <article class="lesson" data-guide-step="quick-switcher" aria-labelledby="quick-title">
+                <div class="lesson-copy">
+                    <h1 id="quick-title" tabindex="-1">Find anything with Quick Switcher</h1>
+                    <p>Search open tabs, bookmarks and history from one box. Use the arrow keys to pick a result and press <kbd>Enter</kbd> to open it.</p>
+                    <div class="binding"><span>Your shortcut</span><kbd id="quick-shortcut">Checking…</kbd></div>
+                    <p id="quick-mac-note" class="lesson-note" hidden>Prefer <kbd>⌘T</kbd>? If Chrome accepts it, assign it to <strong>Open Quick Switcher</strong> in extension shortcuts.</p>
+                    <p id="quick-setup-note" class="lesson-note" hidden>Assign a key to <strong>Open Quick Switcher</strong> in Chrome's extension shortcuts.</p>
+                    <div class="lesson-actions">
+                        <button id="open-quick-switcher" type="button" class="secondary">Try Quick Switcher</button>
+                        <button id="setup-quick-shortcut" type="button" class="text-button shortcut-settings" hidden>Shortcut settings</button>
+                    </div>
+                </div>
+                <div class="demo demo-quick" aria-hidden="true">
+                    <div class="quick-example">
+                        <div class="quick-query"><span class="search-icon"></span> project</div>
+                        <div class="quick-results">
+                            <div class="quick-row selected"><span class="site plan">P</span><span>Project plan<small>notes.example</small></span><span class="quick-source">Tab &nbsp; ↵</span></div>
+                            <div class="quick-row"><span class="site library">R</span><span>Project resources<small>library.example</small></span><span class="quick-source">Bookmark</span></div>
+                            <div class="quick-row"><span class="site notes">M</span><span>Project meeting notes<small>notes.example</small></span><span class="quick-source">History</span></div>
+                        </div>
+                        <div class="quick-keys"><span><kbd>↑</kbd> <kbd>↓</kbd> Move</span><span><kbd>↵</kbd> Open</span><span><kbd>Esc</kbd> Close</span></div>
+                    </div>
+                </div>
+            </article>
+
+            <article class="lesson" data-guide-step="recent-tabs" aria-labelledby="recent-title" hidden>
+                <div class="lesson-copy">
+                    <h1 id="recent-title" tabindex="-1">Jump back to a recent tab</h1>
+                    <p><kbd>Ctrl+Tab</kbd> uses your browser’s normal order. Recent Tabs lists up to five tabs by when you last used them, even across windows.</p>
+                    <div class="binding"><span>Your shortcut</span><kbd id="recent-shortcut">Checking…</kbd></div>
+                    <p id="recent-instructions" class="lesson-note" aria-live="polite"></p>
+                    <p class="lesson-note">Open at least two tabs to use the picker.</p>
+                    <div class="lesson-actions">
+                        <button id="setup-recent-shortcut" type="button" class="text-button shortcut-settings">Shortcut settings</button>
+                    </div>
+                </div>
+                <div class="demo demo-recent">
+                    <div id="recent-preview" class="recent-example">
+                        <ul class="recent-cards" aria-label="Sample recent tabs">
+                            <li data-selected="false" aria-current="true"><div class="recent-thumbnail notes" aria-hidden="true"><span></span><span></span><span></span></div><strong>Reading list</strong><small>library.example</small></li>
+                            <li data-selected="false"><div class="recent-thumbnail plan" aria-hidden="true"><span></span><span></span><span></span></div><strong>Project plan</strong><small>notes.example</small></li>
+                            <li data-selected="false"><div class="recent-thumbnail library" aria-hidden="true"><span></span><span></span><span></span></div><strong>Reference</strong><small>docs.example</small></li>
+                        </ul>
+                        <div class="demo-controls">
+                            <button id="recent-preview-next" type="button" class="secondary">Cycle preview</button>
+                            <button id="recent-preview-switch" type="button" class="text-button" disabled>Switch</button>
+                        </div>
+                        <p id="recent-preview-status" role="status" class="demo-status">Try with sample tabs.</p>
+                    </div>
+                </div>
+            </article>
+
+            <article class="lesson" data-guide-step="sidebar" aria-labelledby="sidebar-title" hidden>
+                <div class="lesson-copy">
+                    <h1 id="sidebar-title" tabindex="-1">Keep your tabs in the sidebar</h1>
+                    <p>Click a tab to switch to it. Use <strong>Spaces</strong> along the bottom to keep different sets of tabs, like work and personal.</p>
+                    <p class="lesson-note">To keep PrismArc in Chrome’s toolbar, open the Extensions menu (puzzle piece) and click the pin next to PrismArc. The toolbar icon opens the sidebar.</p>
+                    <div class="binding"><span>Sidebar shortcut</span><kbd id="sidebar-shortcut">Checking…</kbd></div>
+                    <div class="lesson-actions">
+                        <button id="open-sidebar" type="button" class="secondary" disabled>Open sidebar</button>
+                        <button id="setup-sidebar-shortcut" type="button" class="text-button shortcut-settings" hidden>Shortcut settings</button>
+                    </div>
+                </div>
+                <div class="demo demo-sidebar" aria-hidden="true">
+                    <div class="browser-example">
+                        <div class="browser-toolbar"><span class="browser-dots"></span><span class="browser-address">notes.example</span><img src="assets/icon.png" width="19" height="19" alt=""></div>
+                        <div class="browser-content">
+                            <div class="sidebar-example">
+                                <div class="favorite-examples"><span class="site plan">P</span><span class="site notes">M</span><span class="site library">R</span></div>
+                                <div class="space-label">Studio <span>⌄</span></div>
+                                <div class="sidebar-row selected"><span class="site plan">P</span> Project plan</div>
+                                <div class="sidebar-row"><span class="site notes">M</span> Meeting notes</div>
+                                <div class="space-example"><span>Studio</span><span>Personal</span><b>+</b></div>
+                            </div>
+                            <div class="browser-page"><strong>Project plan</strong><i></i><i></i><i></i></div>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
+            <article class="lesson" data-guide-step="pinning" aria-labelledby="pin-title" hidden>
+                <div class="lesson-copy">
+                    <h1 id="pin-title" tabindex="-1">Pin a tab to keep it</h1>
+                    <p>Drag a tab above the divider, or right-click it and choose <strong>Pin Tab</strong>. The site stays in that Space as a bookmark after you close the tab.</p>
+                    <p class="lesson-note">Choose <strong>Unpin Tab</strong> to move it back below the divider.</p>
+                    <div class="binding"><span>Pin shortcut with sidebar open</span><kbd id="pin-shortcut">Checking…</kbd></div>
+                    <div class="lesson-actions">
+                        <button id="setup-pin-shortcut" type="button" class="text-button shortcut-settings" hidden>Shortcut settings</button>
+                    </div>
+                </div>
+                <div class="demo demo-pin">
+                    <div class="pin-example">
+                        <div class="space-label">Studio <span aria-hidden="true">⌄</span></div>
+                        <div class="pin-preview-section" data-pin-drop="saved">
+                            <span>Pinned</span>
+                            <ul id="pin-preview-saved" aria-label="Sample pinned tabs"><li class="sidebar-row"><span class="site notes" aria-hidden="true">M</span> Meeting notes</li></ul>
+                        </div>
+                        <div class="pin-preview-section" data-pin-drop="open">
+                            <span>Open tabs</span>
+                            <ul id="pin-preview-open" aria-label="Sample open tabs"><li id="pin-example-tab" class="sidebar-row selected" draggable="true"><span class="site plan" aria-hidden="true">P</span> Project plan</li></ul>
+                        </div>
+                        <div class="demo-controls"><button id="pin-preview-toggle" type="button" class="secondary">Pin sample tab</button></div>
+                        <p id="pin-preview-status" class="demo-status" role="status">Drag the sample tab or use the button.</p>
+                    </div>
+                </div>
+            </article>
+
+            <footer class="guide-footer">
+                <button id="optional-setup" type="button" class="text-button">Optional setup</button>
+                <div class="guide-navigation">
+                    <button id="guide-back" type="button" class="text-button" hidden>Back</button>
+                    <button id="guide-next" type="button" class="primary">Next <span aria-hidden="true">→</span></button>
+                    <button id="guide-finish" type="button" class="primary" hidden>Finish guide</button>
+                </div>
+            </footer>
         </section>
-        <section id="handoff" class="welcome handoff" hidden><img src="assets/icon.png" width="64" height="64" alt=""><h1 id="handoff-title">Continue the tutorial<br>in your sidebar.</h1><p id="handoff-copy">Follow the highlights in PrismArc. Everything you need, including practice tabs, is waiting there.</p><button id="reopen" class="secondary">Reopen sidebar ↗</button></section>
+
+        <section id="optional-settings" class="guide-shell optional-settings" aria-labelledby="optional-title" hidden>
+            <h1 id="optional-title" tabindex="-1">Optional setup</h1>
+            <div class="setup-items">
+                <section class="setup-item shortcut-card">
+                    <h2 class="shortcut-title">Copy current tab URL</h2>
+                    <p class="shortcut-description">Currently set: <kbd id="copy-shortcut">Checking…</kbd></p>
+                    <p>In Chrome's extension shortcuts, find PrismArc and edit <strong>Copy current tab URL</strong>.</p>
+                    <button id="setup-copy-shortcut" type="button" class="secondary shortcut-settings" disabled>Shortcut settings</button>
+                </section>
+                <section class="setup-item">
+                    <h2>Sidebar position</h2>
+                    <p>Under <strong>Side panel position</strong> in Chrome’s Appearance settings, choose which side to show the sidebar on.</p>
+                    <button id="appearance" type="button" class="secondary">Open Appearance settings</button>
+                </section>
+                <section class="setup-item">
+                    <h2 id="bookmark-title">Bring your bookmarks</h2>
+                    <p id="bookmark-copy">Open the sidebar once to create the PrismArc bookmark folder. Then copy folders into it in Chrome's bookmark manager. Each folder becomes a Space and its bookmarks become pinned tabs.</p>
+                    <p id="bookmark-detected" class="lesson-note" hidden></p>
+                    <button id="bookmarks" type="button" class="secondary">Open bookmark manager</button>
+                </section>
+                <section class="setup-item">
+                    <h2>Keep PrismArc on your toolbar</h2>
+                    <p>In Chrome's toolbar, open <strong>Extensions</strong> and click the <strong>pin</strong> beside PrismArc. Click the PrismArc icon to open the sidebar.</p>
+                </section>
+            </div>
+            <button id="optional-back" type="button" class="primary">Back to guide</button>
+        </section>
+
+        <section id="guide-complete" class="guide-shell guide-complete" aria-labelledby="guide-complete-title" hidden>
+            <img src="assets/icon.png" width="50" height="50" alt="">
+            <h1 id="guide-complete-title" tabindex="-1">You're ready to use PrismArc</h1>
+            <p>Replay this guide anytime from PrismArc Settings.</p>
+            <button id="complete-open-sidebar" type="button" class="primary" disabled>Open sidebar</button>
+        </section>
         <p id="error" role="alert" hidden></p>
     </main>
     <script type="module" src="installation-onboarding.js"></script>

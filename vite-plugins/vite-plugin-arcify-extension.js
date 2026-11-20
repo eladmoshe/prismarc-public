@@ -64,7 +64,6 @@ function getExtensionOutput(isDev = false) {
  * Get PrismArc build plugins
  */
 function getExtensionPlugins({ isStore = false, outDir }) {
-  const omittedAnimation = '\0prismarc:omitted-onboarding-animation';
   // Manifest and runtime code load these by their original URLs.
   const staticFiles = [
     'styles.css',
@@ -86,19 +85,10 @@ function getExtensionPlugins({ isStore = false, outDir }) {
     {
       name: 'prismarc-extension-main',
       enforce: 'pre',
-      resolveId(source) {
-        if (isStore && source === './assets/chrometutorial.gif') return omittedAnimation;
-      },
-      load(id) {
-        if (id === omittedAnimation) return 'export default "";';
-      },
       transformIndexHtml: {
         order: 'pre',
         handler(html) {
-          const guide = isStore
-            ? html.replace(/<!-- pin-guide:local -->[\s\S]*?<!-- \/pin-guide:local -->/, '')
-            : html.replace(/<!-- pin-guide:store -->[\s\S]*?<!-- \/pin-guide:store -->/, '');
-          return isStore ? guide.replace(/^\s*<link rel="stylesheet" href="calendar-preview\.css">$/m, '') : guide;
+          return isStore ? html.replace(/^\s*<link rel="stylesheet" href="calendar-preview\.css">$/m, '') : html;
         },
       },
       writeBundle: async () => {
@@ -122,7 +112,6 @@ export function createArcifyConfig(options = {}) {
 
   const config = {
     define: {
-      __PRISMARC_STORE_BUILD__: isStore,
       __PRISMARC_INCLUDE_CALENDAR__: !isStore,
       __PRISMARC_CALENDAR_CLIENT_ID__: JSON.stringify(isStore ? '' : calendarBuildClientId()),
     },

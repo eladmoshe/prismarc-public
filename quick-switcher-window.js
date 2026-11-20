@@ -103,29 +103,29 @@ export function toggleQuickSwitcher(chromeApi = globalThis.chrome, sourceWindowI
         let source;
         if (Number.isInteger(sourceWindowId) && sourceWindowId >= 0) {
             source = await chromeApi.windows.get(sourceWindowId, { populate: true }).catch(() => null);
-            if (!source) return;
         } else source = await chromeApi.windows.getLastFocused({ populate: true });
+        if (!source) return false;
         const existing = await findPopup(chromeApi, source);
 
         if (existing?.id === source.id) {
             await chromeApi.windows.remove(existing.id);
-            return;
+            return true;
         }
 
         if (source.type === 'normal' && source.focused === false) {
             const focused = await chromeApi.windows.getLastFocused({ populate: true });
-            if (!focused?.focused || focused.id !== source.id) return;
+            if (!focused?.focused || focused.id !== source.id) return false;
             source = focused;
         }
         const active = source.focused && source.type === 'normal' && source.tabs?.find(tab => tab.active);
         if (overlay && active) {
             if (await overlay.openSearch(active).catch(() => false)) {
                 if (existing) await chromeApi.windows.remove(existing.id).catch(() => {});
-                return;
+                return true;
             }
             const latest = await chromeApi.windows.get(source.id, { populate: true }).catch(() => null);
             if (!latest?.focused || !latest.tabs?.some(tab => tab.active && tab.id === active.id &&
-                tab.url === active.url && tab.pendingUrl === active.pendingUrl)) return;
+                tab.url === active.url && tab.pendingUrl === active.pendingUrl)) return false;
         }
 
         return openNative(chromeApi, source, existing);

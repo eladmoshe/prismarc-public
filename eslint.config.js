@@ -11,7 +11,6 @@ export default [
         chrome: 'readonly',
         __PRISMARC_CALENDAR_CLIENT_ID__: 'readonly',
         __PRISMARC_INCLUDE_CALENDAR__: 'readonly',
-        __PRISMARC_STORE_BUILD__: 'readonly',
       },
     },
     rules: {
