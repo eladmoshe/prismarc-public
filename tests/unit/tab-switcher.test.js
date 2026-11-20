@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { TabSwitcher, TAB_SWITCHER_LIMIT, TAB_SWITCHER_SESSION } from '../../tab-switcher.js';
 import { describeOpenTab, usesOptionShortcut } from '../../tab-switcher-tabs.js';
-import { recentTabsLayout, recentTabsPopupSize } from '../../tab-switcher-layout.js';
+import { recentTabsLayout, recentTabsPopupAdjustment, recentTabsPopupSize } from '../../tab-switcher-layout.js';
 
 function fixture() {
     const tab = (id, windowId, lastAccessed, incognito = false) => ({
@@ -96,6 +96,28 @@ test('the native picker fits its initial card count and includes space for compa
     await switcher.invoke(f.lookup(1));
     assert.deepEqual({ width: f.picker().width, height: f.picker().height, left: f.picker().left, top: f.picker().top },
         { width: 876, height: 312, left: 299, top: 331 });
+});
+
+test('recent tabs repairs legacy native bounds using the actual work area and chrome', () => {
+    const source = { left: 22, top: 52, width: 1460, height: 880 };
+    const popup = { left: 436, top: 386, width: 632, height: 212 };
+    const display = { availLeft: 0, availTop: 24, availWidth: 1600, availHeight: 960 };
+    assert.deepEqual(recentTabsPopupAdjustment(5, source, popup, { width: 632, height: 184 }, display, 1),
+        { width: 1072, height: 300, left: 216, top: 342 });
+    assert.equal(recentTabsPopupAdjustment(5, source, { ...popup, width: 1080, height: 312 },
+        { width: 1080, height: 284 }, display, 1), undefined);
+});
+
+test('a constrained display uses all available room and stays on its current monitor at tab zoom', () => {
+    const display = { availLeft: -680, availTop: 26, availWidth: 660, availHeight: 370 };
+    const popup = { left: -595, top: 80, width: 470, height: 212 };
+    const otherDisplay = { left: 10, top: 40, width: 1200, height: 900 };
+    const bounds = recentTabsPopupAdjustment(5, otherDisplay, popup, { width: 376, height: 144 }, display, 1.25);
+    assert.deepEqual(bounds, { width: 605, height: 367, left: -662, top: 26 });
+    const layout = recentTabsLayout(5, bounds.width / 1.25, (bounds.height - 32) / 1.25);
+    assert.equal(layout.mode, 'list');
+    assert.equal(layout.rowHeight, 32);
+    assert.ok(layout.height * 1.25 + 32 <= bounds.height);
 });
 
 test('one tab has no effect and two tabs open a picker on the first press', async () => {

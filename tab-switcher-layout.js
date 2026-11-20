@@ -43,3 +43,36 @@ export function recentTabsPopupSize(count, source) {
     const height = Math.min(preferredHeight, Math.max(260, source.height ?? preferredHeight));
     return { width: Math.min(source.width ?? Infinity, layout.width + MARGIN + frameWidth), height };
 }
+
+export function recentTabsPopupAdjustment(count, origin, popup, viewport, screen, zoom) {
+    const { availLeft = 0, availTop = 0, availWidth, availHeight } = screen;
+    if (![popup.left, popup.top, popup.width, popup.height, availLeft, availTop, availWidth, availHeight]
+        .every(Number.isFinite) || availWidth <= 0 || availHeight <= 0 || !(zoom > 0)) return;
+
+    // Chrome's window and work area use logical pixels. Use the actual frame
+    // and tab zoom to translate the room available to the picker itself.
+    const frameWidth = Math.max(0, popup.width - Math.round(viewport.width * zoom));
+    const frameHeight = Math.max(0, popup.height - Math.round(viewport.height * zoom));
+    const target = recentTabsLayout(count, (availWidth - frameWidth) / zoom, (availHeight - frameHeight) / zoom);
+    const current = recentTabsLayout(count, viewport.width, viewport.height);
+    const width = Math.min(availWidth, Math.ceil((target.width + MARGIN) * zoom) + frameWidth);
+    const height = Math.min(availHeight, Math.ceil(target.height * zoom) + frameHeight);
+    if (width === popup.width && height === popup.height) return;
+    // Leave an already fitting initial window alone when only the conservative
+    // frame allowance differs. Correct native windows opened at a saved size.
+    if (current.mode === target.mode && current.width >= target.width &&
+        current.height >= target.height && viewport.height >= current.height &&
+        popup.width <= width + 8 && popup.height <= height + 12) return;
+
+    function place(start, area, size, sourceStart, sourceSize, popupStart, popupSize) {
+        const originCenter = sourceStart + sourceSize / 2;
+        const center = originCenter >= start && originCenter < start + area ? originCenter : popupStart + popupSize / 2;
+        return Math.max(start, Math.min(start + area - size, Math.round(center - size / 2)));
+    }
+
+    return {
+        width, height,
+        left: place(availLeft, availWidth, width, origin?.left, origin?.width, popup.left, popup.width),
+        top: place(availTop, availHeight, height, origin?.top, origin?.height, popup.top, popup.height),
+    };
+}

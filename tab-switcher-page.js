@@ -7,7 +7,7 @@ import { isBrowsingPreviewCandidate, shouldOfferVisitPreviewHint, TAB_PREVIEW_HI
     TAB_PREVIEW_HINT_PREFS } from './tab-switcher-preview-settings.js';
 import { Utils } from './utils.js';
 import { connectPopupFrame, validPopupToken } from './popup-renderer.js';
-import { recentTabsLayout } from './tab-switcher-layout.js';
+import { recentTabsLayout, recentTabsPopupAdjustment } from './tab-switcher-layout.js';
 
 const inline = window.parent !== window;
 if (inline) {
@@ -324,6 +324,24 @@ function startPicker(token, inline) {
     const current = chrome.windows.getCurrent();
     let generation = 0;
     let themeRequested = false;
+
+    async function fitNativePopup(state, popup) {
+        const tab = await chrome.tabs.getCurrent();
+        if (tab?.windowId !== popup.id || ![tab.url, tab.pendingUrl].includes(location.href)) return;
+        const [origin, zoom, active, stored] = await Promise.all([
+            chrome.windows.get(state.originWindowId).catch(() => null),
+            chrome.tabs.getZoom(tab.id),
+            chrome.tabs.get(tab.id),
+            chrome.storage.session.get(TAB_SWITCHER_SESSION),
+        ]);
+        const session = stored[TAB_SWITCHER_SESSION];
+        if (finished || session?.token !== token || session.surface || !active.active ||
+            active.windowId !== popup.id || (active.pendingUrl ?? active.url) !== location.href) return;
+        const bounds = recentTabsPopupAdjustment(session.tabIds.length, origin, popup,
+            { width: window.innerWidth, height: window.innerHeight }, window.screen, zoom);
+        if (bounds) await chrome.windows.update(popup.id, bounds);
+    }
+
     async function render(state) {
         const version = ++generation;
         if (!state || state.token !== token || (inline && state.surface !== 'overlay')) {
@@ -335,12 +353,18 @@ function startPicker(token, inline) {
             }
             return;
         }
-        if (Boolean((await current).incognito) !== state.incognito) return;
+        const pickerWindow = await current;
+        if (Boolean(pickerWindow.incognito) !== state.incognito) return;
         if (version !== generation) return;
         if (!themeRequested) {
             themeRequested = true;
             applyPopupSpaceTheme(state.originWindowId, state.originId);
             if (!state.incognito) refreshPreviewHintPreferences().catch(() => {});
+            // The native window can be smaller than requested or have been
+            // opened by the previous worker while the updated page loads.
+            if (!inline && !state.surface && pickerWindow.type === 'popup') {
+                fitNativePopup(state, pickerWindow).catch(() => {});
+            }
         }
         const ids = state.tabIds.join(',');
         if (renderedIds !== ids) {
