@@ -102,9 +102,9 @@ export function toggleQuickSwitcher(chromeApi = globalThis.chrome, sourceWindowI
     return run(async () => {
         let source;
         if (Number.isInteger(sourceWindowId) && sourceWindowId >= 0) {
-            try { source = await chromeApi.windows.get(sourceWindowId, { populate: true }); } catch { /* Window closed before invocation. */ }
-        }
-        source ||= await chromeApi.windows.getLastFocused({ populate: true });
+            source = await chromeApi.windows.get(sourceWindowId, { populate: true }).catch(() => null);
+            if (!source) return;
+        } else source = await chromeApi.windows.getLastFocused({ populate: true });
         const existing = await findPopup(chromeApi, source);
 
         if (existing?.id === source.id) {
@@ -112,6 +112,11 @@ export function toggleQuickSwitcher(chromeApi = globalThis.chrome, sourceWindowI
             return;
         }
 
+        if (source.type === 'normal' && source.focused === false) {
+            const focused = await chromeApi.windows.getLastFocused({ populate: true });
+            if (!focused?.focused || focused.id !== source.id) return;
+            source = focused;
+        }
         const active = source.focused && source.type === 'normal' && source.tabs?.find(tab => tab.active);
         if (overlay && active) {
             if (await overlay.openSearch(active).catch(() => false)) {
@@ -119,7 +124,8 @@ export function toggleQuickSwitcher(chromeApi = globalThis.chrome, sourceWindowI
                 return;
             }
             const latest = await chromeApi.windows.get(source.id, { populate: true }).catch(() => null);
-            if (!latest?.focused || !latest.tabs?.some(tab => tab.active && tab.id === active.id)) return;
+            if (!latest?.focused || !latest.tabs?.some(tab => tab.active && tab.id === active.id &&
+                tab.url === active.url && tab.pendingUrl === active.pendingUrl)) return;
         }
 
         return openNative(chromeApi, source, existing);

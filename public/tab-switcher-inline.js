@@ -13,6 +13,7 @@
     let gesture;
     let watch;
     let sheet;
+    let mountingSearch;
     let enabled = true;
     globalThis.prismArcInlineActivate = () => { enabled = true; };
 
@@ -161,8 +162,15 @@
                 sheet.frame.focus({ preventScroll: true });
             }
             respond(true);
+        } else if (action === 'confirm-search-route') {
+            const owns = mountingSearch === nonce || (sheet?.nonce === nonce && sheet.search);
+            respond(Boolean(enabled && owns && window.top === window && document.visibilityState === 'visible' &&
+                location.href === message.url));
         } else if (action === 'mount' && enabled && window.top === window && !document.fullscreenElement) {
-            send('host', nonce).then(response => { if (response?.success) mount(nonce, page); });
+            if (page === 'quick-switcher.html') mountingSearch = nonce;
+            send('host', nonce).then(response => {
+                if (response?.success) mount(nonce, page);
+            }).finally(() => { if (mountingSearch === nonce) mountingSearch = null; });
             respond(true);
         }
     });

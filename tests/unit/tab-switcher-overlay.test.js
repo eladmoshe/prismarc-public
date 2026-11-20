@@ -111,6 +111,75 @@ test('Quick Switcher waits for its authenticated search input before taking page
     assert.equal(await f.overlay.receive(bridge(nonce, 'activate'), picker), undefined);
 });
 
+test('a same-document search route requires exact live tab and top-document confirmation', async () => {
+    const f = fixture();
+    f.source.url += '/workspace#redwood';
+    const host = { ...f.tabOnly('top-document'), url: 'https://source.test/page' };
+    let mounted, confirms = false;
+    const mount = new Promise(resolve => { mounted = resolve; });
+    f.api.tabs.sendMessage = async (_id, message, target) => {
+        if (message.action === 'mount') mounted(message.nonce);
+        if (message.action === 'confirm-search-route') {
+            assert.deepEqual(target, { documentId: host.documentId });
+            assert.equal(message.url, f.source.url);
+            return confirms;
+        }
+        return true;
+    };
+    const open = f.overlay.openSearch(f.source);
+    const nonce = await mount;
+    const claim = sender => f.overlay.receive(bridge(nonce, 'host'), sender);
+    for (const sender of [host, { ...host, frameId: 4 }, { ...host, origin: 'https://other.test' }, { ...host, url: 'https://other.test/page' },
+        { ...host, tab: { ...f.source, url: host.url } }]) {
+        assert.equal((await claim(sender))?.success, false);
+        assert.equal(f.overlay.current.host, undefined);
+    }
+    confirms = true;
+    const originalWindow = f.api.windows.get;
+    f.api.windows.get = async () => ({ ...await originalWindow(), tabs: [{ ...f.source, url: 'https://source.test/changed' }] });
+    assert.equal((await claim(host)).success, false);
+    f.api.windows.get = originalWindow;
+    await claim(host);
+    assert.equal(f.overlay.current.host, host.documentId);
+    // A same-URL load signal cannot keep the attempt if its original top document is gone.
+    confirms = false;
+    f.overlay.searchSourceChanged(f.source.id, { status: 'loading' }, f.source);
+    assert.equal(await open, false);
+});
+
+test('a missing search listener is attached once and mounted only in the recovered top document', async () => {
+    const f = fixture();
+    const options = [];
+    f.api.scripting.executeScript = async injection => {
+        assert.deepEqual(injection, { target: { tabId: f.source.id, frameIds: [0] }, files: ['tab-switcher-inline.js'], injectImmediately: true });
+        return [{ frameId: 0, documentId: 'recovered' }];
+    };
+    f.api.tabs.sendMessage = async (_id, message, target) => {
+        if (message.action !== 'mount') return true;
+        options.push(target);
+        if (options.length === 1) throw new Error('Could not establish connection. Receiving end does not exist.');
+        assert.equal((await f.overlay.receive(bridge(message.nonce, 'host'), f.tabOnly('replaced'))).success, false);
+        return false;
+    };
+    assert.equal(await f.overlay.openSearch(f.source), false);
+    assert.deepEqual(options, [{ frameId: 0 }, { documentId: 'recovered' }]);
+});
+
+test('an explicit refusal or lost site permission cannot trigger listener attachment', async () => {
+    for (const missing of [false, true]) {
+        const f = fixture();
+        let permissionChecks = 0, injections = 0;
+        f.api.permissions.contains = async () => ++permissionChecks === 1;
+        f.api.scripting.executeScript = async () => { injections++; return []; };
+        f.api.tabs.sendMessage = async () => {
+            if (missing) throw new Error('Receiving end does not exist.');
+            return false;
+        };
+        assert.equal(await f.overlay.openSearch(f.source), false);
+        assert.equal(injections, 0);
+    }
+});
+
 test('a Chrome host grant is preserved for each explicitly enabled feature', async () => {
     const choices = { tabSwitcherCaptureOnVisit: true };
     const removals = [];

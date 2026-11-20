@@ -11,6 +11,11 @@ export function inlinePage(url) {
     try { return !STORE_ORIGINS.has(new URL(url).origin); } catch { return false; }
 }
 
+export function attachInlineListener(chromeApi, tabId, allFrames = false) {
+    return chromeApi.scripting.executeScript({ target: allFrames ? { tabId, allFrames: true } : { tabId, frameIds: [0] },
+        files: [INLINE_SCRIPT_FILE], injectImmediately: true });
+}
+
 export function registerInlineSwitcher(chromeApi, permissionChanged) {
     let work = Promise.resolve();
     async function configure(rearm) {
@@ -40,12 +45,8 @@ export function registerInlineSwitcher(chromeApi, permissionChanged) {
         }
         if (!registrations.length || rearm) {
             await Promise.allSettled((await tabs()).map(async tab => {
-                const target = { tabId: tab.id };
-                const inject = fields => chromeApi.scripting.executeScript({
-                    target: { ...target, ...fields }, files: [INLINE_SCRIPT_FILE], injectImmediately: true,
-                });
-                if (platform.os !== 'mac') return inject({});
-                try { await inject({ allFrames: true }); } catch { await inject({}); }
+                if (platform.os !== 'mac') return attachInlineListener(chromeApi, tab.id);
+                try { await attachInlineListener(chromeApi, tab.id, true); } catch { await attachInlineListener(chromeApi, tab.id); }
             }));
         }
     }

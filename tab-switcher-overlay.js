@@ -1,11 +1,14 @@
 import { INLINE_SWITCHER } from './tab-switcher-inline-settings.js';
-import { INLINE_MESSAGE, inlinePage, registerInlineSwitcher } from './tab-switcher-inline-registration.js';
+import { INLINE_MESSAGE, attachInlineListener, inlinePage, registerInlineSwitcher } from './tab-switcher-inline-registration.js';
 import { confirmQuickSwitcherDeletion } from './quick-switcher-window.js';
 import { historyDestinationIdentity } from './quick-switcher-search.js';
 
 const FRAME_PAGE = 'tab-switcher.html';
 const SEARCH_PAGE = 'quick-switcher.html';
 const READY_MS = 300;
+// Search must initialize its extension frame and focus its input on a busy page.
+// Recent Tabs has a tighter deadline because the Option key may already be up.
+const SEARCH_READY_MS = 1500;
 
 function usesOption(commands) {
     const shortcut = commands.find(command => command.name === 'cycleOpenTabs')?.shortcut ?? '';
@@ -82,7 +85,7 @@ export class TabSwitcherOverlay {
         const focused = page === SEARCH_PAGE ? new Promise(resolve => { focus = resolve; }) : null;
         const attempt = { source, token, page, nonce: crypto.randomUUID(), pressedAt, settle, focus };
         this.current = attempt;
-        const timer = setTimeout(() => { settle(false); focus?.(false); }, READY_MS);
+        const timer = setTimeout(() => { settle(false); focus?.(false); }, page === SEARCH_PAGE ? SEARCH_READY_MS : READY_MS);
         try {
             await prepare?.();
             if (this.current !== attempt) return false;
@@ -105,17 +108,36 @@ export class TabSwitcherOverlay {
         return false;
     }
 
-    mount(attempt) {
+    async mount(attempt) {
         const extra = attempt.page === SEARCH_PAGE ? { page: SEARCH_PAGE } : {};
-        this.send(attempt, 'mount', { frameId: 0 }, extra).then(mounted => {
-            if (!mounted) attempt.settle(false);
-        }, () => attempt.settle(false));
+        const mounted = await this.send(attempt, 'mount', { frameId: 0 }, extra).catch(error => {
+            if (attempt.page === SEARCH_PAGE && /Receiving end does not exist/i.test(error?.message)) {
+                return this.attachSearchHost(attempt).catch(() => false);
+            }
+            return false;
+        });
+        if (!mounted) attempt.settle(false);
+    }
+
+    async attachSearchHost(attempt) {
+        // An already-open document can predate registration. Repair a missing
+        // receiver on the opted-in active tab using only the packaged listener.
+        if (!await this.stillOnSource(attempt) || !await this.available(attempt.source, SEARCH_PAGE) || this.current !== attempt) return false;
+        const [injected] = await attachInlineListener(this.chrome, attempt.source.id);
+        if (injected?.frameId !== 0 || !injected.documentId || !await this.stillOnSource(attempt) || this.current !== attempt) return false;
+        attempt.intendedHost = injected.documentId;
+        return this.send(attempt, 'mount', { documentId: injected.documentId }, { page: SEARCH_PAGE });
     }
 
     async stillOnSource({ source }) {
         const window = await this.chrome.windows.get(source.windowId, { populate: true }).catch(() => null);
         return window?.focused && window.type === 'normal' && !window.incognito &&
             window.tabs?.some(tab => tab.id === source.id && tab.active && tab.url === source.url && !tab.pendingUrl);
+    }
+
+    async confirmsSearchRoute(attempt, documentId) {
+        const confirmed = await this.send(attempt, 'confirm-search-route', { documentId }, { url: attempt.source.url }).catch(() => false);
+        return confirmed === true && this.current === attempt && await this.stillOnSource(attempt) && this.current === attempt;
     }
 
     close(token) {
@@ -152,9 +174,18 @@ export class TabSwitcherOverlay {
         return Boolean(this.current?.host && this.current.page !== SEARCH_PAGE && this.current.source.id === tabId);
     }
 
-    searchSourceChanged(tabId) {
+    searchSourceChanged(tabId, change, tab) {
         const attempt = this.current;
-        if (attempt?.page === SEARCH_PAGE && attempt.source.id === tabId) this.close(attempt.token);
+        if (attempt?.page !== SEARCH_PAGE || attempt.source.id !== tabId) return;
+        if (!change || change.discarded || tab?.pendingUrl || tab?.url !== attempt.source.url) {
+            this.close(attempt.token);
+        } else if (change.status === 'loading' && attempt.host) {
+            // A loading notification does not identify a new top document.
+            // Revalidate the existing document. A real navigation also loses its port.
+            this.confirmsSearchRoute(attempt, attempt.host).then(confirmed => {
+                if (!confirmed && this.current === attempt) this.close(attempt.token);
+            });
+        }
     }
 
     searchTabActivated({ tabId, windowId }) {
@@ -221,12 +252,7 @@ export class TabSwitcherOverlay {
                 attempt.released = message.action === 'released-probe';
                 this.mount(attempt);
                 return Promise.resolve({});
-            case 'host':
-                if (sender.frameId !== 0 || sender.url !== attempt.source.url || attempt.host) return;
-                attempt.host = sender.documentId;
-                this.covered = attempt;
-                this.coverVersion = (this.coverVersion || 0) + 1;
-                return Promise.resolve({});
+            case 'host': return this.acceptHost(attempt, sender);
             case 'release':
             case 'next':
             case 'previous':
@@ -242,6 +268,26 @@ export class TabSwitcherOverlay {
                 if (sender.documentId === attempt.host && !attempt.activating) this.reset();
                 return Promise.resolve({});
         }
+    }
+
+    async acceptHost(attempt, sender) {
+        if (sender.frameId !== 0 || attempt.host || (attempt.intendedHost && sender.documentId !== attempt.intendedHost)) {
+            return { success: false };
+        }
+        if (sender.url !== attempt.source.url) {
+            // On a single-page route Chrome retains the original sender.url.
+            // Verify Chrome's current tab URL AND the exact current route in the
+            // active top document that received this invocation's capability.
+            const origin = new URL(attempt.source.url).origin;
+            if (attempt.page !== SEARCH_PAGE || sender.origin !== origin || new URL(sender.url).origin !== origin ||
+                sender.tab.url !== attempt.source.url || !await this.confirmsSearchRoute(attempt, sender.documentId) || attempt.host) {
+                return { success: false };
+            }
+        }
+        attempt.host = sender.documentId;
+        this.covered = attempt;
+        this.coverVersion = (this.coverVersion || 0) + 1;
+        return {};
     }
 
     setPreviewHint(token, visible) {

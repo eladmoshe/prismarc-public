@@ -269,7 +269,7 @@ chrome.tabs.onActivated.addListener(info => {
     return setTabActivity(info.tabId, Date.now());
 });
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
-    if (change.url !== undefined || change.status === 'loading' || change.discarded) tabSwitcherOverlay.searchSourceChanged(tabId);
+    if (change.url !== undefined || change.status === 'loading' || change.discarded) tabSwitcherOverlay.searchSourceChanged(tabId, change, tab);
     tabSwitcher.inlineSourceChanged(tabId, change)?.catch(Logger.error);
     if ((change.status === 'complete' || change.audible !== undefined) && (tab.active || tab.audible)) {
         return setTabActivity(tabId, Date.now());

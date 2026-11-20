@@ -134,6 +134,20 @@ test('Quick Switcher prefers the focused source tab inline and never falls back 
     assert.deepEqual(f.calls, []);
 });
 
+test('a failed inline invocation does not pop up over a new route in the same tab or a different focused window', async () => {
+    const f = fixture();
+    const active = { id: 32, active: true, url: 'https://source.test/start' };
+    f.setSource({ id: 1, type: 'normal', focused: true, tabs: [active] });
+    await toggleQuickSwitcher(f.api, 1, { async openSearch() {
+        f.setSource({ id: 1, type: 'normal', focused: true, tabs: [{ ...active, url: 'https://source.test/later' }] });
+        return false;
+    } });
+    f.api.windows.get = async () => ({ id: 1, type: 'normal', focused: false, tabs: [active] });
+    f.setSource({ id: 2, type: 'normal', focused: true, tabs: [] });
+    await toggleQuickSwitcher(f.api, 1);
+    assert.deepEqual(f.calls, []);
+});
+
 test('a history confirmation stays in the owning native window and can be read only once', async () => {
     const f = fixture();
     f.setSource({ id: 1, type: 'normal', focused: true });
