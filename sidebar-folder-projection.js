@@ -1,8 +1,6 @@
 import { FOLDER_CLOSED_ICON, FOLDER_CLOSED_DOTS_ICON, FOLDER_OPEN_ICON } from './icons.js';
 import { Logger } from './logger.js';
 
-export const collapsedFolderShownTabs = new WeakMap();
-
 // Helper function to manage folder placeholder state
 export function updateFolderPlaceholder(folderElement) {
     if (!folderElement) return;
@@ -36,7 +34,7 @@ function updateFolderIcon(folderElement) {
         : FOLDER_OPEN_ICON;
 }
 
-// Arc-like: when a folder is collapsed, show open bookmark tabs (active Chrome tabs) for that folder.
+// When enabled in Settings, show live bookmark tabs below their collapsed folder.
 // Implementation detail: we MOVE the existing open tab elements between containers (no duplicates),
 // so tab updates/active highlighting continue to work consistently.
 const projectedTabAnchors = new WeakMap();
@@ -56,7 +54,7 @@ function projectFolderTab(tab, target) {
     target.appendChild(tab);
 }
 
-export function projectCollapsedFolder(folderElement, activeChromeTabId, showAllOpenTabsInCollapsedFolders) {
+export function projectCollapsedFolder(folderElement, showAllOpenTabsInCollapsedFolders) {
     if (!folderElement) return;
     const collapsedContainer = folderElement.querySelector('.folder-collapsed-tabs');
     const folderContent = folderElement.querySelector(':scope > .folder-content');
@@ -67,41 +65,11 @@ export function projectCollapsedFolder(folderElement, activeChromeTabId, showAll
     for (const tab of collapsedContainer.querySelectorAll(':scope > .tab')) {
         restoreProjectedTab(tab, folderContent);
     }
-    if (isCollapsed) {
-        if (showAllOpenTabsInCollapsedFolders) {
-            // Arcify mode: show all open (non-bookmark-only) tabs even when folder is collapsed.
-            const openTabs = Array.from(folderContent.querySelectorAll(':scope > .tab'))
-                .filter(t => !t.classList.contains('bookmark-only') && t.dataset.tabId);
-            openTabs.forEach(t => projectFolderTab(t, collapsedContainer));
-        } else {
-            // Arc mode: show tabs that are active OR were previously active while folder was collapsed.
-            // This list resets when user manually opens/closes the folder.
-            let shownTabIds = collapsedFolderShownTabs.get(folderElement);
-
-            // Also seed the currently active tab if it's in this folder (handles initialization case).
-            if (activeChromeTabId) {
-                const activeTabEl = folderContent.querySelector(`:scope > .tab[data-tab-id="${activeChromeTabId}"]:not(.bookmark-only)`);
-                if (activeTabEl) {
-                    if (!shownTabIds) {
-                        shownTabIds = new Set();
-                        collapsedFolderShownTabs.set(folderElement, shownTabIds);
-                    }
-                    shownTabIds.add(activeChromeTabId);
-                }
-            }
-
-            if (shownTabIds && shownTabIds.size > 0) {
-                shownTabIds.forEach(tabId => {
-                    const tabEl = folderContent.querySelector(`:scope > .tab[data-tab-id="${tabId}"]:not(.bookmark-only)`);
-                    if (tabEl) {
-                        projectFolderTab(tabEl, collapsedContainer);
-                    }
-                });
-            }
-        }
+    if (isCollapsed && showAllOpenTabsInCollapsedFolders) {
+        const openTabs = folderContent.querySelectorAll(':scope > .tab[data-tab-id]:not(.bookmark-only)');
+        for (const tab of openTabs) projectFolderTab(tab, collapsedContainer);
     }
 
-    // Arc-like: indicate collapsed folder contains an open tab (in Arc mode this only happens for active tab).
     const hasOpenTabs = isCollapsed && Boolean(collapsedContainer.querySelector('.tab:not(.bookmark-only)'));
     folderElement.classList.toggle('has-open-tabs', hasOpenTabs);
     updateFolderIcon(folderElement);

@@ -39,7 +39,7 @@ import { selectWindowSpaceTabs, mergeVisibleOrder, mergeCapturedTemporaryOrder, 
 import { ownerOf, resolveDefaultSpace } from './space-store.js';
 import { canCreateFolder, canMoveFolder, createFolder } from './folder-policy.js';
 import { loadFolderCollapsed, saveFolderCollapsed } from './folder-state.js';
-import { collapsedFolderShownTabs, projectCollapsedFolder, removeProjectedAnchor, updateFolderPlaceholder } from './sidebar-folder-projection.js';
+import { projectCollapsedFolder, removeProjectedAnchor, updateFolderPlaceholder } from './sidebar-folder-projection.js';
 import { bookmarkOrderBaselines, bookmarkParentIdForContent, getFlattenedPinnedSectionTabIds, getTempSectionTabIds,
     makeBookmarkDropOperation, uniqPreserveOrder } from './sidebar-drop-order.js';
 import { getContextTabIds, getTabSelectionRange } from './tab-selection.js';
@@ -90,7 +90,7 @@ let currentWindow = null;
 let calendarPreview;
 let spaceSwipe;
 let defaultSpaceName = 'Home';
-let showAllOpenTabsInCollapsedFolders = false; // default Arc behavior is false (active-only)
+let showAllOpenTabsInCollapsedFolders = false;
 let activeChromeTabId = null;
 const selectedTabIds = new Set();
 let selectionAnchorTabId = null;
@@ -685,7 +685,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (areaName === 'local' && changes.showAllOpenTabsInCollapsedFolders) {
             showAllOpenTabsInCollapsedFolders = Boolean(changes.showAllOpenTabsInCollapsedFolders.newValue);
-            syncCollapsedFoldersInActiveSpace();
+            spacesList.querySelectorAll('.folder').forEach(syncCollapsedFolderTabs);
         }
     });
 
@@ -973,58 +973,56 @@ function createSpaceElement(space) {
         await updateSpaceSwitcher();
     });
 
-    // Set up space name input
     const nameInput = spaceElement.querySelector('.space-name');
+    const heading = spaceElement.querySelector('.space-toggle-chevron');
+    const title = heading.querySelector('.space-title');
     nameInput.value = space.name;
-    let spaceEditSession = null;
-    nameInput.addEventListener('focus', () => {
-        if (!spaceEditSession) spaceEditSession = editorSessions.begin('space', space.id);
+    title.textContent = space.name;
+    let spaceEditSession;
+    spaceElement.querySelector('.rename-space-btn').addEventListener('click', () => {
+        if (spaceEditSession) return;
+        spaceEditSession = editorSessions.begin('space', space.id);
+        heading.hidden = true;
+        nameInput.hidden = false;
+        nameInput.focus();
+        nameInput.select();
     });
-    nameInput.addEventListener('change', async () => {
-        const session = spaceEditSession || editorSessions.begin('space', space.id);
+    nameInput.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' && event.key !== 'Enter') return;
+        event.preventDefault();
+        if (event.key === 'Escape') nameInput.value = space.name;
+        nameInput.blur();
+        heading.focus();
+    });
+    nameInput.addEventListener('blur', async () => {
+        const session = spaceEditSession;
+        const name = nameInput.value.trim() || space.name;
+        nameInput.hidden = true;
+        heading.hidden = false;
         try {
             await editorSessions.complete(session, async () => {
-                const oldFolder = await getSpaceBookmarkFolder(space);
-                await chrome.bookmarks.update(oldFolder.id, { title: nameInput.value });
-                await LocalStorage.updateSpaceRegistryEntry(oldFolder.id, { name: nameInput.value });
-                space.name = nameInput.value;
+                if (name === space.name) return;
+                const folder = await getSpaceBookmarkFolder(space);
+                await chrome.bookmarks.update(folder.id, { title: name });
+                await LocalStorage.updateSpaceRegistryEntry(folder.id, { name });
+                space.name = name;
                 await saveSpaces();
                 await updateSpaceSwitcher();
             });
         } catch (error) {
-            nameInput.value = space.name;
             alert(error.message);
         } finally {
+            nameInput.value = space.name;
+            title.textContent = space.name;
             spaceEditSession = null;
         }
     });
-    nameInput.addEventListener('blur', () => {
-        if (!spaceEditSession) return;
-        const session = spaceEditSession;
-        spaceEditSession = null;
-        editorSessions.complete(session);
-    });
 
-    // Set up chevron toggle for pinned section
-    const chevronButton = spaceElement.querySelector('.space-toggle-chevron');
-    const pinnedSection = spaceElement.querySelector('.pinned-tabs');
-
-    // Initialize state from localStorage or default to expanded
-    const isPinnedCollapsed = localStorage.getItem(`space-${space.id}-pinned-collapsed`) === 'true';
-    if (isPinnedCollapsed) {
-        chevronButton.classList.add('collapsed');
-        pinnedSection.classList.add('collapsed');
-    }
-
-    // Initialize chevron state
-    updateChevronState(spaceElement, pinnedSection);
-
-
-
-    chevronButton.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent space name editing
-        setPinnedSectionCollapsed(spaceElement, !pinnedSection.classList.contains('collapsed'));
-    });
+    const pinnedSection = spaceContainer.querySelector('.pinned-tabs');
+    pinnedSection.id = `pinned-bookmarks-${space.id}`;
+    heading.setAttribute('aria-controls', pinnedSection.id);
+    setPinnedSectionCollapsed(spaceContainer, localStorage.getItem(`space-${space.id}-pinned-collapsed`) === 'true', false);
+    heading.addEventListener('click', () => setPinnedSectionCollapsed(spaceContainer, !pinnedSection.hidden));
 
     // Set up containers
     const pinnedContainer = spaceElement.querySelector('[data-tab-type="pinned"]');
@@ -1421,7 +1419,9 @@ const dragOpenedFolders = new Set();
 function setFolderCollapsed(folderElement, collapsed, persist = true) {
     folderElement.classList.toggle('collapsed', collapsed);
     folderElement.querySelector(':scope > .folder-content').classList.toggle('collapsed', collapsed);
-    folderElement.querySelector('.folder-toggle').classList.toggle('collapsed', collapsed);
+    const toggle = folderElement.querySelector('.folder-toggle');
+    toggle.classList.toggle('collapsed', collapsed);
+    toggle.setAttribute('aria-expanded', String(!collapsed));
     syncCollapsedFolderTabs(folderElement);
     if (persist) {
         saveFolderCollapsed(folderElement.dataset.bookmarkId, collapsed)
@@ -1597,13 +1597,6 @@ async function moveTabToPinned(space, tab, refresh = true) {
         space.spaceBookmarks.push(tab.id);
     }
 
-    // Update chevron state after moving tab to pinned
-    const spaceElement = document.querySelector(`[data-space-id="${space.id}"]`);
-    if (spaceElement) {
-        const pinnedContainer = spaceElement.querySelector('[data-tab-type="pinned"]');
-        updateChevronState(spaceElement, pinnedContainer);
-    }
-
     // Update placeholders after moving tab to pinned
     updatePinnedSectionPlaceholders();
 
@@ -1652,13 +1645,6 @@ async function moveTabToTemp(space, tab, { temporaryDisplayOrder = null, inverte
 
     // No longer a space-pinned tab; clear pinned state mapping.
     await Utils.removePinnedTabState(tab.id);
-
-    // Update chevron state after moving tab from pinned
-    const spaceElement = document.querySelector(`[data-space-id="${space.id}"]`);
-    if (spaceElement) {
-        const pinnedContainer = spaceElement.querySelector('[data-tab-type="pinned"]');
-        updateChevronState(spaceElement, pinnedContainer);
-    }
 
     // Persist extension ordering after membership changes.
     await persistSpaceTabOrder(space.id, { source: 'arcify', movedTabId: tab.id });
@@ -1875,13 +1861,7 @@ async function closeSelectedTabs(tabIds) {
 }
 
 function syncCollapsedFolderTabs(folderElement) {
-    projectCollapsedFolder(folderElement, activeChromeTabId, showAllOpenTabsInCollapsedFolders);
-}
-
-function syncCollapsedFoldersInActiveSpace() {
-    const spaceElement = document.querySelector(`[data-space-id="${activeSpaceId}"]`);
-    if (!spaceElement) return;
-    spaceElement.querySelectorAll('.folder').forEach(folderEl => syncCollapsedFolderTabs(folderEl));
+    projectCollapsedFolder(folderElement, showAllOpenTabsInCollapsedFolders);
 }
 
 // Update all pinned section placeholders in the current space (folders + main section)
@@ -2576,6 +2556,7 @@ function setupFolderNameEditor(folderElement, folder, initialSession = null) {
         input.readOnly = true;
         input.style.display = 'none';
         title.textContent = savedName;
+        toggle.setAttribute('aria-label', savedName);
         title.style.display = 'inline';
     }
 
@@ -2612,6 +2593,9 @@ function setupFolderNameEditor(folderElement, folder, initialSession = null) {
         }
     }
 
+    header.addEventListener('click', event => {
+        if (event.target !== input) setFolderCollapsed(folderElement, !folderElement.classList.contains('collapsed'));
+    });
     header.addEventListener('dblclick', event => {
         if (event.target !== toggle && event.target !== input) startEdit();
     });
@@ -2636,19 +2620,14 @@ async function createNewFolder(spaceElement, parentFolderElement = null) {
     const pinnedContainer = parentFolderElement
         ? parentFolderElement.querySelector(':scope > .folder-content')
         : spaceElement.querySelector('[data-tab-type="pinned"]');
+    setPinnedSectionCollapsed(spaceElement, false);
     if (parentFolderElement) openFolder(parentFolderElement);
     const folderTemplate = document.getElementById('folderTemplate');
     const newFolder = folderTemplate.content.cloneNode(true);
     const folderElement = newFolder.querySelector('.folder');
-    const folderHeader = folderElement.querySelector('.folder-header');
     setFolderCollapsed(folderElement, false, false);
 
     setupFolderDragHandlers(folderElement);
-    folderHeader.addEventListener('click', () => {
-        // Clear the tracked shown tabs when user manually toggles the folder (Arc behavior).
-        collapsedFolderShownTabs.delete(folderElement);
-        setFolderCollapsed(folderElement, !folderElement.classList.contains('collapsed'));
-    });
 
     const pendingEditor = editorSessions.begin('folder-pending', space.id);
     try {
@@ -2714,16 +2693,9 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer, { force = 
                         const newFolder = folderTemplate.content.cloneNode(true);
                         const folderElement = newFolder.querySelector('.folder');
                         folderElement.dataset.bookmarkId = item.id;
-                        const folderHeader = folderElement.querySelector('.folder-header');
                         setupFolderNameEditor(folderElement, item);
                         setupFolderContextMenu(folderElement, space);
                         setupFolderDragHandlers(folderElement);
-
-                        folderHeader.addEventListener('click', () => {
-                            // Clear the tracked shown tabs when user manually toggles the folder (Arc behavior).
-                            collapsedFolderShownTabs.delete(folderElement);
-                            setFolderCollapsed(folderElement, !folderElement.classList.contains('collapsed'));
-                        });
 
                         container.appendChild(folderElement);
 
@@ -2895,26 +2867,14 @@ async function refreshActiveSpaceUI({ force = false } = {}) {
     }
 }
 
-function setPinnedSectionCollapsed(spaceElement, collapsed) {
+function setPinnedSectionCollapsed(spaceElement, collapsed, persist = true) {
     const pinnedSection = spaceElement.querySelector('.pinned-tabs');
+    const heading = spaceElement.querySelector('.space-toggle-chevron');
+    pinnedSection.hidden = collapsed;
     pinnedSection.classList.toggle('collapsed', collapsed);
-    localStorage.setItem(`space-${spaceElement.dataset.spaceId}-pinned-collapsed`, String(collapsed));
-    updateChevronState(spaceElement, pinnedSection);
-}
-
-// Function to update chevron state based on pinned section visibility
-function updateChevronState(spaceElement, pinnedContainer) {
-    const chevronButton = spaceElement.querySelector('.space-toggle-chevron');
-    const isCollapsed = pinnedContainer.classList.contains('collapsed');
-    if (!chevronButton) {
-        return;
-    }
-
-    if (isCollapsed) {
-        chevronButton.classList.add('collapsed');
-    } else {
-        chevronButton.classList.remove('collapsed');
-    }
+    heading.classList.toggle('collapsed', collapsed);
+    heading.setAttribute('aria-expanded', String(!collapsed));
+    if (persist) localStorage.setItem(`space-${spaceElement.dataset.spaceId}-pinned-collapsed`, String(collapsed));
 }
 
 async function closeTab(tabElement, tab, isPinned = false, isBookmarkOnly = false) {
@@ -3677,14 +3637,6 @@ async function reconcileRemovedTab(tabId, tabElement, isPinned) {
     if (!tabElement) return;
     Logger.log("tabElement", tabElement);
 
-    // Clean up the tabId from collapsedFolderShownTabs to prevent memory leaks from stale IDs.
-    const parentFolder = tabElement.closest('.folder');
-    if (parentFolder) {
-        const shownTabIds = collapsedFolderShownTabs.get(parentFolder);
-        if (shownTabIds) {
-            shownTabIds.delete(tabId);
-        }
-    }
     if (isPinned && tabElement.dataset.bookmarkId) {
         try {
             const [bookmark] = await chrome.bookmarks.get(tabElement.dataset.bookmarkId);
@@ -3751,26 +3703,6 @@ function handleTabActivated(activeInfo) {
             // Activate only the tab in the current space
             activateTabInDOM(activeInfo.tabId);
         }
-
-        // Arc-like behavior: if this tab is inside a collapsed folder, add it to the folder's shown tabs set.
-        // This makes the tab stay visible in the collapsed folder until user manually opens/closes the folder.
-        if (!showAllOpenTabsInCollapsedFolders) {
-            const tabElement = document.querySelector(`.tab[data-tab-id="${activeInfo.tabId}"]`);
-            if (tabElement) {
-                const parentFolder = tabElement.closest('.folder');
-                if (parentFolder && parentFolder.classList.contains('collapsed')) {
-                    let shownTabIds = collapsedFolderShownTabs.get(parentFolder);
-                    if (!shownTabIds) {
-                        shownTabIds = new Set();
-                        collapsedFolderShownTabs.set(parentFolder, shownTabIds);
-                    }
-                    shownTabIds.add(activeInfo.tabId);
-                }
-            }
-        }
-
-        // Update collapsed-folder projections to follow Arc behavior (active-only) unless user enabled "show all open".
-        syncCollapsedFoldersInActiveSpace();
 
         // Scroll to the activated tab's location
         scrollToTab(activeInfo.tabId, 0);

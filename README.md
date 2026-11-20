@@ -14,6 +14,8 @@ This repository contains source snapshots for review. Use a link to a specific c
 
 While dragging tabs in the sidebar, hover over a space chip to preview its lists and folders. Release over the position you want, or press Escape or right-click to cancel.
 
+Click a space name to collapse or expand its pinned bookmarks, or a folder name to toggle that folder’s contents. Use **Rename Space** in the space menu to edit its name.
+
 ## Build and review
 
 Check out the revision you want to review. With Node.js 22.13 or later on the 22.x line or Node.js 24 or later, run:

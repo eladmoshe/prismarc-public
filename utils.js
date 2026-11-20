@@ -117,7 +117,7 @@ const Utils = {
             invertTabOrder: true, // Default: enabled (new temporary tabs on top; favorites keep bookmark order)
             colorOverrides: null, // Default: no color overrides
             debugLoggingEnabled: false, // Default: disabled (controls debug logging)
-            showAllOpenTabsInCollapsedFolders: false, // Default: Arc behavior (only show active tab in collapsed folder)
+            showAllOpenTabsInCollapsedFolders: false,
         };
         const result = await chrome.storage.local.get(defaultSettings);
         result.autoArchiveIdleMinutes ??= result.autoArchiveEnabled

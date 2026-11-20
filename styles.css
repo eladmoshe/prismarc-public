@@ -348,51 +348,55 @@ h3 {
     margin-left: 8px;
 }
 
-.space-toggle-chevron {
+.space-toggle-chevron,
+.space-name {
+    min-width: 0;
     background: none;
     border: none;
-    cursor: pointer;
-    padding: 4px;
-    margin-right: 8px;
+    padding: 4px 0;
     border-radius: 4px;
-    opacity: 0;
-    transition: opacity 0.2s ease, transform 0.2s ease;
+    color: #333;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.space-toggle-chevron {
     display: flex;
     align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    width: 0;
-    margin-left: 0;
-    margin-right: 0;
-    padding-left: 0;
-    padding-right: 0;
+    gap: 4px;
+    cursor: pointer;
+    text-align: start;
+}
+
+.space-title {
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.space-name-container:hover .space-toggle-chevron {
-    opacity: 0.7 !important;
-    pointer-events: auto;
-    width: auto;
-    margin-right: 8px;
-    margin-left: 0px;
-    padding-left: 4px;
-    padding-right: 4px;
+.space-toggle-chevron[hidden],
+.space-name[hidden] {
+    display: none;
 }
 
-.space-name-container:hover .space-name {
-    transform: translateX(2px);
-}
-
-.space-toggle-chevron:hover {
-    opacity: 1 !important;
-    background-color: rgba(0, 0, 0, 0.1);
+.space-toggle-chevron:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
 }
 
 .chevron-icon {
+    order: 1;
+    flex: none;
     width: 16px;
     height: 16px;
     fill: currentColor;
-    transition: transform 0.2s ease;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.space-toggle-chevron:is(:hover, :focus-visible) .chevron-icon,
+.space-toggle-chevron.collapsed .chevron-icon {
+    opacity: 0.7;
 }
 
 .space-toggle-chevron.collapsed .chevron-icon {
@@ -401,16 +405,6 @@ h3 {
 
 .space-name {
     flex-grow: 1;
-    min-width: 0;
-    background: none;
-    border: none;
-    font-size: 16px;
-    font-weight: 600;
-    color: #333;
-    padding: 4px 0;
-    border-radius: 4px;
-    opacity: 0.95;
-    transition: transform 0.2s ease;
 }
 
 .space-name:focus {
@@ -795,19 +789,8 @@ h3 {
     margin-top: 4px;
 }
 
-.pinned-tabs {
-    transition: all 0.2s ease;
-    /* overflow: hidden;
-    max-height: 500px;  */
-    opacity: 1;
-}
-
-.pinned-tabs.collapsed {
-    max-height: 0;
-    opacity: 0;
-    margin-bottom: 0;
-    padding-top: 0;
-    padding-bottom: 0;
+.pinned-tabs[hidden] {
+    display: none;
 }
 
 .temp-header {
@@ -2384,7 +2367,7 @@ body:has(> .sidebar-container[data-space-theme="prismarc-light"]) {
     --space-control-active-bg: var(--prismarc-light-accent);
     --space-control-active-hover-bg: #394c90;
 }
-[data-space-theme="prismarc-light"] :is(.space-name, .folder-name, .tab-title-display, .tab-title-input) {
+[data-space-theme="prismarc-light"] :is(.space-toggle-chevron, .space-name, .folder-name, .tab-title-display, .tab-title-input) {
     color: var(--prismarc-light-ink);
 }
 [data-space-theme="prismarc-light"] :is(h3, .tab-domain-display, .tab.bookmark-only .tab-title-display) {

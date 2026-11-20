@@ -29,8 +29,8 @@ export async function initSidebarTour() {
         if (step.id === 'spaces' && document.getElementById('addSpaceInputContainer').classList.contains('visible')) return document.getElementById('addSpaceInputContainer');
         if (step.id === 'pins') {
             const pins = activeSpace()?.querySelector('.pinned-tabs');
-            const collapsed = !pins?.getBoundingClientRect().height;
-            el('coach-copy').textContent = collapsed ? `Expand the pinned section with the highlighted arrow. ${step.tip}` : step.tip;
+            const collapsed = pins?.hidden;
+            el('coach-copy').textContent = collapsed ? `Click the space name to show its pinned bookmarks. ${step.tip}` : step.tip;
             if (collapsed) return activeSpace()?.querySelector('.space-toggle-chevron');
         }
         if (step.id === 'folders') {
