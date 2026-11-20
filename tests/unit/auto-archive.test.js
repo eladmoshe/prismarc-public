@@ -12,10 +12,11 @@ import { Logger } from '../../logger.js';
 import { TabSwitcher } from '../../tab-switcher.js';
 
 const threshold = 360 * 60 * 1000;
+const alarmName = 'autoArchiveTabsAlarm';
 
 const source = readFileSync(new URL('../../background.js', import.meta.url), 'utf8')
     .replace(/^import .*;\s*$/gm, '');
-let local, session, tabs, removed;
+let local, session, tabs, removed, alarms;
 const area = data => ({
     async get(keys) {
         const names = typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys || data);
@@ -25,6 +26,7 @@ const area = data => ({
 });
 const space = (id, ids = []) => ({ id, spaceUuid: id, name: id, color: 'blue', bookmarkFolderId: id, spaceBookmarks: [], temporaryTabs: ids });
 beforeEach(() => {
+    alarms = new Map();
     local = { autoArchiveEnabled: true, spaceModelVersion: 2, spaces: [space('a', [1])], arcifyBookmarkRootId: 'root' };
     session = { spaceSession: true, tabActivitySessionInitialized: true }; removed = [];
     tabs = [{ id: 1, windowId: 1, url: 'https://one.test/', groupId: -1, active: false }];
@@ -35,7 +37,12 @@ function startBackground() {
         runtime: { id: 'arcify', getURL: path => `chrome-extension://arcify/${path}`, onInstalled: event(), onStartup: event(), onMessage: event() },
         sidePanel: { setPanelBehavior: async () => {} },
         commands: { onCommand: event() },
-        alarms: { onAlarm: event() },
+        alarms: {
+            onAlarm: event(),
+            get: async name => alarms.get(name),
+            create: async (name, options) => alarms.set(name, { ...options, scheduledTime: Date.now() + options.delayInMinutes * 60000 }),
+            clear: async name => alarms.delete(name),
+        },
         storage: { local: area(local), session: area(session), onChanged: event() },
         tabs: { onCreated: event(), onUpdated: event(), onRemoved: event(), onReplaced: event(), onActivated: event(), onMoved: event(),
             query: async () => structuredClone(tabs), get: async id => structuredClone(tabs.find(t => t.id === id)),
@@ -114,6 +121,38 @@ test('a background tab with no activity record is tracked instead of archived', 
     assert.deepEqual(removed, []);
     assert.equal(local.archivedTabs, undefined);
     assert.equal(typeof local.tabLastActivity[1], 'number');
+});
+
+test('a 24-hour threshold gets a prompt first check and startup preserves its next deadline', async () => {
+    local.autoArchiveIdleMinutes = 1440;
+    alarms.set(alarmName, { periodInMinutes: 720, scheduledTime: Date.now() + 12 * 3600000 });
+    startBackground();
+    const startup = () => Promise.all(chrome.runtime.onStartup.listeners.map(fn => fn()));
+    await startup();
+    const alarm = alarms.get(alarmName);
+    assert.equal(alarm.delayInMinutes, 1);
+    assert.equal(alarm.periodInMinutes, 15);
+    await startup();
+    assert.equal(alarms.get(alarmName), alarm, 'the existing alarm was kept');
+    local.autoArchiveEnabled = false;
+    await startup();
+    assert.equal(alarms.has(alarmName), false);
+});
+
+test('first check after restart uses Chrome lastAccessed for tab IDs with no session activity', async () => {
+    delete session.tabActivitySessionInitialized;
+    local.autoArchiveIdleMinutes = 1440;
+    const day = 24 * 3600000;
+    const old = Date.now() - day - 60000;
+    const recent = Date.now() - 60000;
+    tabs[0].lastAccessed = old;
+    tabs.push({ ...tabs[0], id: 2, url: 'https://recent.test/', lastAccessed: recent });
+    local.tabLastActivity = { 1: recent, 2: old };
+    local.spaces[0].temporaryTabs.push(2);
+    await startBackground()();
+    assert.deepEqual(removed, [1]);
+    assert.equal(local.archivedTabs[0].url, 'https://one.test/');
+    assert.equal(local.tabLastActivity[2], recent);
 });
 test('a tab idle past the threshold in the same session is archived', async () => {
     local.tabLastActivity = { 1: Date.now() - threshold - 1000 };

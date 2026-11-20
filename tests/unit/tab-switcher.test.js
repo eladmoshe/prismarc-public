@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { TabSwitcher, TAB_SWITCHER_LIMIT, TAB_SWITCHER_SESSION } from '../../tab-switcher.js';
-import { describeOpenTab } from '../../tab-switcher-tabs.js';
+import { describeOpenTab, usesOptionShortcut } from '../../tab-switcher-tabs.js';
+import { recentTabsLayout, recentTabsPopupSize } from '../../tab-switcher-layout.js';
 
 function fixture() {
     const tab = (id, windowId, lastAccessed, incognito = false) => ({
@@ -66,6 +67,36 @@ function fixture() {
     });
     return { chrome, windows, lookup, updates, created, focused, picker, state, request };
 }
+
+test('Recent Tabs caps the five landscape previews and fits ordered rows into a narrow viewport', () => {
+    assert.deepEqual(recentTabsLayout(5, 1440, 600), { mode: 'strip', width: 1048, height: 272 });
+    assert.deepEqual(recentTabsLayout(5, 400, 245), { mode: 'list', width: 376, height: 243, rowHeight: 27 });
+    assert.equal(recentTabsLayout(5, 752, 320).mode, 'strip');
+    assert.equal(recentTabsLayout(5, 751, 320).mode, 'list');
+    assert.equal(recentTabsLayout(5, 1440, 180).mode, 'list');
+    assert.equal(recentTabsLayout(1, 1440, 600).width, 232);
+});
+
+test('Option guidance and inline eligibility use the assigned Recent Tabs command', () => {
+    const commands = shortcut => [{ name: 'mockQuickSwitcher', shortcut: '⌥K' }, { name: 'cycleOpenTabs', shortcut }];
+    assert.equal(usesOptionShortcut(commands('⌥⇥')), true);
+    assert.equal(usesOptionShortcut(commands('Alt+Tab')), true);
+    assert.equal(usesOptionShortcut(commands('Option+Y')), true);
+    assert.equal(usesOptionShortcut(commands('Command+Y')), false);
+    assert.equal(usesOptionShortcut(commands('')), false);
+});
+
+test('the native picker fits its initial card count and includes space for compact rows and Chrome controls', async () => {
+    assert.deepEqual([1, 2, 3, 4, 5].map(count => recentTabsPopupSize(count, { width: 1440, height: 900 }).width),
+        [264, 468, 672, 876, 1080]);
+    assert.deepEqual(recentTabsPopupSize(5, { width: 400, height: 900 }), { width: 400, height: 368 });
+    const f = fixture();
+    Object.assign(f.windows[0], { width: 1440, height: 900, left: 17, top: 37 });
+    const switcher = new TabSwitcher(f.chrome);
+    await switcher.invoke(f.lookup(1));
+    assert.deepEqual({ width: f.picker().width, height: f.picker().height, left: f.picker().left, top: f.picker().top },
+        { width: 876, height: 312, left: 299, top: 331 });
+});
 
 test('one tab has no effect and two tabs open a picker on the first press', async () => {
     const f = fixture();

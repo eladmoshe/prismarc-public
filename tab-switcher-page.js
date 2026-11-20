@@ -1,12 +1,13 @@
 import { applyPopupSpaceTheme } from './space-client.js';
 import { TAB_SWITCHER_SESSION } from './tab-switcher.js';
-import { describeOpenTab } from './tab-switcher-tabs.js';
+import { describeOpenTab, usesOptionShortcut } from './tab-switcher-tabs.js';
 import { TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_EXCLUDED_DOMAINS,
     TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_PREVIEW_CACHE } from './tab-switcher-previews.js';
 import { isBrowsingPreviewCandidate, shouldOfferVisitPreviewHint, TAB_PREVIEW_HINT_DISMISSED,
     TAB_PREVIEW_HINT_PREFS } from './tab-switcher-preview-settings.js';
 import { Utils } from './utils.js';
 import { connectPopupFrame, validPopupToken } from './popup-renderer.js';
+import { recentTabsLayout } from './tab-switcher-layout.js';
 
 const inline = window.parent !== window;
 if (inline) {
@@ -23,7 +24,6 @@ if (inline) {
 function startPicker(token, inline) {
     const list = document.getElementById('tabs');
     const status = document.getElementById('switcher-status');
-    const selectedTitle = document.getElementById('selected-title');
     const previewHint = document.getElementById('preview-hint');
     const previewSettings = document.getElementById('preview-settings');
     const previewDismiss = document.getElementById('preview-dismiss');
@@ -35,6 +35,16 @@ function startPicker(token, inline) {
     let hasPreviewResponse = false;
     let renderedIds;
     let finished = false;
+    const root = document.documentElement;
+    if (/^mac/i.test(navigator.userAgentData?.platform || navigator.platform)) {
+        chrome.commands.getAll().then(commands => {
+            if (!usesOptionShortcut(commands)) return;
+            const key = document.getElementById('switch-key');
+            key.textContent = '⌥';
+            key.setAttribute('aria-label', 'Option');
+            document.getElementById('switch-key-label').textContent = 'Release to switch';
+        }).catch(() => {});
+    }
 
     function request(action, tabId) {
         if (finished) return;
@@ -111,10 +121,22 @@ function startPicker(token, inline) {
     });
     window.addEventListener('focus', () => list.focus({ preventScroll: true }));
 
-    function sizeInlinePicker() {
-        const width = 32 + tiles.size * 120;
-        document.documentElement.style.setProperty('--inline-width', width + 'px');
-        document.documentElement.toggleAttribute('data-inline-compact', Math.min(window.innerWidth, width) <= 339);
+    function keepSelectedVisible(selected) {
+        if (!selected || list.scrollHeight <= list.clientHeight) return;
+        const top = selected.offsetTop;
+        const bottom = top + selected.offsetHeight;
+        if (top < list.scrollTop) list.scrollTop = top;
+        else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+    }
+
+    function sizePicker() {
+        const layout = recentTabsLayout(tiles.size, window.innerWidth, window.innerHeight);
+        root.dataset.pickerLayout = layout.mode;
+        root.style.setProperty('--panel-width', `${layout.width}px`);
+        if (layout.mode === 'list') root.style.setProperty('--row-height', `${layout.rowHeight}px`);
+        root.toggleAttribute('data-picker-tight', layout.mode === 'list' && layout.rowHeight < 38);
+        list.setAttribute('aria-orientation', layout.mode === 'list' ? 'vertical' : 'horizontal');
+        keepSelectedVisible(list.querySelector('[aria-selected="true"]'));
     }
 
     function markSelection(state) {
@@ -124,9 +146,9 @@ function startPicker(token, inline) {
             tile.dataset.selected = String(active);
             tile.setAttribute('aria-selected', String(active));
         }
-        selectedTitle.textContent = selected?.getAttribute('aria-label') || '';
         if (selected) list.setAttribute('aria-activedescendant', selected.id);
         else list.removeAttribute('aria-activedescendant');
+        keepSelectedVisible(selected);
     }
 
     const SITE_HUES = [13, 38, 70, 147, 181, 215, 255, 286, 327];
@@ -154,14 +176,15 @@ function startPicker(token, inline) {
             icon = Utils.getFaviconUrl(url.href, '32');
         }
         return {
-            hue, mark, icon, settings,
+            hue, mark, icon, host,
+            fallbackIcon: settings || tab.favIconUrl ? icon : undefined,
             fallback: web ? 'No recent preview for this tab' : 'Page preview unavailable',
         };
     }
 
     function tabTile(tab) {
         const label = describeOpenTab(tab);
-        const { hue, mark, icon, settings, fallback } = siteAppearance(tab, label);
+        const { hue, mark, icon, host, fallback, fallbackIcon } = siteAppearance(tab, label);
         const tile = document.createElement('button');
         tile.type = 'button';
         tile.id = 'tab-' + tab.id;
@@ -181,13 +204,13 @@ function startPicker(token, inline) {
         siteMark.className = 'tile-mark';
         siteMark.textContent = mark;
         art.append(siteMark);
-        if (settings) {
+        if (fallbackIcon) {
             const logo = document.createElement('img');
-            logo.className = 'tile-settings-artwork';
+            logo.className = 'tile-fallback-icon';
             logo.alt = '';
             logo.addEventListener('load', () => { siteMark.hidden = true; }, { once: true });
             logo.addEventListener('error', () => logo.remove(), { once: true });
-            logo.src = icon;
+            logo.src = fallbackIcon;
             art.append(logo);
         }
 
@@ -208,7 +231,20 @@ function startPicker(token, inline) {
             image.src = icon;
             badge.append(image);
         }
-        tile.append(art, badge);
+        const caption = document.createElement('span');
+        caption.className = 'tile-caption';
+        caption.setAttribute('aria-hidden', 'true');
+        const copy = document.createElement('span');
+        copy.className = 'tile-copy';
+        const title = document.createElement('span');
+        title.className = 'tile-title';
+        title.textContent = label.title;
+        const domain = document.createElement('span');
+        domain.className = 'tile-domain';
+        domain.textContent = host;
+        copy.append(title, domain);
+        caption.append(badge, copy);
+        tile.append(art, caption);
         tile.addEventListener('click', () => request('commit', tab.id));
         return tile;
     }
@@ -316,8 +352,8 @@ function startPicker(token, inline) {
             tiles = new Map([...previewCandidates].map(([id, tab]) => [id, tabTile(tab)]));
             renderedIds = ids;
             list.style.setProperty('--tab-count', tiles.size || 1);
-            if (inline) sizeInlinePicker();
             list.replaceChildren(...tiles.values());
+            sizePicker();
             list.setAttribute('aria-busy', 'false');
             hasPreviewResponse = false;
             updatePreviewHint();
@@ -364,8 +400,8 @@ function startPicker(token, inline) {
         if (generation === initialGeneration) return render(stored[TAB_SWITCHER_SESSION]);
     })
         .catch(() => { status.textContent = 'Could not load open tabs.'; });
+    window.addEventListener('resize', sizePicker);
     if (inline) {
-        window.addEventListener('resize', sizeInlinePicker);
         window.addEventListener('keyup', event => {
             if (event.isTrusted && (event.key === 'Alt' || event.code === 'AltLeft' || event.code === 'AltRight') &&
                 !event.altKey) request('commit');

@@ -663,6 +663,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Listen for storage changes to re-apply colors when they're updated
     chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local' && changes.archivedTabs) {
+            for (const popup of spacesList.querySelectorAll('.archived-tabs-popup.visible')) {
+                showArchivedTabsPopup(popup).catch(Logger.error);
+            }
+        }
         if (areaName === 'local' && changes.defaultSpaceName) {
             defaultSpaceName = changes.defaultSpaceName.newValue || 'Home';
             updateDeleteSpaceButtons();
@@ -1086,14 +1091,9 @@ function createSpaceElement(space) {
     archiveButton.addEventListener('click', (e) => {
         closeCleanPreview();
         e.stopPropagation(); // Prevent closing immediately if clicking outside logic exists
-        spaceContent.classList.toggle('hidden');
-        const isVisible = popup.style.opacity == 1;
-        if (isVisible) {
-            popup.classList.toggle('visible');
-        } else {
-            showArchivedTabsPopup(space.id); // Populate and show
-            popup.classList.toggle('visible');
-        }
+        const open = popup.classList.toggle('visible');
+        spaceContent.classList.toggle('hidden', open);
+        if (open) showArchivedTabsPopup(popup).catch(Logger.error);
     });
 
     // Add to DOM

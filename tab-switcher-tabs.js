@@ -1,5 +1,10 @@
 export const TAB_FOCUS_TIMES = 'openTabFocusTimes';
 
+export function usesOptionShortcut(commands) {
+    const shortcut = commands.find(command => command.name === 'cycleOpenTabs')?.shortcut ?? '';
+    return shortcut.includes('⌥') || /(?:^|\+)(?:Alt|Option)(?:\+|$)/i.test(shortcut);
+}
+
 export function tabLastViewed(tab, focusTimes) {
     const native = Number.isFinite(tab.lastAccessed) ? tab.lastAccessed : 0;
     const focused = focusTimes?.[tab.id];

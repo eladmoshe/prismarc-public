@@ -17,12 +17,14 @@ import { Utils } from './utils.js';
 import { registerZoomLaunchTabs } from './zoom-launch-tabs.js';
 
 const AUTO_ARCHIVE_ALARM_NAME = 'autoArchiveTabsAlarm';
+const MAX_AUTO_ARCHIVE_CHECK_MINUTES = 15;
 const TAB_ACTIVITY_STORAGE_KEY = 'tabLastActivity';
 const TAB_ACTIVITY_SESSION_KEY = 'tabActivitySessionInitialized';
 const ONBOARDING_VERSION_KEY = 'onboardingVersion';
 // Chrome stores custom assignments by this manifest ID.
 const QUICK_SWITCHER_COMMAND = 'mockQuickSwitcher';
 let archiveSafetyRevision = 0;
+let archiveAlarmUpdates = Promise.resolve();
 const reviseArchiveSafety = () => { archiveSafetyRevision++; };
 
 const spaceStore = new SpaceStore();
@@ -162,6 +164,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 });
 chrome.runtime.onInstalled.addListener(refreshAutoArchiveAlarm);
 chrome.runtime.onStartup.addListener(refreshAutoArchiveAlarm);
+refreshAutoArchiveAlarm();
 chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if ('pinnedTabStatesById' in changes || 'arcifyBookmarkRootId' in changes) reviseArchiveSafety();
@@ -282,15 +285,21 @@ chrome.tabs.onRemoved.addListener(async tabId => {
     await Utils.removeTabNameOverride(tabId).catch(Logger.error);
 });
 
-async function setupAutoArchiveAlarm() {
-    const settings = await Utils.getSettings();
-    if (settings.autoArchiveEnabled && settings.autoArchiveIdleMinutes > 0) {
-        await chrome.alarms.create(AUTO_ARCHIVE_ALARM_NAME, {
-            periodInMinutes: Math.max(1, settings.autoArchiveIdleMinutes / 2)
-        });
-    } else {
-        await chrome.alarms.clear(AUTO_ARCHIVE_ALARM_NAME);
-    }
+function setupAutoArchiveAlarm() {
+    const update = archiveAlarmUpdates.then(async () => {
+        const [settings, alarm] = await Promise.all([Utils.getSettings(), chrome.alarms.get(AUTO_ARCHIVE_ALARM_NAME)]);
+        if (!settings.autoArchiveEnabled || !(settings.autoArchiveIdleMinutes > 0)) {
+            if (alarm) await chrome.alarms.clear(AUTO_ARCHIVE_ALARM_NAME);
+            return;
+        }
+        const periodInMinutes = Math.min(MAX_AUTO_ARCHIVE_CHECK_MINUTES, Math.max(1, settings.autoArchiveIdleMinutes / 2));
+        // Recreating an existing alarm would postpone its next check on each startup.
+        if (alarm?.periodInMinutes !== periodInMinutes) {
+            await chrome.alarms.create(AUTO_ARCHIVE_ALARM_NAME, { delayInMinutes: 1, periodInMinutes });
+        }
+    });
+    archiveAlarmUpdates = update.catch(() => {});
+    return update;
 }
 
 function refreshAutoArchiveAlarm() {
@@ -354,9 +363,16 @@ async function runAutoArchiveCheck() {
         const idleTabs = [];
         for (const tab of tabs) {
             if (!tab.id || tab.incognito || activityInFlight.has(tab.id)) continue;
-            if (tab.active || tab.audible || !activity[tab.id]) {
+            if (tab.active || tab.audible) {
                 recordActivity(tab.id, now);
-            } else if (activity[tab.id] < idleBefore && unchangedIdleTab(tab, tab.url, idleBefore)) {
+                continue;
+            }
+            if (!activity[tab.id]) {
+                // Chrome's own timestamp belongs to this tab, even after session IDs change.
+                const lastAccessed = Number.isFinite(tab.lastAccessed) && tab.lastAccessed > 0 ? tab.lastAccessed : now;
+                recordActivity(tab.id, lastAccessed);
+            }
+            if (activity[tab.id] < idleBefore && unchangedIdleTab(tab, tab.url, idleBefore)) {
                 idleTabs.push(tab);
             }
         }

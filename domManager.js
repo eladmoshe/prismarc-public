@@ -409,16 +409,15 @@ export function showTabContextMenu(session, x, y, tab, isPinned, isBookmarkOnly,
     }
 }
 
-export async function showArchivedTabsPopup(activeSpaceId) {
-    const spaceElement = document.querySelector(`[data-space-id="${activeSpaceId}"]`);
-    const popup = spaceElement.querySelector('.archived-tabs-popup');
+export async function showArchivedTabsPopup(popup) {
+    const allArchived = await Utils.getArchivedTabs();
+    if (!popup.isConnected || !popup.classList.contains('visible')) return;
     const list = popup.querySelector('.archived-tabs-list');
     const message = popup.querySelector('.no-archived-tabs-message');
     list.innerHTML = '';
 
     // Manual archives remain restorable even when automatic cleanup is off.
     message.style.display = 'block';
-    const allArchived = await Utils.getArchivedTabs();
     if (allArchived.length === 0) {
         message.textContent = 'No archived tabs.';
         list.style.display = 'none';
@@ -445,14 +444,15 @@ export async function showArchivedTabsPopup(activeSpaceId) {
             restoreButton.innerHTML = RESTORE_ICON;
             restoreButton.className = 'tab-restore';
             restoreButton.style.marginLeft = 'auto';
-            item.addEventListener('click', (e) => {
+            item.addEventListener('click', async (e) => {
                 e.stopPropagation();
-                Utils.restoreArchivedTab(archivedTab);
-                item.remove();
-                if (list.children.length === 0) {
-                    message.textContent = 'No archived tabs.';
-                    message.style.display = 'block';
-                    list.style.display = 'none';
+                if (restoreButton.disabled) return;
+                restoreButton.disabled = true;
+                try {
+                    await Utils.restoreArchivedTab(archivedTab);
+                } catch {
+                    restoreButton.disabled = false;
+                    message.textContent = 'Could not restore this tab.';
                 }
             });
 

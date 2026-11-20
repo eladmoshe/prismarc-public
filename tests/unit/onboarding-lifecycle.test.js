@@ -22,7 +22,7 @@ function background(completed = false, onboardingVersion = undefined, version = 
         },
         sidePanel: { setPanelBehavior: async () => {} },
         commands: { onCommand: { addListener: listener => commands.push(listener) } },
-        alarms: { onAlarm: event, clear: async () => {} },
+        alarms: { onAlarm: event, get: async () => undefined, clear: async () => {} },
         bookmarks: { onCreated: event, onMoved: event, onChanged: event, onRemoved: event },
         storage: { onChanged: event, local: { get: async () => ({ onboardingCompleted: completed, onboardingVersion }) } },
         tabs: { create: async tab => opened.push(tab), onActivated: event, onUpdated: event, onRemoved: event }

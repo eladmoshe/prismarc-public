@@ -2,6 +2,7 @@ import { INLINE_SWITCHER } from './tab-switcher-inline-settings.js';
 import { INLINE_MESSAGE, attachInlineListener, inlinePage, registerInlineSwitcher } from './tab-switcher-inline-registration.js';
 import { confirmQuickSwitcherDeletion } from './quick-switcher-window.js';
 import { historyDestinationIdentity } from './quick-switcher-search.js';
+import { usesOptionShortcut } from './tab-switcher-tabs.js';
 
 const FRAME_PAGE = 'tab-switcher.html';
 const SEARCH_PAGE = 'quick-switcher.html';
@@ -9,11 +10,6 @@ const READY_MS = 300;
 // Search must initialize its extension frame and focus its input on a busy page.
 // Recent Tabs has a tighter deadline because the Option key may already be up.
 const SEARCH_READY_MS = 1500;
-
-function usesOption(commands) {
-    const shortcut = commands.find(command => command.name === 'cycleOpenTabs')?.shortcut ?? '';
-    return shortcut.includes('⌥') || /(?:^|\+)(?:Alt|Option)(?:\+|$)/i.test(shortcut);
-}
 
 export class TabSwitcherOverlay {
     constructor(chromeApi, { input, lost }) {
@@ -52,7 +48,7 @@ export class TabSwitcherOverlay {
             this.chrome.commands.getAll(),
             this.chrome.runtime.getPlatformInfo(),
         ]);
-        return platform.os === 'mac' && permission && usesOption(commands);
+        return platform.os === 'mac' && permission && usesOptionShortcut(commands);
     }
 
     send(attempt, action, options, extra = {}) {

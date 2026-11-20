@@ -48,6 +48,16 @@
     background-color: var(--clean-hover);
 }
 
+.temporary-tabs .clean-tabs-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.clean-tabs-btn[aria-expanded="true"] .clean-chevron {
+    transform: rotate(180deg);
+}
+
 .temporary-tabs .clean-tabs-btn[aria-expanded="true"] {
     background-color: color-mix(in srgb, var(--clean-accent) 16%, transparent);
 }

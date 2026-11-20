@@ -2,6 +2,7 @@ import { isTrustedExtensionMessage } from './message-security.js';
 import { focusOpenTab, recentOpenTabs, TAB_FOCUS_TIMES } from './tab-switcher-tabs.js';
 import { TAB_PREVIEW_HINT_DISMISSED } from './tab-switcher-preview-settings.js';
 import { TAB_SWITCHER_CAPTURE_ON_VISIT } from './tab-switcher-previews.js';
+import { recentTabsPopupSize } from './tab-switcher-layout.js';
 
 export const TAB_SWITCHER_SESSION = 'openTabSwitcher';
 export const TAB_SWITCHER_PAGE = 'tab-switcher.html';
@@ -179,11 +180,9 @@ export class TabSwitcher {
     }
 
     async openPopup(session) {
-        const preferredWidth = 32 + session.tabIds.length * 120;
         try {
             const [window] = await Promise.all([this.chrome.windows.get(session.originWindowId), this.save(session)]);
-            const width = Math.min(preferredWidth, window.width ?? preferredWidth);
-            const height = Math.min(212, window.height ?? 212);
+            const { width, height } = recentTabsPopupSize(session.tabIds.length, window);
             const options = {
                 url: this.pageUrl(session.token), type: 'popup', focused: true,
                 incognito: session.incognito, width, height,
