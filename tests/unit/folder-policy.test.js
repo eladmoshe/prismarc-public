@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { canCreateFolder, canMoveFolder, createFolder, isDescendant } from '../../folder-policy.js';
+import { canCreateFolder, canMoveFolder, createFolder } from '../../folder-policy.js';
 
 let syncTabGroups, created;
 beforeEach(() => {
@@ -33,17 +33,12 @@ beforeEach(() => {
         }
     };
 });
-test('independent mode creates a second-level folder under its exact parent', async () => {
-    const result = await createFolder('space', 'parent', 'Child');
-    assert.equal(result.parentId, 'parent');
-    assert.deepEqual(created, [{ parentId: 'parent', title: 'Child' }]);
-});
 test('independent mode creates folders at levels 1 to 4', async () => {
     for (const id of ['space', 'parent', 'child', 'grandchild']) {
         assert.equal(await canCreateFolder('space', id), true);
         await createFolder('space', id, 'New');
     }
-    assert.deepEqual(created.map(c => c.parentId), ['space', 'parent', 'child', 'grandchild']);
+    assert.deepEqual(created, ['space', 'parent', 'child', 'grandchild'].map(parentId => ({ parentId, title: 'New' })));
 });
 test('fifth-level and foreign-parent creation do not mutate bookmarks', async () => {
     for (const id of ['level4', 'foreign', 'bookmark', 'inBookmark', 'missing']) {
@@ -64,12 +59,6 @@ test('enabling sync after opening the menu is rechecked at creation', async () =
     syncTabGroups = true;
     await assert.rejects(createFolder('space', 'parent', 'Child'));
     assert.deepEqual(created, []);
-});
-test('isDescendant matches the folder itself and every node inside it', () => {
-    const tree = { id: 'a', children: [{ id: 'b', children: [{ id: 'c' }] }, { id: 'd', url: 'https://d.test/' }] };
-    for (const id of ['a', 'b', 'c', 'd']) assert.equal(isDescendant(tree, id), true);
-    assert.equal(isDescendant(tree, 'space'), false);
-    assert.equal(isDescendant({ id: 7 }, '7'), true);
 });
 test('folders cannot move into themselves or their descendants', async () => {
     for (const target of ['parent', 'child']) assert.equal(await canMoveFolder('space', 'parent', target), false);

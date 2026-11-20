@@ -5,7 +5,7 @@ import { editSpacePin, forgetRemovedSpacePinNames, getSpaceBookmarkById, getSpac
 import { BookmarkUtils } from '../../bookmark-utils.js';
 function mock() {
     const removed = [];
-    const tree = { root: [{ id: 'space', parentId: 'root', title: 'Renamed' }, { id: 'other', parentId: 'root', title: 'Old name' }], space: [{ id: 'folder', parentId: 'space', title: 'Nested' }], folder: [
+    const tree = { root: [{ id: 'space', parentId: 'root', title: 'Renamed' }, { id: 'other', parentId: 'root', title: 'Old name' }], other: [{ id: 'url-twin', parentId: 'other', url: 'https://saved.test/' }], space: [{ id: 'folder', parentId: 'space', title: 'Nested' }], folder: [
         { id: 'first', title: 'Twin', url: 'https://saved.test/' }, { id: 'bound', title: 'Saved', url: 'https://saved.test/' }
     ] };
     const pins = { 1: { bookmarkId: 'bound', pinnedUrl: 'https://saved.test/' } };
@@ -66,7 +66,7 @@ test('bookmark identity is accepted only inside the associated space subtree', a
 });
 
 test('bookmark tree loading is all-or-nothing and performs no recovery writes', async () => {
-    const { tree } = mock();
+    mock();
     const writes = [];
     globalThis.chrome.bookmarks.create = async (...args) => writes.push(['create', ...args]);
     globalThis.chrome.bookmarks.update = async (...args) => writes.push(['update', ...args]);
@@ -84,7 +84,6 @@ test('bookmark tree loading is all-or-nothing and performs no recovery writes', 
     };
     await assert.rejects(getSpaceBookmarkTree({ bookmarkFolderId: 'space' }), /injected read failure/);
     assert.deepEqual(writes, []);
-    assert.equal(tree.folder.length, 2);
 });
 
 test('removing a favorite returns the snapshot needed to undo it', async () => {

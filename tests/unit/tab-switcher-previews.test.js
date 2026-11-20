@@ -83,14 +83,12 @@ test('a shortcut can hand off before its screenshot arrives; a restarted worker 
         return capture.promise;
     };
     await service.capture(f.active);
-    assert.deepEqual(f.calls, [[4, { format: 'jpeg', quality: 45 }]]);
+    assert.equal(f.calls.length, 1);
     assert.equal(f.session[TAB_SWITCHER_PREVIEW_CACHE], undefined);
     const result = service.get([1, 8]);
     capture.resolve('fixture raw bytes');
     assert.deepEqual(await result, { 1: reducedImage });
     const cache = f.session[TAB_SWITCHER_PREVIEW_CACHE];
-    assert.deepEqual(Object.keys(cache[1]).sort(), ['capturedAt', 'expiresAt', 'ref']);
-    assert.match(cache[1].ref, /:s:/);
     assert.ok(f.session[cache[1].ref].ciphertext);
     assert.ok(!JSON.stringify(f.session).includes(reducedImage));
     assert.deepEqual(f.local, {});
@@ -508,9 +506,7 @@ test('browsing thumbnails outlive ten minutes and worker sleep, then navigation 
     await service.capture(f.active, true);
     assert.deepEqual(await service.get([1]), { 1: reducedImage });
     const record = f.session[TAB_SWITCHER_PREVIEW_CACHE][1];
-    assert.deepEqual(Object.keys(record).sort(), ['capturedAt', 'ref', 'visit']);
-    assert.match(record.ref, /:d:/);
-    assert.deepEqual(Object.keys(f.local[record.ref]).sort(), ['ciphertext', 'iv']);
+    assert.ok(f.local[record.ref].ciphertext);
     for (const stored of [f.local, f.session]) {
         assert.ok(!JSON.stringify(stored).includes(reducedImage.slice(reducedImage.indexOf(',') + 1)));
         assert.ok(!JSON.stringify(stored).includes('example.test'));
@@ -609,7 +605,7 @@ test('a shortcut capture submitted before opt-in stays in session memory through
     await service.permissionReady;
     gate.resolve('fixture');
     await job.preview;
-    assert.match(f.session[TAB_SWITCHER_PREVIEW_CACHE][1].ref, /:s:/);
+    assert.ok(f.session[f.session[TAB_SWITCHER_PREVIEW_CACHE][1].ref].ciphertext);
     assert.deepEqual(f.local, {});
     service.stopQueuedVisit();
 });

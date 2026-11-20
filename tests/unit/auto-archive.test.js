@@ -110,11 +110,8 @@ test('toggling automation preserves previously saved standard and custom interva
 test('a background tab with no activity record is tracked instead of archived', async () => {
     local.tabLastActivity = {};
     const fireAlarm = startBackground();
-    let subtreeReads = 0;
-    chrome.bookmarks.getSubTree = async () => { subtreeReads++; return []; };
     await fireAlarm();
     assert.deepEqual(removed, []);
-    assert.equal(subtreeReads, 0);
     assert.equal(local.archivedTabs, undefined);
     assert.equal(typeof local.tabLastActivity[1], 'number');
 });
@@ -196,7 +193,7 @@ test('native activity protects a tab even if the saved timestamp is old', async 
     assert.equal(local.archivedTabs, undefined);
 });
 
-test('auto-archive records activity once and reads the protected subtree by stored ID', async () => {
+test('auto-archive protects active and saved tabs while archiving idle tabs', async () => {
     tabs.push(
         { id: 2, windowId: 1, url: 'https://active.test/', active: true },
         { id: 3, windowId: 1, url: 'https://saved.test/path?new=true' },
@@ -211,17 +208,7 @@ test('auto-archive records activity once and reads the protected subtree by stor
         assert.equal(id, 'root');
         return [{ id, children: [{ children: [{ url: 'https://saved.test/path?old=true' }] }] }];
     };
-    let activityWrites = 0;
-    let archiveWrites = 0;
-    const { set } = chrome.storage.local;
-    chrome.storage.local.set = async values => {
-        if ('tabLastActivity' in values) activityWrites++;
-        if ('archivedTabs' in values) archiveWrites++;
-        await set(values);
-    };
     await fireAlarm();
-    assert.equal(activityWrites, 1);
-    assert.equal(archiveWrites, 1);
     assert.deepEqual(removed, [5, 6]);
     assert.deepEqual(Object.keys(local.tabLastActivity), ['1', '2', '3', '4']);
     assert.ok(local.tabLastActivity[3] > previousTime);

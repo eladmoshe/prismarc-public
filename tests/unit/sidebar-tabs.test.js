@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectWindowSpaceTabs, mergeVisibleOrder, mergeCapturedTemporaryOrder, saveBookmarkOrder } from '../../sidebar-tabs.js';
+import { selectWindowSpaceTabs, mergeVisibleOrder, mergeCapturedTemporaryOrder } from '../../sidebar-tabs.js';
 
 test('window-scoped space tabs retain extension order despite native order and duplicate URLs', () => {
     const space = { spaceBookmarks: [3, 2], temporaryTabs: [4, 1, 5] };
@@ -18,14 +18,4 @@ test('reordering one window preserves other window slots and membership', () => 
 test('captured temporary drop order survives delayed demotion and preserves other-window slots', () => {
     assert.deepEqual(mergeCapturedTemporaryOrder([1, 20, 2, 21, 3], [3, 1, 2], false), [3, 20, 1, 21, 2]);
     assert.deepEqual(mergeCapturedTemporaryOrder([1, 20, 2, 21, 3], [3, 1, 2], true), [2, 20, 1, 21, 3]);
-});
-test('bookmark order requests send the rendered baseline and canonical destination', async () => {
-    globalThis.chrome = { runtime: { sendMessage: async request => {
-        assert.deepEqual(request.operation.parents[0], {
-            parentId: 'folder', expectedCanonicalIds: ['a', 'b', 'c'], desiredCanonicalIds: ['c', 'a', 'b']
-        });
-        return { success: true, orders: { folder: ['c', 'a', 'b'] } };
-    } } };
-    const response = await saveBookmarkOrder('folder', ['a', 'b', 'c'], ['c', 'a', 'b']);
-    assert.deepEqual(response.orders.folder, ['c', 'a', 'b']);
 });

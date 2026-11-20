@@ -10,7 +10,6 @@ export class SpacePatchQueue {
     }
     reset(spaces) {
         this.blocked = false;
-        this.acknowledged = structuredClone(spaces);
         this.optimistic = structuredClone(spaces);
     }
     submit(spaces, condition = {}) {
@@ -23,7 +22,6 @@ export class SpacePatchQueue {
             if (epoch !== this.epoch) throw new Error('Save cancelled after an earlier failure; please retry.');
             try {
                 const saved = await this.send(before, after, condition);
-                this.acknowledged = structuredClone(saved);
                 return saved;
             } catch (error) {
                 // Invalidate even submissions made while recovery is awaiting I/O.

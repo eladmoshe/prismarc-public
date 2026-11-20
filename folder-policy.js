@@ -24,7 +24,7 @@ export async function createFolder(spaceFolderId, parentId, title) {
 }
 
 // True when targetId is the folder node itself or anywhere inside it.
-export function isDescendant(folderNode, targetId) {
+function isDescendant(folderNode, targetId) {
     return String(folderNode.id) === String(targetId)
         || (folderNode.children || []).some(child => isDescendant(child, targetId));
 }

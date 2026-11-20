@@ -16,13 +16,12 @@ test('failed save cancels dependent optimistic patches and the next edit uses re
     const second = queue.submit([{ id: 'a', name: 'Dependent', temporaryTabs: [] }]);
     const results = Promise.allSettled([first, second]);
     await Promise.resolve();
-    assert.equal(queue.acknowledged[0].name, 'Original');
     rejectFirst(new Error('storage failed'));
     assert.deepEqual((await results).map(r => r.status), ['rejected', 'rejected']);
     assert.equal(calls.length, 1);
     await queue.submit([{ ...authoritative[0], name: 'Retry' }]);
     assert.deepEqual(calls[1].before, authoritative);
-    assert.deepEqual(queue.acknowledged[0].temporaryTabs, [1, 2]);
+    assert.deepEqual(calls[1].after[0].temporaryTabs, [1, 2]);
 });
 
 test('successful queued edits retain the preceding optimistic base until acknowledgment', async () => {
@@ -31,15 +30,16 @@ test('successful queued edits retain the preceding optimistic base until acknowl
     queue.reset([{ id: 'a', name: 'A' }]);
     await Promise.all([queue.submit([{ id: 'a', name: 'B' }]), queue.submit([{ id: 'a', name: 'C' }])]);
     assert.deepEqual(calls.map(before => before[0].name), ['A', 'B']);
-    assert.equal(queue.acknowledged[0].name, 'C');
 });
 
 test('failed recovery blocks new writes until authoritative state is loaded', async () => {
     let calls = 0;
-    const queue = new SpacePatchQueue(async () => { calls++; throw new Error('write failed'); }, async () => { throw new Error('read failed'); });
+    let fail = true;
+    const queue = new SpacePatchQueue(async (_before, after) => { calls++; if (fail) throw new Error('write failed'); return after; }, async () => { throw new Error('read failed'); });
     await assert.rejects(queue.submit([]), /read failed/);
     await assert.rejects(queue.submit([{ id: 'unsafe' }]), /reload/);
     assert.equal(calls, 1);
     queue.reset([]);
-    assert.equal(queue.blocked, false);
+    fail = false;
+    assert.deepEqual(await queue.submit([{ id: 'safe' }]), [{ id: 'safe' }]);
 });

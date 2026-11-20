@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { enqueueBookmarkOperation, enqueueBookmarkOrder } from '../../bookmark-writer.js';
+import { enqueueBookmarkOperation } from '../../bookmark-writer.js';
+
+const enqueueBookmarkOrder = parent => enqueueBookmarkOperation({ parents: [parent] });
 
 function install(initialByParent, { delayed = false } = {}) {
     const trees = Object.fromEntries(Object.entries(initialByParent).map(([parent, values]) =>

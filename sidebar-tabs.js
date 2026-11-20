@@ -32,7 +32,3 @@ export async function saveBookmarkOperation(operation) {
     }
     return response;
 }
-
-export async function saveBookmarkOrder(parentId, expectedCanonicalIds, desiredCanonicalIds) {
-    return saveBookmarkOperation({ parents: [{ parentId, expectedCanonicalIds, desiredCanonicalIds }] });
-}

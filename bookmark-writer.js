@@ -225,7 +225,3 @@ export function enqueueBookmarkOperation(request) {
     chain = run.catch(() => {});
     return run;
 }
-
-export function enqueueBookmarkOrder({ parentId, expectedCanonicalIds, desiredCanonicalIds }) {
-    return enqueueBookmarkOperation({ parents: [{ parentId, expectedCanonicalIds, desiredCanonicalIds }] });
-}
