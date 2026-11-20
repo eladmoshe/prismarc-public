@@ -20,11 +20,16 @@ export class TabPointerDrag {
             // A fresh click is independent of the click suppressed after a
             // completed/cancelled drag, including clicks on non-tab controls.
             if (event.button === 0) this.suppressClick = false;
+            if (event.button === 2 && this.session && !this.session.started) this.cancel();
+        }, true);
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && this.session && !this.session.started) this.cancel();
         }, true);
         document.addEventListener('mousemove', event => this.move(event), true);
         document.addEventListener('mouseup', event => {
             if (event.button !== 0 || !this.session) return;
             const { row, started, transfer } = this.session;
+            if (!row.isConnected) { this.cancel(); return; }
             if (started) {
                 event.preventDefault();
                 event.stopImmediatePropagation();
@@ -45,11 +50,13 @@ export class TabPointerDrag {
     }
 
     prepare(event, row) {
-        if (event.button !== 0 || event.target.closest('button, input, .tab-close, .tab-remove, .pinned-back')) return;
+        if (event.button !== 0 || !row.draggable || event.target.closest('button, input, .tab-close, .tab-remove, .pinned-back')) return;
         this.cancel();
         this.suppressClick = false;
         const rect = row.getBoundingClientRect();
-        this.session = { row, draggable: row.draggable, startX: event.clientX, startY: event.clientY,
+        this.session = { row, draggable: row.draggable,
+            section: row.closest('[data-tab-type]'), folderId: row.closest('.folder')?.dataset.bookmarkId,
+            startX: event.clientX, startY: event.clientY,
             offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top, width: rect.width };
         row.draggable = false;
     }
@@ -57,7 +64,22 @@ export class TabPointerDrag {
     move(event) {
         const s = this.session;
         if (!s) return;
-        if (!s.row.isConnected || !(event.buttons & 1)) { this.cancel(); return; }
+        if (!(event.buttons & 1)) { this.cancel(); return; }
+        if (!s.row.isConnected) {
+            // A refresh can rebuild the pressed row before the first drag movement.
+            // Only resume from the same item under the press point in the same section and folder.
+            const row = this.document.elementFromPoint(s.startX, s.startY)?.closest('.tab');
+            const sameItem = row?.draggable && (row.dataset.tabId || row.dataset.bookmarkId) &&
+                row.dataset.tabId === s.row.dataset.tabId && row.dataset.bookmarkId === s.row.dataset.bookmarkId;
+            if (s.started || !sameItem || !s.section || row.closest('[data-tab-type]') !== s.section ||
+                row.closest('.folder')?.dataset.bookmarkId !== s.folderId) {
+                this.cancel();
+                return;
+            }
+            s.row.draggable = s.draggable;
+            s.row = row;
+            row.draggable = false;
+        }
         if (!s.started && Math.hypot(event.clientX - s.startX, event.clientY - s.startY) < 5) return;
         event.preventDefault();
         if (!s.started) {
