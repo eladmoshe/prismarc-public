@@ -201,6 +201,30 @@ h3 {
     background-color: rgba(0, 0, 0, 0.1);
 }
 
+.pinned-favicon:not([data-tab-id]) .sidebar-favicon { opacity: .72; }
+
+.favorite-remove {
+    position: absolute;
+    inset-block-start: 2px;
+    inset-inline-end: 2px;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: inherit;
+    background: var(--space-control-active-bg);
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.favorite-remove:focus-visible { outline: 2px solid currentColor; }
+
+@media (hover: hover) {
+    .favorite-tile:not(:hover):not(:focus-within) .favorite-remove { visibility: hidden; }
+}
+
 .pinned-favicon .sidebar-favicon {
     width: 20px;
     height: 20px;

@@ -15,18 +15,23 @@ beforeEach(() => {
     globalThis.chrome = {
         storage: { local: area(local), session: area(session) },
         tabs: {
+            create: async options => {
+                const tab = { ...options, id: Math.max(0, ...tabs.map(tab => tab.id)) + 1 };
+                tabs.push(tab);
+                return structuredClone(tab);
+            },
             query: async query => structuredClone(tabs.filter(tab =>
                 (query.pinned === undefined || tab.pinned === query.pinned) &&
                 (query.windowId === undefined || tab.windowId === query.windowId))),
             get: async id => { const tab = tabs.find(tab => tab.id === id); if (!tab) throw new Error('Tab closed'); return structuredClone(tab); },
             update: async (id, change) => { updates.push([id, change]); const tab = tabs.find(tab => tab.id === id); Object.assign(tab, change); return structuredClone(tab); },
-            onCreated: event(), onUpdated: event(), onRemoved: event(), onReplaced: event()
+            onCreated: event(), onUpdated: event(), onRemoved: event(), onReplaced: event(), onMoved: event()
         }
     };
 });
 
 test('twelve Favorites fit; a thirteenth and an oversized batch leave existing pins unchanged', async () => {
-    const store = new NativeFavorites();
+    const store = new NativeFavorites(); store.install(); await store.chain;
     await store.dispatch({ action: 'pin', tabIds: Array.from({ length: 11 }, (_, index) => index + 1) });
     await assert.rejects(store.dispatch({ action: 'pin', tabIds: [12, 13] }), /up to 12/);
     assert.equal(tabs.filter(tab => tab.pinned).length, 11);
@@ -34,6 +39,12 @@ test('twelve Favorites fit; a thirteenth and an oversized batch leave existing p
     await assert.rejects(store.dispatch({ action: 'pin', tabIds: [13] }), /up to 12/);
     assert.equal(updates.length, 12);
     assert.equal((await store.dispatch({ action: 'get', windowId: 1 })).length, 12);
+    tabs.shift();
+    chrome.tabs.onRemoved.emit(1, { windowId: 1, isWindowClosing: false }); await store.chain;
+    await assert.rejects(store.dispatch({ action: 'pin', tabIds: [13] }), /up to 12/);
+    const favorites = await store.dispatch({ action: 'get', windowId: 1 });
+    assert.equal(favorites.length, 12);
+    assert.equal(favorites.filter(favorite => favorite.closed).length, 1);
 });
 
 test('concurrent panels share one capacity check and limits are per window', async () => {
@@ -86,24 +97,196 @@ test('native pin, navigation, replacement, unpin and close are tracked with the 
     assert.equal(store.records.get(44).baseUrl, baseUrl);
     tabs[0].pinned = false;
     chrome.tabs.onUpdated.emit(44, { pinned: false }, structuredClone(tabs[0])); await store.chain;
-    await store.dispatch({ action: 'pin', tabIds: [44] });
-    assert.equal(store.records.get(44).baseUrl, tabs[0].url);
-    tabs.shift(); chrome.tabs.onRemoved.emit(44, { isWindowClosing: false }); await store.chain;
-    assert.deepEqual(local.nativeFavoriteSnapshot, []);
+    assert.deepEqual(await store.dispatch({ action: 'get', windowId: 1 }), []);
+    const [repinned] = await store.dispatch({ action: 'pin', tabIds: [44] });
+    assert.equal(repinned.baseUrl, tabs[0].url);
+    tabs.shift(); chrome.tabs.onRemoved.emit(44, { windowId: 1, isWindowClosing: false }); await store.chain;
+    const reloaded = new NativeFavorites();
+    const [closed] = await reloaded.dispatch({ action: 'get', windowId: 1 });
+    assert.equal(closed.favoriteId, repinned.favoriteId);
+    assert.equal(closed.baseUrl, repinned.baseUrl);
+    assert.equal(closed.id, null);
+    assert.equal(closed.closed, true);
+    assert.deepEqual(await reloaded.dispatch({ action: 'get', windowId: 2 }), []);
+    const open = { action: 'open', windowId: 1, favoriteId: closed.favoriteId };
+    await Promise.all([reloaded.dispatch(open), reloaded.dispatch(open)]);
+    const [reopened] = await reloaded.dispatch({ action: 'get', windowId: 1 });
+    assert.equal(reopened.favoriteId, repinned.favoriteId);
+    assert.equal(tabs.filter(tab => tab.pinned && tab.url === repinned.baseUrl).length, 1);
 });
 
 test('window closure keeps reset URLs through worker restart and later restoration', async () => {
     const store = new NativeFavorites(); store.install(); await store.chain;
     const baseUrl = tabs[0].url;
-    await store.dispatch({ action: 'pin', tabIds: [1] });
+    const [original] = await store.dispatch({ action: 'pin', tabIds: [1] });
     tabs.shift(); chrome.tabs.onRemoved.emit(1, { isWindowClosing: true }); await store.chain;
     const next = new NativeFavorites(); next.install(); await next.chain;
     tabs.push({ id: 44, index: 0, windowId: 2, url: baseUrl, pinned: true });
     // Only the new worker would receive the restored tab event.
     const listener = chrome.tabs.onCreated.listeners.at(-1);
     listener(tabs.at(-1)); await next.chain;
-    assert.equal(next.records.get(44).baseUrl, baseUrl);
+    const [restored] = await next.dispatch({ action: 'get', windowId: 2 });
+    assert.equal(restored.favoriteId, original.favoriteId);
+    assert.equal(restored.baseUrl, baseUrl);
     assert.equal(next.restoreQueue.length, 0);
+});
+
+test('a close that wakes the worker preserves the exact slot, including equal-URL neighbors and a failed reopen', async () => {
+    tabs[1].url = tabs[0].url;
+    const original = new NativeFavorites();
+    const before = await original.dispatch({ action: 'pin', tabIds: [1, 2, 3] });
+    const favoriteId = before[1].favoriteId;
+    const [closedTab] = tabs.splice(1, 1);
+    const worker = new NativeFavorites();
+    worker.install();
+    // Chrome reports a final unpin while this tab is already absent from live queries.
+    // A user-initiated unpin of a surviving tab is covered separately.
+    chrome.tabs.onUpdated.emit(2, { pinned: false }, { ...closedTab, pinned: false });
+    chrome.tabs.onRemoved.emit(2, { windowId: 1, isWindowClosing: false });
+    await worker.chain;
+    const after = await worker.dispatch({ action: 'get', windowId: 1 });
+    assert.deepEqual(after.map(item => item.favoriteId), before.map(item => item.favoriteId));
+    assert.deepEqual(after.map(item => item.id), [1, null, 3]);
+    const open = { action: 'open', windowId: 1, favoriteId };
+    const create = chrome.tabs.create;
+    chrome.tabs.create = async () => { throw new Error('cannot create tab'); };
+    await assert.rejects(worker.dispatch(open), /cannot create tab/);
+    assert.equal((await worker.dispatch({ action: 'get', windowId: 1 }))[1].closed, true);
+    chrome.tabs.create = create;
+    const reopened = await worker.dispatch(open);
+    assert.deepEqual(reopened.map(item => item.favoriteId), before.map(item => item.favoriteId));
+    assert.notEqual(reopened[1].id, 1);
+});
+
+test('an existing Favorite from the previous release retains its reset URL after migration and close', async () => {
+    const baseUrl = 'https://original.test/old?value=1#saved';
+    tabs[0].pinned = true;
+    local.nativeFavoriteSnapshot = [{ tabId: 1, title: 'Existing pin', baseUrl, url: tabs[0].url }];
+    session.nativeFavoritesSession = { restoreQueue: [] };
+    const worker = new NativeFavorites();
+    worker.install(); await worker.chain;
+    const [live] = await worker.dispatch({ action: 'get', windowId: 1 });
+    assert.equal(live.baseUrl, baseUrl);
+    assert.ok(live.favoriteId);
+    tabs.shift(); chrome.tabs.onRemoved.emit(1, { windowId: 1, isWindowClosing: false }); await worker.chain;
+    const [closed] = await new NativeFavorites().dispatch({ action: 'get', windowId: 1 });
+    assert.equal(closed.favoriteId, live.favoriteId);
+    assert.equal(closed.baseUrl, baseUrl);
+});
+
+test('the first close after upgrading a suspended worker recovers a legacy pin only for a regular window', async () => {
+    const regular = { tabId: 81, baseUrl: 'https://old.test/start', url: 'https://old.test/away', title: 'Saved' };
+    const privatePin = { tabId: 82, baseUrl: 'https://private-fixture.test/start', url: 'https://private-fixture.test/away', title: 'Private' };
+    local.nativeFavoriteSnapshot = [regular, privatePin];
+    session.nativeFavoritesSession = { restoreQueue: [] };
+    chrome.windows = { get: async id => ({ id, type: 'normal', incognito: id === 9 }) };
+    const worker = new NativeFavorites();
+    worker.install();
+    chrome.tabs.onRemoved.emit(regular.tabId, { windowId: 1, isWindowClosing: false });
+    chrome.tabs.onRemoved.emit(privatePin.tabId, { windowId: 9, isWindowClosing: false });
+    await worker.chain;
+    const [saved] = await worker.dispatch({ action: 'get', windowId: 1 });
+    assert.equal(saved.closed, true);
+    assert.equal(saved.baseUrl, regular.baseUrl);
+    assert.deepEqual(await worker.dispatch({ action: 'get', windowId: 9 }), []);
+    assert.doesNotMatch(JSON.stringify([local, session]), /private-fixture/);
+});
+
+test('late native window restoration exposes closed Favorites only to their original window', async () => {
+    tabs = tabs.slice(0, 4);
+    tabs[2].windowId = tabs[3].windowId = 2;
+    const original = new NativeFavorites();
+    original.install(); await original.chain;
+    await original.dispatch({ action: 'pin', tabIds: [1, 2, 3, 4] });
+    const first = await original.dispatch({ action: 'get', windowId: 1 });
+    const second = await original.dispatch({ action: 'get', windowId: 2 });
+    for (const tab of [tabs[1], tabs[3]]) {
+        tabs = tabs.filter(live => live.id !== tab.id);
+        chrome.tabs.onRemoved.emit(tab.id, { windowId: tab.windowId, isWindowClosing: false });
+    }
+    await original.chain;
+    session = {}; chrome.storage.session = area(session);
+    // Chrome can restore a first window before reporting the URL of its pin;
+    // an unrelated second window and its anchor arrive later with new native IDs.
+    tabs = [{ id: 42, index: 0, windowId: 92, pinned: true }];
+    const restored = new NativeFavorites();
+    restored.install(); await restored.chain;
+    assert.deepEqual(await restored.dispatch({ action: 'get', windowId: 92 }), []);
+    tabs[0].url = second[0].url;
+    chrome.tabs.onUpdated.listeners.at(-1)(42, { url: tabs[0].url }, tabs[0]);
+    await restored.chain;
+    tabs.push({ id: 41, index: 0, windowId: 91, pinned: true, url: first[0].url });
+    chrome.tabs.onCreated.listeners.at(-1)(tabs[1]); await restored.chain;
+    const firstRestored = await restored.dispatch({ action: 'get', windowId: 91 });
+    const secondRestored = await restored.dispatch({ action: 'get', windowId: 92 });
+    assert.deepEqual(firstRestored.map(item => item.favoriteId), first.map(item => item.favoriteId));
+    assert.deepEqual(secondRestored.map(item => item.favoriteId), second.map(item => item.favoriteId));
+    assert.equal(firstRestored[1].closed, true);
+    assert.equal(secondRestored[1].closed, true);
+    await assert.rejects(restored.dispatch({ action: 'open', windowId: 92, favoriteId: first[1].favoriteId }));
+});
+
+test('an Incognito favorite never persists its private address on pin, navigation or close', async () => {
+    tabs[0].incognito = true;
+    tabs[0].windowId = 9;
+    tabs[0].url = 'https://private-fixture.test/pin';
+    const worker = new NativeFavorites();
+    worker.install(); await worker.chain;
+    await worker.dispatch({ action: 'pin', tabIds: [1] });
+    assert.equal((await worker.dispatch({ action: 'get', windowId: 9 }))[0].id, 1);
+    tabs[0].url = 'https://private-fixture.test/elsewhere';
+    chrome.tabs.onUpdated.emit(1, { url: tabs[0].url }, tabs[0]); await worker.chain;
+    assert.doesNotMatch(JSON.stringify([local, session]), /private-fixture/);
+    tabs.shift(); chrome.tabs.onRemoved.emit(1, { windowId: 9, isWindowClosing: false }); await worker.chain;
+    assert.deepEqual(await worker.dispatch({ action: 'get', windowId: 9 }), []);
+    assert.doesNotMatch(JSON.stringify([local, session]), /private-fixture/);
+});
+
+test('a closed-only Favorite survives a one-window restart and explicit removal survives a worker restart', async () => {
+    const initial = new NativeFavorites();
+    initial.install(); await initial.chain;
+    const [favorite] = await initial.dispatch({ action: 'pin', tabIds: [1] });
+    tabs.shift(); chrome.tabs.onRemoved.emit(1, { windowId: 1, isWindowClosing: false }); await initial.chain;
+    session = {}; chrome.storage.session = area(session);
+    tabs = [{ id: 42, index: 0, windowId: 2, pinned: false, url: 'about:blank' }];
+    const restarted = new NativeFavorites();
+    const [closed] = await restarted.dispatch({ action: 'get', windowId: 2 });
+    assert.equal(closed.favoriteId, favorite.favoriteId);
+    assert.equal(closed.closed, true);
+    await restarted.dispatch({ action: 'remove', windowId: 2, favoriteId: favorite.favoriteId });
+    assert.deepEqual(await new NativeFavorites().dispatch({ action: 'get', windowId: 2 }), []);
+    assert.equal(tabs.length, 1);
+});
+
+test('moving a closed Favorite keeps native tabs in place and removing it preserves neighboring slots', async () => {
+    const worker = new NativeFavorites();
+    worker.install(); await worker.chain;
+    const [a, b, c, d] = await worker.dispatch({ action: 'pin', tabIds: [1, 2, 3, 4] });
+    for (const id of [2, 3]) {
+        tabs = tabs.filter(tab => tab.id !== id);
+        tabs.forEach((tab, index) => { tab.index = index; });
+        chrome.tabs.onRemoved.emit(id, { windowId: 1, isWindowClosing: false }); await worker.chain;
+    }
+    const order = [b, a, c, d].map(tab => tab.favoriteId);
+    const moved = await worker.dispatch({ action: 'reorder', windowId: 1, favoriteIds: order });
+    assert.deepEqual(moved.map(tab => tab.favoriteId), order);
+    assert.deepEqual(moved.map(tab => tab.id), [null, 1, null, 4]);
+    const remaining = await worker.dispatch({ action: 'remove', windowId: 1, favoriteId: b.favoriteId });
+    assert.deepEqual(remaining.map(tab => tab.favoriteId), [a, c, d].map(tab => tab.favoriteId));
+    assert.deepEqual(tabs.filter(tab => tab.pinned).map(tab => tab.id), [1, 4]);
+});
+
+test('native reordering immediately before close retains the new position without a sidebar', async () => {
+    const worker = new NativeFavorites();
+    worker.install(); await worker.chain;
+    const [a, b, c] = await worker.dispatch({ action: 'pin', tabIds: [1, 2, 3] });
+    chrome.tabs.onMoved.emit(3, { windowId: 1, fromIndex: 2, toIndex: 0 });
+    tabs = tabs.filter(tab => tab.id !== 3);
+    chrome.tabs.onRemoved.emit(3, { windowId: 1, isWindowClosing: false });
+    await worker.chain;
+    const after = await worker.dispatch({ action: 'get', windowId: 1 });
+    assert.deepEqual(after.map(favorite => favorite.favoriteId), [c, a, b].map(favorite => favorite.favoriteId));
+    assert.deepEqual(after.map(favorite => favorite.id), [null, 1, 2]);
 });
 
 test('existing native pins above the Arcify limit remain accessible', async () => {
