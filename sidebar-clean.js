@@ -1,3 +1,5 @@
+import { showUndoToast } from './domManager.js';
+
 let openPreview;
 
 document.addEventListener('keydown', event => {
@@ -211,18 +213,42 @@ class CleanPreview {
         const selected = this.candidates.slice(0, this.count).map(({ id, url }) => ({ id, url }));
         this.applying = true;
         this.paint();
-        let message;
+        let message, undo;
         try {
             const result = await this.request('apply', { selected });
             if (!result?.success) throw new Error('Cleanup unavailable');
+            undo = result.undo;
+            if (result.closed) document.querySelector('#undoToast[data-clean-undo]')?.remove();
             message = result.remaining
                 ? `Closed ${tabCount(result.closed)}. Skipped ${tabCount(result.remaining)}.`
                 : `Closed ${tabCount(result.closed)}.`;
+            if (result.closed > (undo?.count ?? 0)) {
+                message += ` ${tabCount(result.closed - (undo?.count ?? 0))} cannot be reopened.`;
+            }
         } catch {
             message = 'Could not close the selected tabs.';
         }
-        if (generation !== this.generation) return;
-        this.dismiss(true);
+        if (generation === this.generation) this.dismiss(true);
         this.outcome.textContent = message;
+        if (undo) this.offerUndo(undo, message);
+    }
+
+    offerUndo(undo, message) {
+        const duration = undo.expiresAt - Date.now();
+        if (duration <= 0) return;
+        const toast = showUndoToast(message, async () => {
+            const result = await this.request('undo', { undoId: undo.id });
+            if (!result?.success || result.expired) {
+                this.outcome.textContent = 'Undo is no longer available for these tabs.';
+                return;
+            }
+            let status = `Reopened ${tabCount(result.reopened)}.`;
+            if (result.remaining) {
+                status += ` Could not reopen ${tabCount(result.remaining)}.`;
+                this.offerUndo(undo, status);
+            }
+            this.outcome.textContent = status;
+        }, duration);
+        toast.dataset.cleanUndo = '';
     }
 }

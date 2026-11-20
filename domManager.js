@@ -655,6 +655,7 @@ export function showUndoToast(message, onUndo, duration = 5000) {
     toast.append(text, undoButton);
     document.body.appendChild(toast);
     toast.hideTimeout = setTimeout(hide, duration);
+    return toast;
 }
 
 export function setupQuickPinListener(moveTabToSpace, moveTabToPinned, moveTabToTemp, currentActiveSpaceId, setActiveSpaceFunc, activatePinnedTabByURL) {
