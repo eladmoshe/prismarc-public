@@ -36,7 +36,7 @@ import { setupCleanPreview, closeCleanPreview, reconcileCleanPreview, removeClea
 import { setupCleanArchiveControls } from './sidebar-auto-archive.js';
 import { favoriteRequest, getFavoriteDropTarget } from './native-favorites.js';
 import { selectWindowSpaceTabs, mergeVisibleOrder, mergeCapturedTemporaryOrder, saveBookmarkOperation } from './sidebar-tabs.js';
-import { ownerOf } from './space-store.js';
+import { ownerOf, resolveDefaultSpace } from './space-store.js';
 import { canCreateFolder, canMoveFolder, createFolder } from './folder-policy.js';
 import { loadFolderCollapsed, saveFolderCollapsed } from './folder-state.js';
 import { collapsedFolderShownTabs, projectCollapsedFolder, removeProjectedAnchor, updateFolderPlaceholder } from './sidebar-folder-projection.js';
@@ -193,7 +193,7 @@ function setSpaceStoreStatus(code) {
 }
 
 function showSpaceStoreError(error, fallback = 'space_storage_unavailable') {
-    if (error?.code === 'space_drop_conflict') return;
+    if (error?.code === 'space_drop_conflict' || error?.code === 'default_space_protected') return;
     let code = fallback;
     if (error?.code === 'bookmark_folder_unavailable' || error?.code === 'space_storage_unavailable') {
         code = error.code;
@@ -663,6 +663,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Listen for storage changes to re-apply colors when they're updated
     chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local' && changes.defaultSpaceName) {
+            defaultSpaceName = changes.defaultSpaceName.newValue || 'Home';
+            updateDeleteSpaceButtons();
+        }
         if (areaName === 'local' && changes[SPACE_PIN_NAME_DEFAULTS]) scheduleBookmarkRefresh();
         if (areaName === 'local' && changes.colorOverrides) {
             Logger.log('Color overrides changed, re-applying...');
@@ -834,6 +838,7 @@ async function adoptStoredSpaces(next, { render = true } = {}) {
             createSpaceElement(space);
         }
     }
+    updateDeleteSpaceButtons();
     if (!spaces.some(s => s.id === activeSpaceId)) {
         spaceSwipe?.cancel();
         activeSpaceId = spaces[0]?.id;
@@ -1046,7 +1051,9 @@ function createSpaceElement(space) {
         createNewFolder(spaceContainer);
     });
 
+    deleteSpaceBtn.disabled = space.id === resolveDefaultSpace(spaces, defaultSpaceName)?.id;
     deleteSpaceBtn.addEventListener('click', async () => {
+        if (space.id === resolveDefaultSpace(spaces, defaultSpaceName)?.id) return;
         let message;
         try {
             const folder = await getSpaceBookmarkFolder(space);
@@ -1239,7 +1246,15 @@ addDragListener(spaceSwitcher, 'dragover', handleSpaceSwitcherDragOver);
 addDragListener(spaceSwitcher, 'dragleave', handleSpaceSwitcherDragLeave);
 addDragListener(spaceSwitcher, 'drop', handleSpaceSwitcherDrop);
 
+function updateDeleteSpaceButtons() {
+    const mainId = resolveDefaultSpace(spaces, defaultSpaceName)?.id;
+    for (const panel of spacesList.querySelectorAll('.space')) {
+        panel.querySelector('.delete-space-btn').disabled = panel.dataset.spaceId === mainId;
+    }
+}
+
 async function updateSpaceSwitcher() {
+    updateDeleteSpaceButtons();
     Logger.log('Updating space switcher...');
     spaceSwitcher.innerHTML = '';
 
@@ -3771,9 +3786,18 @@ async function deleteSpace(spaceId) {
     Logger.log('Deleting space:', spaceId);
     const space = spaces.find(s => s.id === spaceId);
     if (space) {
+        const folderToDelete = await getSpaceBookmarkFolder(space);
+        // Another sidebar or Settings can change the default while confirmation is open.
+        const saved = await chrome.storage.local.get(['spaces', 'defaultSpaceName']);
+        const current = saved.spaces?.find(item => item.id === spaceId);
+        if (!current || current.bookmarkFolderId !== folderToDelete.id) {
+            throw new Error('The space bookmark folder has changed. Reopen its menu to try again.');
+        }
+        if (resolveDefaultSpace(saved.spaces, saved.defaultSpaceName || 'Home')?.id === spaceId) {
+            throw new Error('The default space cannot be deleted.');
+        }
         editorSessions.dispose('folder-pending', spaceId);
         editorSessions.dispose('space', spaceId);
-        const folderToDelete = await getSpaceBookmarkFolder(space);
         await chrome.bookmarks.removeTree(folderToDelete.id);
         await LocalStorage.removeSpaceRegistryEntry(folderToDelete.id);
         // Close live tabs owned by the deleted space.

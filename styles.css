@@ -470,8 +470,13 @@ h3 {
     font-size: 14px;
 }
 
-.space-options-dropdown > button:hover {
+.space-options-dropdown > button:enabled:hover {
     background-color: rgba(0, 0, 0, 0.05);
+}
+
+.space-options-dropdown > button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .options-separator {
@@ -2184,7 +2189,7 @@ h3 {
         color: #ECEFF1;
     }
 
-    .space-options-dropdown > button:hover {
+    .space-options-dropdown > button:enabled:hover {
         background-color: rgba(255, 255, 255, 0.1);
     }
 

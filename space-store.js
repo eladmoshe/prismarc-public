@@ -9,6 +9,7 @@ import { boundRestoreRecords, matchStartupRestores, restoreLifetime, restoreUrl 
 const sections = ['spaceBookmarks', 'temporaryTabs'];
 export const tabIds = space => sections.flatMap(key => space?.[key] || []);
 export const ownerOf = (spaces, tabId) => spaces.find(space => tabIds(space).includes(tabId));
+export const resolveDefaultSpace = (spaces, name = 'Home') => spaces.find(space => space.name === name) || spaces[0];
 const clone = value => structuredClone(value);
 const persistenceDelay = 150;
 const storageUnavailable = cause => Object.assign(new Error('Space storage is unavailable.', { cause }),
@@ -298,7 +299,7 @@ export class SpaceStore {
             || this.spaces.find(s => s.id === this.lastActiveSpaceId);
         const space = this.spaces.find(s => s.id === restored?.spaceId) || openerSpace
             || selectedSpace
-            || this.spaces.find(s => s.name === this.defaultSpaceName) || this.spaces[0];
+            || resolveDefaultSpace(this.spaces, this.defaultSpaceName);
         if (!space) return;
         const key = restored?.section || 'temporaryTabs';
         if (restored) {
@@ -421,6 +422,10 @@ export class SpaceStore {
                 case 'patch': {
                     const previous = this.spaces;
                     const proposed = applySpacePatch(previous, message.before, message.after);
+                    const main = resolveDefaultSpace(previous, this.defaultSpaceName);
+                    if (main && !proposed.some(space => space.id === main.id)) {
+                        throw Object.assign(new Error('The default space cannot be deleted.'), { code: 'default_space_protected' });
+                    }
                     if (message.dropDestination) {
                         const destination = proposed.find(space => space.id === message.dropDestination);
                         const folder = destination && await getSpaceBookmarkFolder(destination).catch(() => null);
@@ -489,7 +494,7 @@ export class SpaceStore {
             if (message.action !== 'get') await this.persist();
             return clone(this.spaces);
         }).catch(error => {
-            if (error.code !== 'space_drop_conflict') this.reportFailure(error);
+            if (error.code !== 'space_drop_conflict' && error.code !== 'default_space_protected') this.reportFailure(error);
             throw error;
         });
     }

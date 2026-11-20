@@ -101,6 +101,17 @@ test('stale panel patch preserves concurrent tabs, moves and metadata', () => {
     assert.deepEqual(result[1].temporaryTabs, [2, 1]);
     assert.equal(result[1].color, 'red');
 });
+for (const [defaultName, protectedId] of [['b', 'b'], ['missing', 'a']]) {
+    test(`a panel patch cannot remove the main space when the configured default is ${defaultName}`, async () => {
+        local.defaultSpaceName = defaultName;
+        const store = new SpaceStore();
+        const before = await store.dispatch({ action: 'get' });
+        const after = before.filter(space => space.id !== protectedId);
+        await assert.rejects(store.dispatch({ action: 'patch', before, after }), { code: 'default_space_protected' });
+        assert.deepEqual(store.spaces, before);
+        assert.deepEqual(local.spaces, before);
+    });
+}
 test('restart remaps URLs to new IDs and retains stored order', async () => {
     session.spaceSession = false;
     local.spaceTabSnapshot = [
