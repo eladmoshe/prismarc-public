@@ -26,8 +26,30 @@ const spacesList = document.getElementById('spacesList');
 const spaceSwitcher = document.getElementById('spaceSwitcher');
 const addSpaceBtn = document.getElementById('addSpaceBtn');
 const spaceTemplate = document.getElementById('spaceTemplate');
+let openSpaceOptions;
+let spaceOptionsId = 0;
 
 export function setupDOMElements(createNewSpace) {
+    const dismissOptionsOutside = event => {
+        if (openSpaceOptions && !openSpaceOptions.container.contains(event.target)) closeSpaceOptions();
+    };
+    document.addEventListener('pointerdown', dismissOptionsOutside, true);
+    document.addEventListener('focusin', dismissOptionsOutside, true);
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || !openSpaceOptions) return;
+        if (!openSpaceOptions.trigger.isConnected) {
+            closeSpaceOptions();
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeSpaceOptions(openSpaceOptions.container.contains(document.activeElement));
+    }, true);
+    window.addEventListener('resize', placeSpaceOptions);
+    window.addEventListener('blur', () => closeSpaceOptions());
+    document.addEventListener('scroll', event => {
+        if (event.target !== openSpaceOptions?.panel) placeSpaceOptions();
+    }, true);
     // Mouse-wheel scroll support for the space chip strip.
     //
     // Why this handler exists: the strip has `overflow-x: auto`, so trackpad
@@ -97,7 +119,9 @@ export function setupSpaceColorPicker(select, palette) {
             const chip = document.createElement('span');
             chip.className = 'prismarc-color-chip';
             chip.setAttribute('aria-hidden', 'true');
-            button.append(chip, option.text);
+            const label = document.createElement('span');
+            label.textContent = option.text;
+            button.append(chip, label);
         }
         button.addEventListener('click', () => {
             if (select.value === option.value) return;
@@ -116,6 +140,89 @@ export function setupSpaceColorPicker(select, palette) {
     palette.append(...swatches);
     select.addEventListener('change', updateSelection);
     updateSelection();
+}
+
+function closeSpaceOptions(restoreFocus = false) {
+    if (!openSpaceOptions) return;
+    const options = openSpaceOptions;
+    const { trigger, panel } = options;
+    openSpaceOptions = null;
+    panel.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus || document.activeElement === trigger) options.suppressAutoOpen = true;
+    if (restoreFocus && trigger.isConnected) trigger.focus({ preventScroll: true });
+}
+
+function placeSpaceOptions() {
+    if (!openSpaceOptions) return;
+    const { trigger, panel } = openSpaceOptions;
+    const { top, right, bottom, width } = trigger.getBoundingClientRect();
+    const viewport = document.documentElement;
+    if (!width || bottom <= 0 || top >= viewport.clientHeight) {
+        closeSpaceOptions();
+        return;
+    }
+    const edge = 6;
+    const gap = 4;
+    const below = viewport.clientHeight - bottom - gap - edge;
+    const above = top - gap - edge;
+    const opensAbove = panel.scrollHeight + 2 > below && above > below;
+    panel.style.maxHeight = `${Math.max(0, opensAbove ? above : below)}px`;
+    const panelWidth = panel.offsetWidth;
+    panel.style.left = `${Math.max(edge, Math.min(right - panelWidth, viewport.clientWidth - panelWidth - edge))}px`;
+    panel.style.top = `${opensAbove ? top - gap - panel.offsetHeight : bottom + gap}px`;
+}
+
+export function setupSpaceOptions(container) {
+    const trigger = container.querySelector('.space-options');
+    const panel = container.querySelector('.space-options-dropdown');
+    const options = { container, trigger, panel, explicit: false };
+    panel.id = `space-options-panel-${++spaceOptionsId}`;
+    trigger.setAttribute('aria-controls', panel.id);
+    let leaveTimer;
+
+    function open(explicit) {
+        if (openSpaceOptions !== options) {
+            closeSpaceOptions();
+            openSpaceOptions = options;
+            options.explicit = false;
+            panel.hidden = false;
+            trigger.setAttribute('aria-expanded', 'true');
+            placeSpaceOptions();
+        }
+        options.explicit ||= explicit;
+    }
+
+    trigger.addEventListener('click', () => {
+        if (openSpaceOptions === options && options.explicit) closeSpaceOptions(true);
+        else open(true);
+    });
+    trigger.addEventListener('focus', () => {
+        if (!options.suppressAutoOpen) open(false);
+    });
+    trigger.addEventListener('blur', ({ relatedTarget }) => {
+        // Native confirmation can blur the sidebar and later focus the same button.
+        if (relatedTarget && relatedTarget !== document.body) options.suppressAutoOpen = false;
+    });
+    container.addEventListener('pointerenter', event => {
+        clearTimeout(leaveTimer);
+        if (event.pointerType === 'mouse' && !event.buttons) open(false);
+    });
+    container.addEventListener('pointerleave', event => {
+        if (event.pointerType !== 'mouse') return;
+        // The small gap under the trigger should stay traversable by pointer.
+        leaveTimer = setTimeout(() => {
+            if (openSpaceOptions === options && !options.explicit && !container.contains(document.activeElement)) {
+                closeSpaceOptions();
+            }
+        }, 140);
+    });
+    container.addEventListener('focusout', event => {
+        if (openSpaceOptions === options && !container.contains(event.relatedTarget)) closeSpaceOptions();
+    });
+    panel.addEventListener('wheel', event => event.stopPropagation());
+
+    return () => { if (openSpaceOptions === options) closeSpaceOptions(true); };
 }
 
 export function applySpaceColor(color = DEFAULT_SPACE_COLOR, { refresh = false } = {}) {
@@ -163,6 +270,10 @@ export function activateTabInDOM(tabId) {
 }
 
 export function activateSpaceInDOM(spaceId, spaces, updateSpaceSwitcher) {
+    if (openSpaceOptions && (!openSpaceOptions.trigger.isConnected ||
+        openSpaceOptions.trigger.closest('.space')?.dataset.spaceId !== String(spaceId))) {
+        closeSpaceOptions();
+    }
     // Show/hide space containers
     document.querySelectorAll('.space').forEach(s => {
         const isActive = s.dataset.spaceId === String(spaceId);

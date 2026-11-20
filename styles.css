@@ -425,59 +425,87 @@ h3 {
     justify-content: center;
     background: none;
     border: none;
-    font-size: 20px;
     color: #101010bd;
     cursor: pointer;
-    padding: 4px 2px;
+    width: 28px;
+    height: 28px;
     border-radius: 8px;
 }
 
-.space-options:hover {
-    background-color: rgba(0, 0, 0, 0.1);
-}
+.space-options svg { width: 16px; height: 16px; fill: currentColor; }
+.space-options:is(:hover, [aria-expanded="true"]) { background: color-mix(in srgb, currentColor 12%, transparent); }
+.space-options:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
 
 .space-options-dropdown {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    background-color: #ECEFF1;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    display: none;
-    flex-direction: column;
-    min-width: 150px;
+    --space-menu-background: #f5f5ff;
+    --space-menu-ink: #28314c;
+    --space-menu-edge: #4252773b;
+    --space-menu-hover: #424f8d14;
+    --space-menu-selection: #464f9c20;
+    --space-menu-focus: #3e4f99;
+    --space-menu-danger: #9d3047;
+    --space-menu-shadow: #27324e33;
+    position: fixed;
+    width: min(192px, calc(100vw - 12px));
+    padding: 6px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--space-menu-background);
+    color: var(--space-menu-ink);
+    border: 1px solid var(--space-menu-edge);
+    border-radius: 10px;
+    box-shadow: 0 5px 16px var(--space-menu-shadow);
     z-index: 1000;
 }
 
-.space-options-container:hover .space-options-dropdown,
-.space-options-container:focus-within .space-options-dropdown {
-    display: flex;
-}
-
-.space-options-dropdown > button {
+.space-options-dropdown > .color-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    container-type: inline-size;
+    justify-items: center;
+    gap: 3px 4px;
+    padding: 0;
     background: none;
+}
+
+.space-menu-actions {
+    display: grid;
+    gap: 2px;
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px solid var(--space-menu-edge);
+}
+
+.space-menu-actions button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    padding: 3px 7px;
     border: none;
-    padding: 8px 16px;
-    text-align: left;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: start;
     cursor: pointer;
-    color: #333;
-    font-size: 14px;
 }
 
-.space-options-dropdown > button:enabled:hover {
-    background-color: rgba(0, 0, 0, 0.05);
+.space-menu-actions svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.65;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
-.space-options-dropdown > button:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-}
-
-.options-separator {
-    height: 1px;
-    background-color: rgba(0, 0, 0, 0.1);
-    margin: 4px 8px;
-}
+.space-menu-actions button:enabled:hover { background: var(--space-menu-hover); }
+.space-menu-actions .delete-space-btn { color: var(--space-menu-danger); }
+.space-menu-actions button:disabled { color: inherit; opacity: 0.5; cursor: not-allowed; }
+.space-menu-actions button:focus-visible { outline: 2px solid var(--space-menu-focus); outline-offset: -2px; }
 
 .space-color-select {
     display: none;
@@ -579,11 +607,67 @@ h3 {
 }
 .color-swatch[data-color="prismarc-light"]:is(:hover, .selected) { border-color: var(--prismarc-light-accent); }
 
+.space-options-dropdown .color-swatch {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 3px;
+    background-clip: content-box;
+    transform: none;
+    transition: none;
+    color: #22283d;
+}
+
+.space-options-dropdown .color-swatch:hover { border-color: var(--space-menu-edge); }
+.space-options-dropdown .color-swatch.selected { border-color: var(--space-menu-focus); }
+.space-options-dropdown .color-swatch:focus-visible { outline-color: var(--space-menu-focus); outline-offset: 1px; }
+.space-options-dropdown .color-swatch::after {
+    content: '';
+    width: 5px;
+    height: 8px;
+    border-right: 2px solid;
+    border-bottom: 2px solid;
+    transform: rotate(45deg) translateY(-1px);
+    visibility: hidden;
+}
+.space-options-dropdown .color-swatch.selected::after { visibility: visible; }
+
+.space-options-dropdown .color-swatch.preset-swatch {
+    grid-column: span 2;
+    grid-template-columns: 14px minmax(0, 1fr) 9px;
+    justify-items: start;
+    gap: 5px;
+    width: 100%;
+    min-width: 0;
+    margin-bottom: 2px;
+    padding: 0 5px;
+    border-width: 1px;
+    border-radius: 6px;
+    background: none;
+    background-clip: border-box;
+    color: inherit;
+    font-size: 12px;
+}
+
+.space-options-dropdown .color-swatch.preset-swatch:hover { background: var(--space-menu-hover); }
+.space-options-dropdown .color-swatch.preset-swatch.selected { background: var(--space-menu-selection); }
+.space-options-dropdown .color-swatch.preset-swatch.selected::after { margin: 0; }
+.space-options-dropdown .prismarc-color-chip { width: 14px; height: 14px; border-radius: 4px; }
+
+@container (max-width: 148px) {
+    .space-options-dropdown .color-swatch.preset-swatch { grid-column: 1 / -1; }
+    .space-options-dropdown .color-swatch:not(.preset-swatch) { width: 26px; height: 26px; }
+}
+
 @media (forced-colors: active) {
     .color-swatch.preset-swatch { border-color: ButtonText; }
     .color-swatch.selected,
     .color-swatch.preset-swatch.selected { border-color: Highlight; }
     .color-swatch:focus-visible { outline-color: Highlight; }
+    .space-options-dropdown { --space-menu-focus: Highlight; --space-menu-danger: ButtonText; }
+    .space-options-dropdown .color-swatch { forced-color-adjust: none; }
+    .space-options-dropdown .color-swatch.preset-swatch { forced-color-adjust: auto; }
 }
 
 .color-swatch[data-color="grey"] {
@@ -2172,8 +2256,15 @@ h3 {
         color: #ECEFF1;
     }
 
-    .space-options-dropdown > button:enabled:hover {
-        background-color: rgba(255, 255, 255, 0.1);
+    [data-space-theme]:not([data-space-theme="prismarc-light"]) .space-options-dropdown {
+        --space-menu-background: #2d2e40;
+        --space-menu-ink: #f2f2fa;
+        --space-menu-edge: #ffffff37;
+        --space-menu-hover: #ffffff14;
+        --space-menu-selection: #b1a7ff24;
+        --space-menu-focus: #bbc1ff;
+        --space-menu-danger: #ffadb9;
+        --space-menu-shadow: #12132175;
     }
 
     .folder-name {
@@ -2346,13 +2437,17 @@ h3 {
 [data-space-theme="prismarc"] :is(.tab-close, .tab-remove, .tab-restore) { color: #d3daeb; }
 [data-space-theme="prismarc"] .tab.active :is(.tab-close, .tab-remove, .tab-restore, .tab-domain-display) { color: #384254; }
 
-[data-space-theme="prismarc"] .space-options-dropdown { background: #303846; }
-[data-space-theme="prismarc"] .space-options-dropdown > button { color: inherit; }
-[data-space-theme="prismarc"] .space-options-dropdown .color-picker-grid {
-    --swatch-focus: #cad4f7;
-    background: #252b35;
+[data-space-theme="prismarc"] .space-options { color: #eceff1; }
+[data-space-theme="prismarc"] .space-options-dropdown {
+    --space-menu-background: #2d2e40;
+    --space-menu-ink: #f2f2fa;
+    --space-menu-edge: #ffffff37;
+    --space-menu-hover: #ffffff14;
+    --space-menu-selection: #b1a7ff24;
+    --space-menu-focus: #bbc1ff;
+    --space-menu-danger: #ffadb9;
+    --space-menu-shadow: #12132175;
 }
-[data-space-theme="prismarc"] .options-separator { background: #ffffff35; }
 
 
 /* Let portaled menus and drag ghosts inherit the same light palette. */
@@ -2393,7 +2488,14 @@ body:has(> .sidebar-container[data-space-theme="prismarc-light"]) {
 [data-space-theme="prismarc-light"] :is(.space-switcher button.active, .add-space-toggle.active, .sidebar-text-action-primary) {
     color: white;
 }
-[data-space-theme="prismarc-light"] .space-options-dropdown { background: #f5f5ff; }
+[data-space-theme="prismarc-light"] .space-options { color: var(--prismarc-light-ink); }
+
+@media (forced-colors: active) {
+    .sidebar-container[data-space-theme] .space-options-dropdown {
+        --space-menu-focus: Highlight;
+        --space-menu-danger: ButtonText;
+    }
+}
 
 .space-header-spacer {
     flex: 1;

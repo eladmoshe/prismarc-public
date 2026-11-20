@@ -187,7 +187,7 @@ export async function initSidebarTour() {
         checkProgress();
         schedule();
     });
-    observer.observe(document.getElementById('sidebar-container'), { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+    observer.observe(document.getElementById('sidebar-container'), { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
     window.addEventListener('resize', schedule);
     document.addEventListener('scroll', schedule, true);
     document.addEventListener('pointerover', schedule, true);

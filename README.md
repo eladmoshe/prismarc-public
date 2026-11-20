@@ -6,7 +6,7 @@ In a regular window, closing a tab with **⌘W** leaves its square Favorite at t
 
 **Delete Space** is disabled for the default space, initially **Home**. To delete it, first choose another space under **Settings → Default space**.
 
-In the sidebar’s space color menu, choose **PrismArc Light** for a blue-to-lavender sidebar, Quick Switcher, and Recent Tabs picker. New spaces start with the dark **PrismArc** preset.
+Open **Space options** in the sidebar to choose **Light** for a blue-to-lavender sidebar, Quick Switcher, and Recent Tabs picker. New spaces start with the indigo and teal **Dark** preset. The same menu offers eight Space colors, **Rename Space**, **New Folder**, **Settings**, and **Delete Space**.
 
 This fork began on **2026-11-16** from [Arcify 5.2.0](https://github.com/nisargkolhe/arcify/tree/e565122217c2c106faa6dccdc4f8ced3ec5b423c). Its changes include local extension storage, a smaller runtime permission surface, native tab and history search, a recent-tab picker, and an optional Google Calendar preview.
 

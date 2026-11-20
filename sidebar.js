@@ -48,6 +48,7 @@ import { Utils } from './utils.js';
 import {
     setupDOMElements,
     setupSpaceColorPicker,
+    setupSpaceOptions,
     applySpaceColor,
     showSpaceNameInput,
     activateTabInDOM,
@@ -967,6 +968,7 @@ function createSpaceElement(space) {
     spaceContainer.dataset.spaceId = space.id;
     spaceContainer.style.display = space.id === activeSpaceId ? 'flex' : 'none';
     spaceContainer.dataset.spaceUuid = space.id;
+    const closeOptions = setupSpaceOptions(spaceElement.querySelector('.space-options-container'));
 
     const colorSelect = spaceElement.getElementById('spaceColorSelect');
     colorSelect.value = space.color;
@@ -986,6 +988,7 @@ function createSpaceElement(space) {
     let spaceEditSession;
     spaceElement.querySelector('.rename-space-btn').addEventListener('click', () => {
         if (spaceEditSession) return;
+        closeOptions();
         spaceEditSession = editorSessions.begin('space', space.id);
         heading.hidden = true;
         nameInput.hidden = false;
@@ -1051,12 +1054,14 @@ function createSpaceElement(space) {
     const settingsBtn = spaceElement.querySelector('.settings-btn');
 
     newFolderBtn.addEventListener('click', () => {
+        closeOptions();
         createNewFolder(spaceContainer);
     });
 
-    deleteSpaceBtn.disabled = space.id === resolveDefaultSpace(spaces, defaultSpaceName)?.id;
+    updateDeleteSpaceButton(deleteSpaceBtn, space.id === resolveDefaultSpace(spaces, defaultSpaceName)?.id);
     deleteSpaceBtn.addEventListener('click', async () => {
         if (space.id === resolveDefaultSpace(spaces, defaultSpaceName)?.id) return;
+        closeOptions();
         let message;
         try {
             const folder = await getSpaceBookmarkFolder(space);
@@ -1075,6 +1080,7 @@ function createSpaceElement(space) {
     });
 
     settingsBtn.addEventListener('click', () => {
+        closeOptions();
         chrome.runtime.openOptionsPage();
     });
 
@@ -1244,10 +1250,15 @@ addDragListener(spaceSwitcher, 'dragover', handleSpaceSwitcherDragOver);
 addDragListener(spaceSwitcher, 'dragleave', handleSpaceSwitcherDragLeave);
 addDragListener(spaceSwitcher, 'drop', handleSpaceSwitcherDrop);
 
+function updateDeleteSpaceButton(button, isDefault) {
+    button.disabled = isDefault;
+    button.title = isDefault ? 'Default Space' : '';
+}
+
 function updateDeleteSpaceButtons() {
     const mainId = resolveDefaultSpace(spaces, defaultSpaceName)?.id;
     for (const panel of spacesList.querySelectorAll('.space')) {
-        panel.querySelector('.delete-space-btn').disabled = panel.dataset.spaceId === mainId;
+        updateDeleteSpaceButton(panel.querySelector('.delete-space-btn'), panel.dataset.spaceId === mainId);
     }
 }
 
