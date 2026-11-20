@@ -113,17 +113,16 @@ function showShortcut(id, binding) {
 
 function recentInstructions(commands, binding, mac) {
     if (!binding) {
-        return `Assign ${mac ? 'Option+Y' : 'Ctrl+Shift+Y'} to “Cycle through open tabs” in keyboard shortcut settings.`;
+        return `Assign ${mac ? 'Option+A' : 'Ctrl+Shift+Y'} to “Cycle through open tabs” in keyboard shortcut settings.`;
     }
     if (!mac || !usesOptionShortcut(commands)) {
         return 'Press your shortcut to open the picker. Use the arrow keys to move and Enter to switch.';
     }
     const release = ' Release Option to switch. If the picker stays open, press Enter.';
-    if (/^(?:⌥|Alt|Option)\s*\+?\s*Y$/i.test(binding.trim())) {
-        return 'Tap Option+Y to return to your previous tab. To choose another, keep holding Option and press Y again.' + release;
-    }
-    if (/^(?:⌥|Alt|Option)\s*\+?\s*(?:Tab|⇥)$/i.test(binding.trim())) {
-        return 'Tap Option+Tab to return to your previous tab. To choose another, keep holding Option and press Tab again.' + release;
+    const simpleOption = binding.trim().match(/^(?:⌥|Alt|Option)\s*\+?\s*([A-Z0-9]|Tab|⇥)$/i);
+    if (simpleOption) {
+        const key = /^(?:Tab|⇥)$/i.test(simpleOption[1]) ? 'Tab' : simpleOption[1].toUpperCase();
+        return `Tap Option+${key} to return to your previous tab. To choose another, keep holding Option and press ${key} again.` + release;
     }
     return 'Press your shortcut to select your previous tab. To choose another, keep holding Option and repeat the shortcut.' + release;
 }

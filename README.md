@@ -8,8 +8,8 @@ In `chrome://extensions/shortcuts`, find **PrismArc** and click the pencil next 
 if they already work for you. The suggested Quick Switcher keys are **Command+Shift+K**
 on macOS and **Ctrl+Shift+K** on Windows and Linux. On macOS, Chrome's editor can
 list an existing **Option+Tab** shortcut and uses **Tab** to move focus while editing.
-To assign a new Recent Tabs shortcut, try **Option+Y**. Keep holding **Option** and
-press **Y** again to choose another tab, then release **Option** to switch.
+To assign a new Recent Tabs shortcut, try **Option+A**. Keep holding **Option** and
+repeat your assigned shortcut to choose another tab, then release **Option** to switch.
 If the picker stays open after a tap, press **Enter**.
 Return to the guide to see the assignments Chrome saved and try the shortcuts.
 Replay the guide from **Settings → Getting started**.
