@@ -1,5 +1,6 @@
 // Query Chrome's own stores on demand. Nothing here is indexed or persisted.
 const DAY = 24 * 60 * 60 * 1000;
+const HISTORY_LIMIT = 100;
 const sourceOrder = { tab: 0, bookmark: 1, history: 2 };
 const safeChromePages = new Set(['newtab', 'new-tab-page', 'settings', 'history', 'bookmarks', 'downloads', 'extensions']);
 
@@ -177,6 +178,32 @@ export function mergeSearchResults({ tabs = [], bookmarks = [], history = [], sp
         .slice(0, 30).map(item => ({ ...item, age: item.time ? Math.max(0, now - item.time) : null }));
 }
 
+async function searchHistory(text, now, history) {
+    const options = { text, startTime: text ? 0 : now - 30 * DAY, maxResults: HISTORY_LIMIT };
+    const native = history.search(options);
+    // Chrome treats a short word after a hyphen as a whole word. Also search
+    // the stem to find literal completions while that word is being typed.
+    const suffix = /(?<=[\p{L}\p{N}])-[\p{L}\p{N}]{1,2}$/u.exec(text);
+    if (!suffix) return native;
+    const stem = text.slice(0, suffix.index);
+    const [pages, candidates] = await Promise.all([
+        native,
+        history.search({ ...options, text: stem }).catch(() => []),
+    ]);
+    const terms = text.toLowerCase().split(/\s+/);
+    const urls = new Set(pages.map(page => page.url));
+    const results = [...pages];
+    for (const page of candidates) {
+        if (results.length >= HISTORY_LIMIT) break;
+        const fields = `${page.title || ''} ${page.url || ''}`.toLowerCase();
+        if (!urls.has(page.url) && terms.every(term => fields.includes(term))) {
+            results.push(page);
+            urls.add(page.url);
+        }
+    }
+    return results;
+}
+
 export async function searchBrowser(query, context, chromeApi = globalThis.chrome) {
     const text = query.trim();
     const now = Date.now();
@@ -184,9 +211,7 @@ export async function searchBrowser(query, context, chromeApi = globalThis.chrom
     const responses = await Promise.allSettled([
         Promise.resolve().then(() => chromeApi.tabs.query({})),
         Promise.resolve().then(() => text ? chromeApi.bookmarks.search(text) : chromeApi.bookmarks.getRecent(30)),
-        Promise.resolve().then(() => context.incognito ? [] : chromeApi.history.search({
-            text, startTime: text ? 0 : now - 30 * DAY, maxResults: 100,
-        })),
+        Promise.resolve().then(() => context.incognito ? [] : searchHistory(text, now, chromeApi.history)),
         Promise.resolve().then(async () => {
             const response = await chromeApi.runtime.sendMessage({ type: 'spaceStore', action: 'get', discoverBookmarks: false });
             if (!response?.success) throw new Error('Could not read tab spaces');
@@ -244,7 +269,7 @@ export async function deleteHistoryResult(item, context, chromeApi = globalThis.
     const href = searchableUrl(item?.url);
     const identity = href && historyDestinationIdentity(href);
     if (context?.incognito !== false || item?.source !== 'history' || !Array.isArray(urls) ||
-        !href || !urls.length || urls.length > 100 || !urls.some(url => searchableUrl(url) === href) ||
+        !href || !urls.length || urls.length > HISTORY_LIMIT || !urls.some(url => searchableUrl(url) === href) ||
         urls.some(url => typeof url !== 'string' || !searchableUrl(url) ||
             historyDestinationIdentity(url) !== identity)) throw new Error('Not a deletable history result');
     const source = await resolveSearchWindow(context.id, chromeApi, context.exact);

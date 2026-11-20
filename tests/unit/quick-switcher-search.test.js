@@ -124,6 +124,31 @@ test('native queries run on demand, with explicit history bounds, and never pers
     assert.ok(calls.some(call => call[0] === 'bookmarks' && call[1] === 'Project'));
 });
 
+test('short hyphen prefixes keep native history matches and add only literal title or URL completions', async () => {
+    const native = { id: 'native', title: 'Atlas / P', url: 'https://history.test/guide' };
+    const inTitle = { id: 'title', title: 'ATLAS-Public', url: 'https://history.test/handbook' };
+    const inUrl = { id: 'url', title: 'Overview', url: 'https://history.test/atlas-public' };
+    const exact = { id: 'exact', title: 'Atlas-P', url: 'https://history.test/reference' };
+    const unrelated = { id: 'other', title: 'Atlas / Projects', url: 'https://history.test/atlas-tools' };
+    const queries = [];
+    const api = {
+        tabs: { query: async () => [] },
+        bookmarks: { search: async () => [] },
+        history: { search: async ({ text }) => {
+            queries.push(text);
+            return text === 'atlas' ? [inTitle, inUrl, exact, unrelated] : [native, exact];
+        } },
+        runtime: { sendMessage: async () => ({ success: true, spaces: [] }) },
+    };
+    const { results } = await searchBrowser('atlas-p', context, api);
+    assert.deepEqual(results.map(row => row.url).sort(), [native.url, exact.url, inTitle.url, inUrl.url].sort());
+    assert.deepEqual(results.find(row => row.url === exact.url).historyUrls, [exact.url]);
+    queries.length = 0;
+    const privateResults = await searchBrowser('atlas-p', { ...context, incognito: true }, api);
+    assert.deepEqual(queries, []);
+    assert.deepEqual(privateResults.results, []);
+});
+
 test('URL merging ignores fragments, prefers an open tab, and keeps query strings distinct', () => {
     const base = 'https://example.test/page?q=1#one';
     const results = mergeSearchResults({
