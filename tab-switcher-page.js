@@ -131,6 +131,7 @@ function startPicker(token, inline) {
 
     function sizePicker() {
         const layout = recentTabsLayout(tiles.size, window.innerWidth, window.innerHeight);
+        list.removeAttribute('data-selection-moved');
         root.dataset.pickerLayout = layout.mode;
         root.style.setProperty('--panel-width', `${layout.width}px`);
         if (layout.mode === 'list') root.style.setProperty('--row-height', `${layout.rowHeight}px`);
@@ -141,13 +142,19 @@ function startPicker(token, inline) {
 
     function markSelection(state) {
         const selected = tiles.get(state.selectedId);
+        const previous = list.querySelector('[aria-selected="true"]');
+        if (previous && selected && previous !== selected) list.dataset.selectionMoved = '';
         for (const [id, tile] of tiles) {
             const active = id === state.selectedId;
             tile.dataset.selected = String(active);
             tile.setAttribute('aria-selected', String(active));
         }
-        if (selected) list.setAttribute('aria-activedescendant', selected.id);
-        else list.removeAttribute('aria-activedescendant');
+        if (selected) {
+            list.style.setProperty('--selected-index', [...tiles.keys()].indexOf(state.selectedId));
+            list.setAttribute('aria-activedescendant', selected.id);
+        } else {
+            list.removeAttribute('aria-activedescendant');
+        }
         keepSelectedVisible(selected);
     }
 

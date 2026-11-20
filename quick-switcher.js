@@ -9,6 +9,10 @@ import { connectPopupFrame } from './popup-renderer.js';
 const input = document.getElementById('search');
 const results = document.getElementById('results');
 const status = document.getElementById('search-status');
+const highlight = document.createElement('span');
+highlight.className = 'result-highlight';
+highlight.setAttribute('aria-hidden', 'true');
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const labels = { tab: 'Open tab', bookmark: 'Bookmark', history: 'History' };
 let contextReady, sendInline;
 let context, filtered = [], selected = 0, version = 0, timer, activating = false, deleting = false, deleteFeedback = null;
@@ -80,6 +84,28 @@ function isSearchAction(item) {
     return item?.source === 'url' || item?.source === 'google';
 }
 
+function positionHighlight(row, scroll) {
+    // Read the painted position before scrolling or interrupting a previous slide.
+    const moving = row && highlight.isConnected && highlight.parentElement !== row && !reducedMotion.matches;
+    const from = moving ? highlight.getBoundingClientRect() : null;
+    if (scroll) row?.scrollIntoView({ block: 'nearest' });
+    if (row === highlight.parentElement) return;
+    for (const animation of highlight.getAnimations()) animation.cancel();
+    if (!row) {
+        highlight.remove();
+        return;
+    }
+    row.append(highlight);
+    if (from) {
+        const offset = from.top - row.getBoundingClientRect().top;
+        // Wrapping a long list or jumping the pointer several rows should settle immediately.
+        if (offset && Math.abs(offset) <= 2 * from.height) {
+            highlight.animate([{ transform: `translateY(${offset}px)` }, { transform: 'none' }],
+                { duration: 110, easing: 'ease-out' });
+        }
+    }
+}
+
 function select(index, scroll = false, explicit = false) {
     selected = index;
     const rows = results.querySelectorAll('.result');
@@ -90,10 +116,9 @@ function select(index, scroll = false, explicit = false) {
     const item = filtered[selected];
     selectionExplicit = Boolean(item && explicit);
     const row = rows[selected];
-    if (row) {
-        input.setAttribute('aria-activedescendant', row.id);
-        if (scroll) row.scrollIntoView({ block: 'nearest' });
-    } else input.removeAttribute('aria-activedescendant');
+    if (row) input.setAttribute('aria-activedescendant', row.id);
+    else input.removeAttribute('aria-activedescendant');
+    positionHighlight(row, scroll);
     document.getElementById('action-label').textContent =
         item?.source === 'google' ? 'search Google' : item?.source === 'tab' ? 'switch to tab' :
             item?.source === 'url' ? 'open in new tab' : 'open page';
@@ -353,6 +378,8 @@ function updateResultRow(view, item, index, query) {
 }
 
 function renderRows(items) {
+    // A fresh result layout gets its selection in place on the first paint.
+    highlight.remove();
     const existing = new Map([...results.children].map(row => [renderedRows.get(row).item.id, row]));
     const query = input.value.trim();
     filtered = items;
