@@ -21,34 +21,32 @@
 
             <article class="lesson" data-guide-step="quick-switcher" aria-labelledby="quick-title">
                 <div class="lesson-copy">
-                    <h1 id="quick-title" tabindex="-1">Set up your switching shortcuts</h1>
-                    <p>Use <strong>Quick Switcher</strong> to search tabs, bookmarks, and history. Use <strong>Recent Tabs</strong> to jump back to the tabs you were just using.</p>
-                    <p class="lesson-note">In Quick Switcher, type a page name, choose a result with the arrow keys, and press <kbd>Enter</kbd>.</p>
-                    <div class="lesson-actions">
-                        <button id="setup-quick-shortcut" type="button" class="primary shortcut-settings">Open keyboard shortcut settings</button>
-                        <button id="open-quick-switcher" type="button" class="text-button">Try Quick Switcher</button>
+                    <h1 id="quick-title" tabindex="-1">Set up your shortcuts</h1>
+                    <p id="quick-task">PrismArc needs these keys for keyboard search and switching.</p>
+                    <div id="quick-actions" class="lesson-actions">
+                        <button id="setup-quick-shortcut" type="button" class="primary shortcut-settings">Open Chrome shortcut settings</button>
+                        <button id="open-quick-switcher" type="button" class="text-button">Search for a tab</button>
                     </div>
                 </div>
                 <div class="shortcut-setup">
-                    <ol class="shortcut-steps">
-                        <li>In keyboard shortcut settings, find <strong>PrismArc</strong>.</li>
-                        <li>Keep any shortcut that works for you. To set one, click the <strong>pencil</strong> next to the command and press the key combination.</li>
-                        <li>Return to this tab to see the saved shortcuts. With at least two regular tabs open, try each shortcut.</li>
-                    </ol>
+                    <p id="shortcut-directions">Find <strong>PrismArc</strong> in Chrome. Click a <strong>pencil</strong>, press the keys, then return here.</p>
                     <section class="shortcut-row" aria-labelledby="quick-command">
                         <div class="shortcut-row-heading">
                             <h2 id="quick-command">Open Quick Switcher</h2>
                             <kbd id="quick-shortcut">Checking…</kbd>
                         </div>
-                        <p id="quick-setup-note" hidden><span id="quick-existing-mac-note" hidden>Use <kbd>Command+T</kbd> if it’s already assigned above. </span>For a new shortcut, try <kbd id="quick-suggestion"></kbd>.</p>
+                        <p id="quick-setup-note" hidden>Try <kbd id="quick-suggestion"></kbd></p>
                     </section>
                     <section class="shortcut-row" aria-labelledby="recent-command">
                         <div class="shortcut-row-heading">
                             <h2 id="recent-command">Cycle through open tabs</h2>
                             <kbd id="recent-setup-shortcut">Checking…</kbd>
                         </div>
-                        <p id="recent-mac-note" hidden>Keep <kbd>Option+Tab</kbd> if it already works in your browser. Chrome’s Mac editor can show that assignment. It uses <kbd>Tab</kbd> to move focus, so you can’t enter <kbd>Option+Tab</kbd> there. For a new shortcut, try <kbd>Option+A</kbd>.</p>
-                        <p id="recent-other-note" hidden>If you need a shortcut, try <kbd>Ctrl+Shift+Y</kbd>.</p>
+                        <p id="recent-setup-note" hidden>Try <kbd id="recent-suggestion"></kbd></p>
+                        <details id="recent-mac-help" hidden>
+                            <summary>Can’t set Option+Tab?</summary>
+                            <p id="recent-mac-note">Chrome uses <kbd>Tab</kbd> to move focus. Keep <kbd>Option+Tab</kbd> if it works, or try <kbd>Option+A</kbd>.</p>
+                        </details>
                     </section>
                     <p id="shortcut-return-status" role="status"></p>
                 </div>
@@ -56,13 +54,12 @@
 
             <article class="lesson" data-guide-step="recent-tabs" aria-labelledby="recent-title" hidden>
                 <div class="lesson-copy">
-                    <h1 id="recent-title" tabindex="-1">Jump back to a recent tab</h1>
-                    <p>Chrome’s <kbd>Ctrl+Tab</kbd> moves through the tab strip. Recent Tabs shows up to five tabs in the order you last used them, even across windows.</p>
+                    <h1 id="recent-title" tabindex="-1">Switch to a recent tab</h1>
                     <div class="binding"><span>Your shortcut</span><kbd id="recent-shortcut">Checking…</kbd></div>
-                    <p id="recent-instructions" class="lesson-note" aria-live="polite"></p>
-                    <p class="lesson-note">Open at least two tabs to use the picker.</p>
+                    <p id="recent-instructions" aria-live="polite"></p>
+                    <p class="lesson-note">Try it with two or more tabs open.</p>
                     <div class="lesson-actions">
-                        <button id="setup-recent-shortcut" type="button" class="text-button shortcut-settings">Open keyboard shortcut settings</button>
+                        <button id="setup-recent-shortcut" type="button" class="text-button shortcut-settings">Shortcut settings</button>
                     </div>
                 </div>
                 <div class="demo demo-recent">
@@ -76,16 +73,15 @@
                             <button id="recent-preview-next" type="button" class="secondary">Cycle preview</button>
                             <button id="recent-preview-switch" type="button" class="text-button" disabled>Switch</button>
                         </div>
-                        <p id="recent-preview-status" role="status" class="demo-status">Try with sample tabs.</p>
+                        <p id="recent-preview-status" role="status" class="demo-status"></p>
                     </div>
                 </div>
             </article>
 
             <article class="lesson" data-guide-step="sidebar" aria-labelledby="sidebar-title" hidden>
                 <div class="lesson-copy">
-                    <h1 id="sidebar-title" tabindex="-1">Keep your tabs in the sidebar</h1>
-                    <p>Click a tab to switch to it. Use <strong>Spaces</strong> along the bottom to keep different sets of tabs, like work and personal.</p>
-                    <p class="lesson-note">To keep PrismArc in Chrome’s toolbar, open the Extensions menu (puzzle piece) and click the pin next to PrismArc. The toolbar icon opens the sidebar.</p>
+                    <h1 id="sidebar-title" tabindex="-1">Find your tabs in the sidebar</h1>
+                    <p>Click a tab to switch, or choose a <strong>Space</strong> at the bottom.</p>
                     <div class="binding"><span>Sidebar shortcut</span><kbd id="sidebar-shortcut">Checking…</kbd></div>
                     <div class="lesson-actions">
                         <button id="open-sidebar" type="button" class="secondary" disabled>Open sidebar</button>
@@ -112,8 +108,7 @@
             <article class="lesson" data-guide-step="pinning" aria-labelledby="pin-title" hidden>
                 <div class="lesson-copy">
                     <h1 id="pin-title" tabindex="-1">Pin a tab to keep it</h1>
-                    <p>Drag a tab above the divider, or right-click it and choose <strong>Pin Tab</strong>. The site stays in that Space as a bookmark after you close the tab.</p>
-                    <p class="lesson-note">Choose <strong>Unpin Tab</strong> to move it back below the divider.</p>
+                    <p>Drag a tab above the divider or right-click and choose <strong>Pin Tab</strong>. It stays in that Space after closing.</p>
                     <div class="binding"><span>Pin shortcut with sidebar open</span><kbd id="pin-shortcut">Checking…</kbd></div>
                     <div class="lesson-actions">
                         <button id="setup-pin-shortcut" type="button" class="text-button shortcut-settings" hidden>Shortcut settings</button>
@@ -131,7 +126,7 @@
                             <ul id="pin-preview-open" aria-label="Sample open tabs"><li id="pin-example-tab" class="sidebar-row selected" draggable="true"><span class="site plan" aria-hidden="true">P</span> Project plan</li></ul>
                         </div>
                         <div class="demo-controls"><button id="pin-preview-toggle" type="button" class="secondary">Pin sample tab</button></div>
-                        <p id="pin-preview-status" class="demo-status" role="status">Drag the sample tab or use the button.</p>
+                        <p id="pin-preview-status" class="demo-status" role="status">Drag Project plan to Pinned.</p>
                     </div>
                 </div>
             </article>
@@ -140,7 +135,7 @@
                 <button id="optional-setup" type="button" class="text-button">Optional setup</button>
                 <div class="guide-navigation">
                     <button id="guide-back" type="button" class="text-button" hidden>Back</button>
-                    <button id="guide-next" type="button" class="primary">Next <span aria-hidden="true">→</span></button>
+                    <button id="guide-next" type="button" class="text-button">Continue</button>
                     <button id="guide-finish" type="button" class="primary" hidden>Finish guide</button>
                 </div>
             </footer>
@@ -151,24 +146,23 @@
             <div class="setup-items">
                 <section class="setup-item shortcut-card">
                     <h2 class="shortcut-title">Copy current tab URL</h2>
-                    <p class="shortcut-description">Currently set: <kbd id="copy-shortcut">Checking…</kbd></p>
-                    <p>In Chrome's extension shortcuts, find PrismArc and edit <strong>Copy current tab URL</strong>.</p>
+                    <p class="shortcut-description"><kbd id="copy-shortcut">Checking…</kbd></p>
                     <button id="setup-copy-shortcut" type="button" class="secondary shortcut-settings" disabled>Shortcut settings</button>
                 </section>
                 <section class="setup-item">
                     <h2>Sidebar position</h2>
-                    <p>Under <strong>Side panel position</strong> in Chrome’s Appearance settings, choose which side to show the sidebar on.</p>
+                    <p>Change <strong>Side panel position</strong> in Chrome.</p>
                     <button id="appearance" type="button" class="secondary">Open Appearance settings</button>
                 </section>
                 <section class="setup-item">
-                    <h2 id="bookmark-title">Bring your bookmarks</h2>
-                    <p id="bookmark-copy">Open the sidebar once to create the PrismArc bookmark folder. Then copy folders into it in Chrome's bookmark manager. Each folder becomes a Space and its bookmarks become pinned tabs.</p>
+                    <h2 id="bookmark-title">Import bookmarks</h2>
+                    <p id="bookmark-copy">Open the sidebar once, then copy bookmark folders into PrismArc.</p>
                     <p id="bookmark-detected" class="lesson-note" hidden></p>
                     <button id="bookmarks" type="button" class="secondary">Open bookmark manager</button>
                 </section>
                 <section class="setup-item">
                     <h2>Keep PrismArc on your toolbar</h2>
-                    <p>In Chrome's toolbar, open <strong>Extensions</strong> and click the <strong>pin</strong> beside PrismArc. Click the PrismArc icon to open the sidebar.</p>
+                    <p>Open Chrome’s <strong>Extensions</strong> menu and click the <strong>pin</strong> beside PrismArc.</p>
                 </section>
             </div>
             <button id="optional-back" type="button" class="primary">Back to guide</button>
@@ -176,8 +170,8 @@
 
         <section id="guide-complete" class="guide-shell guide-complete" aria-labelledby="guide-complete-title" hidden>
             <img src="assets/icon.png" width="50" height="50" alt="">
-            <h1 id="guide-complete-title" tabindex="-1">You're ready to use PrismArc</h1>
-            <p>Replay this guide anytime from PrismArc Settings.</p>
+            <h1 id="guide-complete-title" tabindex="-1">Start using PrismArc</h1>
+            <p>Replay this guide from PrismArc Settings.</p>
             <button id="complete-open-sidebar" type="button" class="primary" disabled>Open sidebar</button>
         </section>
         <p id="error" role="alert" hidden></p>

@@ -18,6 +18,7 @@
     --demo-glow: #6e86d042;
     --demo-chrome: #272d3c;
     --demo-chrome-page: #252b38;
+    --attention: #ffd29e;
     --error: #ffb1be;
     background: var(--prismarc-sidebar-glows) var(--canvas) fixed;
     color: var(--ink);
@@ -39,6 +40,7 @@
     --demo-glow: #9ab1f76b;
     --demo-chrome: #eaf0ff;
     --demo-chrome-page: #f3f6ff;
+    --attention: #874813;
     --error: #8b244a;
     background: var(--prismarc-light-gradient) var(--canvas) fixed;
 }
@@ -79,7 +81,7 @@ kbd { font: inherit; font-size: .89em; white-space: nowrap; color: var(--ink); b
     grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
     align-items: center;
     gap: clamp(24px, 4vw, 50px);
-    min-height: 408px;
+    min-height: 350px;
     padding: 26px clamp(22px, 3.8vw, 42px) 31px;
 }
 .lesson-copy { display: grid; justify-items: start; align-content: center; gap: 16px; }
@@ -107,20 +109,16 @@ kbd { font: inherit; font-size: .89em; white-space: nowrap; color: var(--ink); b
     border-radius: 18px;
     background: var(--demo-bg);
 }
-.shortcut-steps {
-    margin: 0;
-    padding-inline-start: 20px;
-    color: var(--muted);
-    font-size: 14px;
-    line-height: 1.5;
-}
-.shortcut-steps li + li { margin-top: 5px; }
-.shortcut-steps strong { color: var(--ink); }
-.shortcut-row { border-top: 1px solid var(--line); margin-top: 13px; padding-top: 13px; }
+.shortcut-setup strong { color: var(--ink); }
+.shortcut-row + .shortcut-row,
+#shortcut-directions:not([hidden]) + .shortcut-row { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
 .shortcut-row-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
 .shortcut-row-heading h2, .shortcut-row-heading kbd { font-size: 14px; }
-.shortcut-row p, #shortcut-return-status { font-size: 13px; }
+.shortcut-missing { color: var(--attention); border-color: color-mix(in srgb, var(--attention) 40%, transparent); }
+.shortcut-setup p, #recent-mac-help summary { font-size: 13px; }
 .shortcut-row p { margin-top: 5px; }
+#recent-mac-help summary { width: fit-content; min-height: 26px; padding-top: 6px; color: var(--muted); cursor: pointer; }
+#recent-mac-help summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #shortcut-return-status:not(:empty) {
     margin-top: 13px;
     padding: 8px 11px;
@@ -169,7 +167,7 @@ kbd { font: inherit; font-size: .89em; white-space: nowrap; color: var(--ink); b
 .recent-thumbnail span:first-child { width: 45%; height: 6px; opacity: .78; }
 .recent-thumbnail span:last-child { width: 61%; }
 .demo-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 15px; }
-.demo-status { font-size: 12px; margin-top: 7px; }
+.demo-status:not(:empty) { font-size: 12px; margin-top: 7px; }
 
 .browser-toolbar { display: flex; align-items: center; gap: 9px; padding: 7px 11px; border-bottom: 1px solid var(--line); }
 .browser-dots { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 9px 0 var(--line), 18px 0 var(--line); margin-right: 19px; }

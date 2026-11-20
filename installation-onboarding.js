@@ -31,9 +31,14 @@ function showLesson(index) {
     lessons.forEach(panel => { panel.hidden = panel !== lesson; });
     progressDots.forEach((dot, position) => dot.classList.toggle('current', position <= index));
     el('guide-progress').textContent = `Step ${index + 1} of ${lessons.length}`;
-    el('guide-back').hidden = index === 0;
+    const first = index === 0;
     const last = index === lessons.length - 1;
-    el('guide-next').hidden = last;
+    const next = el('guide-next');
+    el('guide-back').hidden = first;
+    next.hidden = last;
+    next.textContent = first ? 'Continue' : 'Next';
+    next.classList.toggle('text-button', first);
+    next.classList.toggle('primary', !first);
     el('guide-finish').hidden = !last;
     el('error').hidden = true;
     focusHeading(lesson);
@@ -108,23 +113,44 @@ async function completeGuide() {
 }
 
 function showShortcut(id, binding) {
-    el(`${id}-shortcut`).textContent = binding || 'Not assigned';
+    const value = el(`${id}-shortcut`);
+    value.textContent = binding || 'Not assigned';
+    value.classList.toggle('shortcut-missing', !binding);
+}
+
+function showSwitcherSetup(ready) {
+    el('quick-title').textContent = ready ? 'Test your shortcuts' : 'Set up your shortcuts';
+    el('quick-task').textContent = ready
+        ? 'Open a second tab if needed, then press both shortcuts. Change either one if it doesn’t work.'
+        : 'PrismArc needs these keys for keyboard search and switching.';
+    el('shortcut-directions').hidden = ready;
+
+    const settings = el('setup-quick-shortcut');
+    const tryQuick = el('open-quick-switcher');
+    settings.textContent = ready ? 'Change shortcuts' : 'Open Chrome shortcut settings';
+    settings.classList.toggle('primary', !ready);
+    settings.classList.toggle('text-button', ready);
+    tryQuick.classList.toggle('primary', ready);
+    tryQuick.classList.toggle('text-button', !ready);
+    const actions = el('quick-actions');
+    const primary = ready ? tryQuick : settings;
+    if (actions.firstElementChild !== primary) actions.prepend(primary);
 }
 
 function recentInstructions(commands, binding, mac) {
     if (!binding) {
-        return `Assign ${mac ? 'Option+A' : 'Ctrl+Shift+Y'} to “Cycle through open tabs” in keyboard shortcut settings.`;
+        return `Assign ${mac ? 'Option+A' : 'Ctrl+Shift+Y'} to “Cycle through open tabs” in Chrome.`;
     }
     if (!mac || !usesOptionShortcut(commands)) {
-        return 'Press your shortcut to open the picker. Use the arrow keys to move and Enter to switch.';
+        return 'Press your shortcut, then use the arrow keys and Enter to switch.';
     }
-    const release = ' Release Option to switch. If the picker stays open, press Enter.';
+    const release = ' Release Option to switch, or press Enter if the picker stays open.';
     const simpleOption = binding.trim().match(/^(?:⌥|Alt|Option)\s*\+?\s*([A-Z0-9]|Tab|⇥)$/i);
     if (simpleOption) {
         const key = /^(?:Tab|⇥)$/i.test(simpleOption[1]) ? 'Tab' : simpleOption[1].toUpperCase();
-        return `Tap Option+${key} to return to your previous tab. To choose another, keep holding Option and press ${key} again.` + release;
+        return `Tap Option+${key} for the previous tab. To cycle, hold Option and press ${key} again.` + release;
     }
-    return 'Press your shortcut to select your previous tab. To choose another, keep holding Option and repeat the shortcut.' + release;
+    return 'Press your shortcut for the previous tab. To cycle, hold Option and repeat the shortcut.' + release;
 }
 
 function showShortcutReturnStatus(message) {
@@ -151,11 +177,13 @@ async function loadShortcuts() {
         showShortcut('pin', pin);
         showShortcut('copy', copy);
 
-        el('quick-suggestion').textContent = mac ? 'Command+Shift+K' : 'Ctrl+Shift+K';
-        el('quick-setup-note').hidden = false;
-        el('quick-existing-mac-note').hidden = !mac;
-        el('recent-mac-note').hidden = !mac;
-        el('recent-other-note').hidden = mac;
+        el('quick-suggestion').textContent = mac ? '⌘⇧K' : 'Ctrl+Shift+K';
+        el('recent-suggestion').textContent = mac ? '⌥A' : 'Ctrl+Shift+Y';
+        el('quick-setup-note').hidden = Boolean(quick);
+        el('recent-setup-note').hidden = Boolean(recent);
+        el('recent-mac-help').hidden = !mac;
+        const ready = Boolean(quick && recent);
+        showSwitcherSetup(ready);
         el('setup-sidebar-shortcut').hidden = Boolean(sidebar);
         el('setup-pin-shortcut').hidden = Boolean(pin);
         const copyButton = el('setup-copy-shortcut');
@@ -165,18 +193,19 @@ async function loadShortcuts() {
         el('recent-instructions').textContent = recentInstructions(commands, recent, mac);
         if (openedShortcutSettings) {
             const assigned = Number(Boolean(quick)) + Number(Boolean(recent));
-            showShortcutReturnStatus(assigned === 2
-                ? 'Chrome reports both shortcuts assigned. Press each shortcut to check that it works.'
-                : `Chrome reports ${assigned} of 2 shortcuts assigned. See the rows above to check what’s missing.`);
+            showShortcutReturnStatus(ready ? 'Both shortcuts assigned.' : `${assigned} of 2 shortcuts assigned.`);
         } else {
             showShortcutReturnStatus('');
         }
     } catch {
         if (revision !== shortcutRevision) return;
         for (const id of ['quick', 'recent-setup', 'recent', 'sidebar', 'pin', 'copy']) showShortcut(id, 'Unavailable');
+        for (const id of ['quick-setup-note', 'recent-setup-note', 'recent-mac-help']) el(id).hidden = true;
+        showSwitcherSetup(false);
         for (const button of document.querySelectorAll('.shortcut-settings')) button.hidden = button.disabled = false;
-        showShortcutReturnStatus('Could not read your shortcuts. See your assignments in keyboard shortcut settings.');
-        el('recent-instructions').textContent = 'Check Chrome’s extension shortcuts for the current assignment.';
+        el('setup-copy-shortcut').textContent = 'Shortcut settings';
+        showShortcutReturnStatus('Couldn’t read your shortcuts. Check them in Chrome.');
+        el('recent-instructions').textContent = 'Check this shortcut in Chrome.';
     }
 }
 
@@ -189,10 +218,10 @@ async function loadBookmarkSpaces() {
     } catch { /* The bookmark manager can still be opened without discovery. */ }
     if (revision !== bookmarkRevision) return;
     bookmarkFolderId = folderId;
-    el('bookmark-title').textContent = names.length ? `Found ${names.length} existing ${names.length === 1 ? 'Space' : 'Spaces'}` : 'Bring your bookmarks';
+    el('bookmark-title').textContent = names.length ? `Found ${names.length} existing ${names.length === 1 ? 'Space' : 'Spaces'}` : 'Import bookmarks';
     el('bookmark-copy').textContent = folderId
-        ? 'Copy folders into the PrismArc bookmark folder in Chrome’s bookmark manager. Each folder becomes a Space and its bookmarks become pinned tabs.'
-        : 'Open the sidebar once to create the PrismArc bookmark folder. Then copy folders into it in Chrome’s bookmark manager.';
+        ? 'Copy bookmark folders into PrismArc. Each folder becomes a Space and its bookmarks become pins.'
+        : 'Open the sidebar once, then copy bookmark folders into PrismArc.';
     el('bookmark-detected').hidden = !names.length;
     el('bookmark-detected').textContent = names.slice(0, 3).join(' · ') + (names.length > 3 ? ` · and ${names.length - 3} more` : '');
     el('bookmarks').textContent = folderId ? 'Open PrismArc bookmarks' : 'Open bookmark manager';

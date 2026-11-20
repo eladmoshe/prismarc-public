@@ -2,17 +2,12 @@
 
 PrismArc is a fork of [Arcify](https://github.com/nisargkolhe/arcify), originally created by Nisarg Kolhe and maintained by the Arcify contributors. It provides a vertical sidebar for organizing tabs into spaces, saving favorites, and moving between tabs.
 
-The first-run guide starts with your Quick Switcher and Recent Tabs shortcuts.
-In `chrome://extensions/shortcuts`, find **PrismArc** and click the pencil next to
-**Open Quick Switcher** or **Cycle through open tabs**. Use the assigned shortcuts
-if they already work for you. The suggested Quick Switcher keys are **Command+Shift+K**
-on macOS and **Ctrl+Shift+K** on Windows and Linux. On macOS, Chrome's editor can
-list an existing **Option+Tab** shortcut and uses **Tab** to move focus while editing.
-To assign a new Recent Tabs shortcut, try **Option+A**. Keep holding **Option** and
-repeat your assigned shortcut to choose another tab, then release **Option** to switch.
-If the picker stays open after a tap, press **Enter**.
-Return to the guide to see the assignments Chrome saved and try the shortcuts.
-Replay the guide from **Settings → Getting started**.
+The getting-started guide shows your two switching shortcuts. To assign one,
+open keyboard shortcut settings from the guide and find **PrismArc**. Click the
+pencil beside **Open Quick Switcher** or **Cycle through open tabs** and press
+your keys. On Mac, try **Option+A** for Recent Tabs, or keep **Option+Tab** if
+it already works. Return to the guide to try the shortcuts. Replay it anytime
+from **Settings → Getting started**.
 
 In a regular window, closing a tab with **⌘W** leaves its square Favorite at the top of the sidebar. Click the square to reopen its saved address.
 
