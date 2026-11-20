@@ -16,5 +16,8 @@ preview, and updated onboarding and the PrismArc interface.
 2026-11-19: The fork revised session recovery, archive and bookmark
 handling, and packaged extension build and release verification.
 
+2026-11-20: The fork unified optional in-page placement for its switchers and
+retained native window fallback and history-deletion confirmation.
+
 Original source: https://github.com/nisargkolhe/arcify
 PrismArc source snapshots: https://github.com/eladmoshe/prismarc-public

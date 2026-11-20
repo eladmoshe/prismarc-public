@@ -62,13 +62,14 @@ export function historyDestinationIdentity(href) {
     return oktaDestination(href)?.identity || urlIdentity(href);
 }
 
-export async function resolveSearchWindow(windowId, chromeApi = globalThis.chrome) {
+export async function resolveSearchWindow(windowId, chromeApi = globalThis.chrome, exact = false) {
     if (Number.isInteger(windowId) && windowId >= 0) {
         try {
             const window = await chromeApi.windows.get(windowId);
             if (window.type === 'normal') return window;
         } catch { /* The originating window may have been closed. */ }
     }
+    if (exact) throw new Error('The originating browser window is unavailable');
     const window = await chromeApi.windows.getLastFocused({ windowTypes: ['normal'] });
     if (window.type !== 'normal') throw new Error('No browser window is available');
     return window;
@@ -204,7 +205,7 @@ export async function activateBrowserResult(item, context, newTab = false, chrom
     const url = searchableUrl(item.url);
     if (!url) throw new Error('This URL cannot be opened');
     const identity = urlIdentity(url);
-    const source = await resolveSearchWindow(context.id, chromeApi);
+    const source = await resolveSearchWindow(context.id, chromeApi, context.exact);
     if (Boolean(source.incognito) !== Boolean(context.incognito)) throw new Error('Browser context changed');
     if (!newTab) {
         const tabs = await chromeApi.tabs.query({});
@@ -246,7 +247,7 @@ export async function deleteHistoryResult(item, context, chromeApi = globalThis.
         !href || !urls.length || urls.length > 100 || !urls.some(url => searchableUrl(url) === href) ||
         urls.some(url => typeof url !== 'string' || !searchableUrl(url) ||
             historyDestinationIdentity(url) !== identity)) throw new Error('Not a deletable history result');
-    const source = await resolveSearchWindow(context.id, chromeApi);
+    const source = await resolveSearchWindow(context.id, chromeApi, context.exact);
     if (source.incognito) throw new Error('Browser context changed');
     const unique = [...new Set(urls)];
     const responses = await Promise.allSettled(unique.map(url =>

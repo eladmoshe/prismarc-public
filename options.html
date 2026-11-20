@@ -77,26 +77,37 @@
         </section>
 
         <section class="options-section" aria-labelledby="switcherHeading">
-            <h2 id="switcherHeading" class="options-section-title">Tab switcher</h2>
-            <div class="options-setting-item" style="display: none">
-                <p id="tabSwitcherInlineDescription" class="options-description">Show Recent Tabs over permitted webpages. Chrome asks for site access and the ability to run the picker on those pages. The separate screenshots setting controls page images.</p>
-                <div><button type="button" id="tabSwitcherInline" class="options-input options-page-preview-action"
-                    disabled aria-describedby="tabSwitcherInlineDescription">Show Recent Tabs over webpages</button></div>
+            <h2 id="switcherHeading" class="options-section-title">Recent Tabs and Quick Switcher</h2>
+            <p class="options-description">Recent Tabs cycles through tabs you just used with Option+Tab on Mac. Quick Switcher searches open tabs, bookmarks, and history.</p>
+            <div class="options-setting-item options-setting-toggle">
+                <div>
+                    <label for="tabSwitcherInline" class="options-label">Show PrismArc popups over webpages</label>
+                    <p id="tabSwitcherInlineDescription" class="options-description">Open Quick Switcher and Recent Tabs over supported webpages. Chrome asks for access to all sites to run the popups. They open in separate windows when this is off or Chrome cannot show them over the page.</p>
+                </div>
+                <div class="toggle-switch-container">
+                    <input type="checkbox" id="tabSwitcherInline" class="ios-toggle" role="switch" disabled aria-describedby="tabSwitcherInlineDescription">
+                    <label for="tabSwitcherInline" class="toggle-label" aria-hidden="true"></label>
+                </div>
             </div>
             <div class="options-setting-item options-setting-toggle">
                 <div>
-                    <label for="tabSwitcherPagePreviews" class="options-label">Tab switcher page previews</label>
-                    <p id="tabSwitcherPagePreviewsDescription" class="options-description">Show small images of pages as you switch with Option+Tab. Shortcut previews stay on this device for up to ten minutes.</p>
+                    <label for="tabSwitcherPagePreviews" class="options-label">Recent Tabs page previews</label>
+                    <p id="tabSwitcherPagePreviewsDescription" class="options-description">Show page images when you use Recent Tabs. Shortcut previews stay on this device for up to ten minutes.</p>
                 </div>
                 <div class="toggle-switch-container">
-                    <input type="checkbox" id="tabSwitcherPagePreviews" class="ios-toggle" disabled aria-describedby="tabSwitcherPagePreviewsDescription">
+                    <input type="checkbox" id="tabSwitcherPagePreviews" class="ios-toggle" role="switch" disabled aria-describedby="tabSwitcherPagePreviewsDescription">
                     <label for="tabSwitcherPagePreviews" class="toggle-label" aria-hidden="true"></label>
                 </div>
             </div>
-            <div class="options-setting-item">
-                <p id="tabSwitcherCaptureOnVisitDescription" class="options-description">Chrome asks for access to all sites to capture visible pages as you browse. PrismArc keeps the five latest thumbnails encrypted on this device. They can be opened only during this browser session.</p>
-                <div><button type="button" id="tabSwitcherCaptureOnVisit" class="options-input options-page-preview-action"
-                    disabled aria-describedby="tabSwitcherCaptureOnVisitDescription">Enable previews as I browse</button></div>
+            <div class="options-setting-item options-setting-toggle">
+                <div>
+                    <label for="tabSwitcherCaptureOnVisit" class="options-label">Capture previews while browsing</label>
+                    <p id="tabSwitcherCaptureOnVisitDescription" class="options-description">Chrome asks for access to all sites to capture pages you view. The five latest previews stay encrypted on this device and are available only during this browser session.</p>
+                </div>
+                <div class="toggle-switch-container">
+                    <input type="checkbox" id="tabSwitcherCaptureOnVisit" class="ios-toggle" role="switch" disabled aria-describedby="tabSwitcherCaptureOnVisitDescription">
+                    <label for="tabSwitcherCaptureOnVisit" class="toggle-label" aria-hidden="true"></label>
+                </div>
             </div>
             <div class="options-setting-item">
                 <label class="options-label" for="tabSwitcherExcludedDomains">Never preview these sites</label>

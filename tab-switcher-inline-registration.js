@@ -19,10 +19,11 @@ export function registerInlineSwitcher(chromeApi, permissionChanged) {
             await Promise.allSettled((await tabs()).map(tab =>
                 chromeApi.tabs.sendMessage(tab.id, { type: INLINE_MESSAGE, action: 'off' })));
         }
-        if (!chromeApi.scripting || (await chromeApi.runtime.getPlatformInfo()).os !== 'mac') return;
-        const [settings, available] = await Promise.all([
+        if (!chromeApi.scripting) return;
+        const [settings, available, platform] = await Promise.all([
             chromeApi.storage.local.get(INLINE_SWITCHER),
             chromeApi.permissions.contains({ permissions: ['scripting'] }),
+            chromeApi.runtime.getPlatformInfo(),
         ]);
         if (!available) return;
         const registrations = await chromeApi.scripting.getRegisteredContentScripts({ ids: [INLINE_SCRIPT] });
@@ -32,7 +33,7 @@ export function registerInlineSwitcher(chromeApi, permissionChanged) {
         }
         if (!registrations.length) {
             await chromeApi.scripting.registerContentScripts([{
-                id: INLINE_SCRIPT, js: [INLINE_SCRIPT_FILE], matches: WEB_MATCHES, allFrames: true,
+                id: INLINE_SCRIPT, js: [INLINE_SCRIPT_FILE], matches: WEB_MATCHES, allFrames: platform.os === 'mac',
                 excludeMatches: ['https://chrome.google.com/*', 'https://chromewebstore.google.com/*'],
                 runAt: 'document_start', persistAcrossSessions: false,
             }]);
@@ -43,6 +44,7 @@ export function registerInlineSwitcher(chromeApi, permissionChanged) {
                 const inject = fields => chromeApi.scripting.executeScript({
                     target: { ...target, ...fields }, files: [INLINE_SCRIPT_FILE], injectImmediately: true,
                 });
+                if (platform.os !== 'mac') return inject({});
                 try { await inject({ allFrames: true }); } catch { await inject({}); }
             }));
         }

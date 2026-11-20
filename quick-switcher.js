@@ -4,18 +4,30 @@ import { numberShortcutIndex, optionDigit } from './quick-switcher-keyboard.js';
 import { activateGoogleSearch } from './quick-switcher-google.js';
 import { activateTypedWebsite, typedWebsiteUrl } from './quick-switcher-url.js';
 import { startRowExitMotion } from './tab-close-motion.js';
+import { connectPopupFrame } from './popup-renderer.js';
 
 const input = document.getElementById('search');
 const results = document.getElementById('results');
 const status = document.getElementById('search-status');
 const labels = { tab: 'Open tab', bookmark: 'Bookmark', history: 'History' };
-const sourceId = new URL(location.href).searchParams.get('windowId');
-const contextReady = resolveSearchWindow(sourceId === null ? null : Number(sourceId)).catch(() => null);
-contextReady.then(source => { if (source) applyPopupSpaceTheme(source.id); });
+let contextReady, sendInline;
 let context, filtered = [], selected = 0, version = 0, timer, activating = false, deleting = false, deleteFeedback = null;
 let selectionExplicit = false;
+let confirmingHistory = false;
 let pointer = { x: -1, y: -1 };
-let historyExit;
+let historyExit, pendingDeletion;
+
+function closePicker() {
+    if (sendInline) {
+        document.documentElement.removeAttribute('data-picker-ready');
+        return sendInline('dismiss');
+    }
+    window.close();
+}
+
+async function requireLivePicker(action) {
+    if (sendInline && !(await sendInline(action))?.valid) throw new Error('The search picker no longer owns this page');
+}
 
 if (/^mac/i.test(navigator.userAgentData?.platform || navigator.platform)) {
     document.getElementById('digit-entry-keycap').textContent = '⌥0–9';
@@ -108,11 +120,13 @@ async function activate(index, newTab = false) {
     try {
         context ||= await contextReady;
         if (!context) throw new Error('No browser window');
+        await requireLivePicker('activate');
         if (searchingGoogle) await activateGoogleSearch(item.query, context);
         else if (openingUrl) await activateTypedWebsite(item.query, context);
         else await activateBrowserResult(item, context, newTab);
-        window.close();
+        closePicker();
     } catch {
+        if (sendInline) sendInline('resume');
         activating = false;
         input.disabled = false;
         for (const row of results.querySelectorAll('button')) row.disabled = false;
@@ -129,8 +143,42 @@ function clearHistoryExit() {
     historyExit = undefined;
 }
 
-async function removeHistory(item, wrapper) {
+function matchingDeletion(item) {
+    const urls = pendingDeletion?.urls;
+    return urls && item.source === 'history' && urls.length === item.historyUrls?.length &&
+        urls.every(url => item.historyUrls.includes(url));
+}
+
+function clearPendingDeletion() {
+    pendingDeletion = undefined;
+    const highlighted = results.querySelector('[data-confirm-history]');
+    if (!highlighted) return;
+    highlighted.removeAttribute('data-confirm-history');
+    const { item, remove } = renderedRows.get(highlighted);
+    remove.hidden = true;
+    remove.textContent = '×';
+    remove.title = 'Delete from browser history';
+    remove.setAttribute('aria-label', `Delete ${item.title} from browser history`);
+}
+
+async function requestHistoryConfirmation(item) {
+    deleting = true;
+    setStatus('Opening the Quick Switcher window to confirm deletion…');
+    const response = await sendInline('confirmDelete', { query: input.value, urls: item.historyUrls });
+    if (response?.accepted) return;
+    deleting = false;
+    deleteFeedback = { text: 'Could not open Quick Switcher to confirm deletion. Try again.', error: true };
+    requestSearch(0, true);
+    input.focus({ preventScroll: true });
+}
+
+async function removeHistory(item, wrapper, event) {
+    if (!event.isTrusted && (sendInline || confirmingHistory)) return;
     if (activating || deleting || results.getAttribute('aria-busy') !== 'false') return;
+    if (sendInline) return requestHistoryConfirmation(item);
+    if (confirmingHistory && !matchingDeletion(item)) return;
+    const origin = matchingDeletion(item) ? pendingDeletion.source : null;
+    clearPendingDeletion();
     deleting = true;
     deleteFeedback = null;
     ++version;
@@ -139,6 +187,12 @@ async function removeHistory(item, wrapper) {
     for (const button of results.querySelectorAll('button')) button.disabled = true;
     setStatus('Deleting from browser history…');
     try {
+        if (origin) {
+            const tab = await chrome.tabs.get(origin.id);
+            if (!tab.active || tab.pendingUrl || tab.url !== origin.url || tab.windowId !== context.id || tab.incognito) {
+                throw new Error('The originating tab changed before deletion');
+            }
+        }
         const outcome = await deleteHistoryResult(item, context);
         deleteFeedback = outcome.failed.length ? {
             text: outcome.deleted.length ? 'Some history URLs could not be deleted. Remaining entries are shown; try again.' :
@@ -237,7 +291,7 @@ function createResultRow(item) {
         remove.addEventListener('focus', () => select(view.index));
         remove.addEventListener('click', event => {
             event.stopPropagation();
-            if (wrapper.parentElement === results) removeHistory(view.item, wrapper);
+            if (wrapper.parentElement === results) removeHistory(view.item, wrapper, event);
         });
         remove.addEventListener('keydown', event => {
             if (event.repeat || event.isComposing || event.keyCode === 229 ||
@@ -260,6 +314,7 @@ function updateResultRow(view, item, index, query) {
     view.item = item;
     row.disabled = deleting;
     if (remove) {
+        remove.hidden = confirmingHistory && !matchingDeletion(item);
         remove.disabled = deleting;
         remove.setAttribute('aria-label', `Delete ${item.title} from browser history`);
     }
@@ -349,6 +404,23 @@ function render(response, query, preserveSelection) {
     if (deleteFeedback) setStatus(deleteFeedback.text, deleteFeedback.error);
     const index = keepSelection ? filtered.findIndex(item => item.id === previous?.id) : -1;
     select(filtered.length ? (index >= 0 ? index : fallback) : -1, index >= 0, explicit && index >= 0);
+    if (pendingDeletion) {
+        const target = items.findIndex(matchingDeletion);
+        if (target < 0) {
+            clearPendingDeletion();
+            setStatus('The history result changed. Review the current results before deleting.', true);
+        } else {
+            const row = results.children[target];
+            const { item, remove } = renderedRows.get(row);
+            const first = !row.hasAttribute('data-confirm-history');
+            row.setAttribute('data-confirm-history', '');
+            remove.textContent = 'Delete';
+            remove.title = 'Confirm deletion from browser history';
+            remove.setAttribute('aria-label', `Confirm deletion of ${item.title} from browser history`);
+            setStatus('Confirm deletion from browser history.');
+            if (first) select(target, true, true);
+        }
+    }
     if (actionFocused) input.focus({ preventScroll: true });
 }
 
@@ -417,52 +489,99 @@ function requestSearch(delay = 120, preserveSelection = false) {
     }, delay);
 }
 
-input.addEventListener('input', () => { deleteFeedback = null; requestSearch(); });
-input.addEventListener('keydown', event => {
-    const digit = optionDigit(event);
-    if (digit === null) return;
-    event.preventDefault();
-    // Use Chromium's text editing command to preserve selection, maxlength, and undo.
-    document.execCommand('insertText', false, digit);
-});
-document.getElementById('close').addEventListener('click', () => window.close());
-document.addEventListener('pointermove', event => {
-    if (event.clientX === pointer.x && event.clientY === pointer.y) return;
-    pointer = { x: event.clientX, y: event.clientY };
-    const row = event.target.closest('.result-row');
-    if (row && !activating && !deleting) select([...results.children].indexOf(row), false, true);
-});
-document.addEventListener('keydown', event => {
-    if (event.isComposing || event.keyCode === 229) return;
-    if (event.target.closest?.('.history-delete')) {
-        if (event.key === 'Escape') { event.preventDefault(); window.close(); return; }
-        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-        input.focus();
+function startPicker(windowId, inlineClient, incognito = false, deletion) {
+    sendInline = inlineClient;
+    const exact = Boolean(inlineClient || deletion);
+    contextReady = resolveSearchWindow(windowId, chrome, exact).then(window => {
+        if (Boolean(window.incognito) !== incognito) return null;
+        return exact ? { id: window.id, incognito: false, exact: true } : window;
+    }).catch(() => null);
+    contextReady.then(source => { if (source) applyPopupSpaceTheme(source.id); });
+    if (inlineClient) document.documentElement.setAttribute('data-inline-search', '');
+    document.documentElement.setAttribute('data-picker-ready', '');
+
+    if (deletion) {
+        confirmingHistory = true;
+        pendingDeletion = deletion;
+        input.value = deletion.query;
+        setStatus('Finding the history result to confirm deletion…');
     }
-    const shortcutIndex = numberShortcutIndex(event, filtered.length);
-    if (shortcutIndex !== null) {
+    input.addEventListener('input', () => { clearPendingDeletion(); deleteFeedback = null; requestSearch(); });
+    input.addEventListener('keydown', event => {
+        const digit = optionDigit(event);
+        if (digit === null) return;
         event.preventDefault();
-        // Retained rows may belong to an older response while native sources refresh.
-        const websiteAction = filtered[0]?.source === 'url' && isSearchAction(filtered[shortcutIndex]);
-        if (!event.repeat && (websiteAction || results.getAttribute('aria-busy') === 'false')) activate(shortcutIndex);
-    } else if (event.key === 'Escape') { event.preventDefault(); window.close(); }
-    else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault();
-        const count = filtered.length;
-        if (count && !activating && !deleting) {
-            const down = event.key === 'ArrowDown';
-            const next = selected < 0 ? (down ? 0 : count - 1) : (selected + (down ? 1 : -1) + count) % count;
-            select(next, true, true);
+        // Use Chromium's text editing command to preserve selection, maxlength, and undo.
+        document.execCommand('insertText', false, digit);
+    });
+    document.getElementById('close').addEventListener('click', closePicker);
+    document.addEventListener('pointermove', event => {
+        if (event.clientX === pointer.x && event.clientY === pointer.y) return;
+        pointer = { x: event.clientX, y: event.clientY };
+        const row = event.target.closest('.result-row');
+        if (row && !activating && !deleting) select([...results.children].indexOf(row), false, true);
+    });
+    document.addEventListener('keydown', event => {
+        if (event.isComposing || event.keyCode === 229) return;
+        if (pendingDeletion && event.target === input) {
+            if (event.key === 'Enter') { event.preventDefault(); return; }
+            const confirm = results.querySelector('[data-confirm-history] .history-delete');
+            if (confirm && event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+                event.preventDefault();
+                confirm.focus();
+                return;
+            }
         }
-    } else if (event.key === 'Enter' && event.target !== document.getElementById('close')) {
-        event.preventDefault();
-        if (!event.repeat && !event.altKey && !event.shiftKey) activate(selected, event.metaKey || event.ctrlKey);
+        if (event.target.closest?.('.history-delete')) {
+            if (event.key === 'Escape') { event.preventDefault(); closePicker(); return; }
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+            input.focus();
+        }
+        const shortcutIndex = numberShortcutIndex(event, filtered.length);
+        if (shortcutIndex !== null) {
+            event.preventDefault();
+            // Retained rows may belong to an older response while native sources refresh.
+            const websiteAction = filtered[0]?.source === 'url' && isSearchAction(filtered[shortcutIndex]);
+            if (!event.repeat && (websiteAction || results.getAttribute('aria-busy') === 'false')) activate(shortcutIndex);
+        } else if (event.key === 'Escape') { event.preventDefault(); closePicker(); }
+        else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            const count = filtered.length;
+            if (count && !activating && !deleting) {
+                const down = event.key === 'ArrowDown';
+                const next = selected < 0 ? (down ? 0 : count - 1) : (selected + (down ? 1 : -1) + count) % count;
+                select(next, true, true);
+            }
+        } else if (event.key === 'Enter' && event.target !== document.getElementById('close')) {
+            event.preventDefault();
+            if (!event.repeat && !event.altKey && !event.shiftKey) activate(selected, event.metaKey || event.ctrlKey);
+        }
+    });
+    const refresh = () => { if (!deleting) requestSearch(160, true); };
+    for (const event of [chrome.tabs.onCreated, chrome.tabs.onRemoved, chrome.tabs.onUpdated,
+        chrome.bookmarks.onCreated, chrome.bookmarks.onRemoved, chrome.bookmarks.onChanged,
+        chrome.bookmarks.onMoved, chrome.history?.onVisited, chrome.history?.onVisitRemoved]) event?.addListener(refresh);
+    function focusInput() {
+        if (activating) return;
+        input.focus({ preventScroll: true });
+        if (inlineClient && document.hasFocus() && document.activeElement === input) inlineClient('focused');
     }
-});
-const refresh = () => { if (!deleting) requestSearch(160, true); };
-for (const event of [chrome.tabs.onCreated, chrome.tabs.onRemoved, chrome.tabs.onUpdated,
-    chrome.bookmarks.onCreated, chrome.bookmarks.onRemoved, chrome.bookmarks.onChanged,
-    chrome.bookmarks.onMoved, chrome.history?.onVisited, chrome.history?.onVisitRemoved]) event?.addListener(refresh);
-window.addEventListener('focus', () => { if (!activating) input.focus(); });
-requestSearch(0);
-input.focus();
+    window.addEventListener('focus', focusInput);
+    if (inlineClient) {
+        document.addEventListener('pointerdown', event => {
+            if (event.isTrusted && !event.target.closest('.palette')) closePicker();
+        });
+        contextReady.then(source => { if (source) inlineClient('interactive'); });
+    } else focusInput();
+    requestSearch(0);
+}
+
+if (window.parent === window) {
+    chrome.runtime.sendMessage({ type: 'quickSwitcherWindow' }).then(({ windowId, incognito, deletion }) => {
+        if (Number.isInteger(windowId) && windowId >= 0) startPicker(windowId, undefined, incognito, deletion);
+    }).catch(() => {});
+} else {
+    connectPopupFrame(({ windowId }, send) => {
+        if (Number.isInteger(windowId) && windowId >= 0) startPicker(windowId, send);
+    });
+}

@@ -2,6 +2,7 @@ import { resolve } from 'path';
 import { readFileSync } from 'node:fs';
 import fs from 'fs-extra';
 import { isCalendarClientId } from '../calendar-config.js';
+import { storeBuildDirectory, storeIcon, storeManifest } from '../scripts/fork/chrome-web-store-build.js';
 
 function calendarBuildClientId() {
   const file = resolve(process.cwd(), 'calendar-oauth-client.local');
@@ -14,12 +15,12 @@ function calendarBuildClientId() {
 /**
  * Get shared input configuration for PrismArc
  */
-function getExtensionInputs() {
+function getExtensionInputs(isStore) {
   return {
     sidebar: resolve(process.cwd(), 'sidebar.html'),
     'tutorial-practice': resolve(process.cwd(), 'tutorial-practice.html'),
     options: resolve(process.cwd(), 'options.html'),
-    'calendar-settings': resolve(process.cwd(), 'calendar-settings.html'),
+    ...(!isStore && { 'calendar-settings': resolve(process.cwd(), 'calendar-settings.html') }),
     'installation-onboarding': resolve(process.cwd(), 'installation-onboarding.html'),
     background: resolve(process.cwd(), 'background.js'),
     'sidebar-script': resolve(process.cwd(), 'sidebar.js'),
@@ -62,16 +63,16 @@ function getExtensionOutput(isDev = false) {
 /**
  * Get PrismArc build plugins
  */
-function getExtensionPlugins(isDev = false) {
-  const outDir = isDev ? 'dist-dev' : 'dist';
+function getExtensionPlugins({ isStore = false, outDir }) {
+  const omittedAnimation = '\0prismarc:omitted-onboarding-animation';
   // Manifest and runtime code load these by their original URLs.
   const staticFiles = [
-    'manifest.json',
     'styles.css',
     'LICENSE',
     'NOTICE',
     'assets/default_icon.png',
     'assets/icon.png',
+    ...(isStore ? [storeIcon] : []),
     'assets/icon-16.png',
     'assets/icon-24.png',
     'assets/icon-32.png',
@@ -84,8 +85,28 @@ function getExtensionPlugins(isDev = false) {
     // Main extension build plugin
     {
       name: 'prismarc-extension-main',
+      enforce: 'pre',
+      resolveId(source) {
+        if (isStore && source === './assets/chrometutorial.gif') return omittedAnimation;
+      },
+      load(id) {
+        if (id === omittedAnimation) return 'export default "";';
+      },
+      transformIndexHtml: {
+        order: 'pre',
+        handler(html) {
+          const guide = isStore
+            ? html.replace(/<!-- pin-guide:local -->[\s\S]*?<!-- \/pin-guide:local -->/, '')
+            : html.replace(/<!-- pin-guide:store -->[\s\S]*?<!-- \/pin-guide:store -->/, '');
+          return isStore ? guide.replace(/^\s*<link rel="stylesheet" href="calendar-preview\.css">$/m, '') : guide;
+        },
+      },
       writeBundle: async () => {
-        await Promise.all(staticFiles.map(file => fs.copy(file, resolve(outDir, file))));
+        const manifestPath = resolve(outDir, 'manifest.json');
+        const manifest = isStore
+          ? fs.writeJson(manifestPath, storeManifest(await fs.readJson('manifest.json')), { spaces: 2 })
+          : fs.copy('manifest.json', manifestPath);
+        await Promise.all([manifest, ...staticFiles.map(file => fs.copy(file, resolve(outDir, file)))]);
         console.log(`✅ PrismArc extension built to ${outDir}/`);
       }
     }
@@ -96,23 +117,27 @@ function getExtensionPlugins(isDev = false) {
  * Create complete Vite configuration for PrismArc
  */
 export function createArcifyConfig(options = {}) {
-  const { isDev = false } = options;
-  const outDir = isDev ? 'dist-dev' : 'dist';
+  const { isDev = false, isStore = false } = options;
+  const outDir = isStore ? storeBuildDirectory : isDev ? 'dist-dev' : 'dist';
 
   const config = {
-    define: { __PRISMARC_CALENDAR_CLIENT_ID__: JSON.stringify(calendarBuildClientId()) },
+    define: {
+      __PRISMARC_STORE_BUILD__: isStore,
+      __PRISMARC_INCLUDE_CALENDAR__: !isStore,
+      __PRISMARC_CALENDAR_CLIENT_ID__: JSON.stringify(isStore ? '' : calendarBuildClientId()),
+    },
     build: {
       outDir,
       emptyOutDir: true,
       rollupOptions: {
-        input: getExtensionInputs(),
+        input: getExtensionInputs(isStore),
         output: getExtensionOutput(isDev)
       },
       target: 'es2020',
       minify: !isDev,
       sourcemap: isDev
     },
-    plugins: getExtensionPlugins(isDev),
+    plugins: getExtensionPlugins({ isStore, outDir }),
     server: {
       port: 3000,
       open: false,
@@ -141,5 +166,5 @@ export function createArcifyConfig(options = {}) {
  * @deprecated Use createArcifyConfig instead
  */
 export function arcifyExtensionPlugin(options = {}) {
-  return getExtensionPlugins(options.isDev);
+  return getExtensionPlugins({ outDir: options.isDev ? 'dist-dev' : 'dist' });
 }

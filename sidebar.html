@@ -25,10 +25,6 @@
 
 <body>
     <div id="sidebar-container" class="sidebar-container">
-        <button id="quickSwitcherBtn" class="quick-switcher-btn" type="button" title="Open Quick Switcher">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
-            <span>Search anything</span><kbd id="quickSwitcherShortcut">⌘⇧K</kbd>
-        </button>
         <p id="spaceStoreStatus" class="space-store-status" role="alert" hidden></p>
         <section id="tabPreviewHint" class="tab-preview-hint" aria-label="Tab switcher previews" hidden>
             <p id="tabPreviewHintMessage" role="status">Show page previews for Option+Tab as you browse. Chrome will ask for access to all sites.</p>
@@ -53,7 +49,11 @@
             <div class="space-switcher" id="spaceSwitcher">
                 <!-- Space switcher buttons will be added here -->
             </div>
-            <button class="add-space-toggle" id="addSpaceBtn" title="Create a new space">
+            <button id="quickSwitcherBtn" class="footer-icon-button quick-switcher-btn" type="button" aria-labelledby="quickSwitcherTooltip">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+                <span id="quickSwitcherTooltip" class="quick-switcher-tooltip">Quick Switcher</span>
+            </button>
+            <button class="footer-icon-button add-space-toggle" id="addSpaceBtn" title="Create a new space">
                 <span>+</span>
             </button>
             <div class="add-space-input-container" id="addSpaceInputContainer">

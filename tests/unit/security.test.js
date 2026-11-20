@@ -23,10 +23,10 @@ test('privileged handlers reject other extensions, web content scripts and malfo
     assert.equal(isTrustedExtensionMessage(message, {}, { runtime: {} }), false);
 });
 
-test('manifest denies outside messaging and confines the optional Recent Tabs embedding to one document', () => {
+test('manifest denies outside messaging and confines the optional embedding to the two switchers', () => {
     assert.deepEqual(manifest.externally_connectable, { ids: [] });
     assert.deepEqual(manifest.web_accessible_resources, [{
-        resources: ['tab-switcher.html'], matches: ['http://*/*', 'https://*/*'], use_dynamic_url: true,
+        resources: ['tab-switcher.html', 'quick-switcher.html'], matches: ['http://*/*', 'https://*/*'], use_dynamic_url: true,
     }]);
     assert.equal(manifest.host_permissions, undefined);
     assert.deepEqual(manifest.optional_host_permissions, ['<all_urls>']);

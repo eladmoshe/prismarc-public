@@ -82,6 +82,35 @@ test('an early release is committed only after the same source prepares a render
     assert.deepEqual(f.steps.at(-1), ['lost', 'same-session']);
 });
 
+test('Quick Switcher waits for its authenticated search input before taking page focus', async () => {
+    const f = fixture();
+    let mount;
+    let show;
+    const mounted = new Promise(resolve => { mount = resolve; });
+    const shown = new Promise(resolve => { show = resolve; });
+    const record = f.api.tabs.sendMessage;
+    f.api.tabs.sendMessage = async (id, message) => {
+        if (message.action === 'mount') mount(message.nonce);
+        if (message.action === 'show') show();
+        return record(id, message);
+    };
+    const picker = { ...f.renderer, url: 'chrome-extension://dynamic/quick-switcher.html' };
+    const open = f.overlay.openSearch(f.source);
+    const nonce = await mounted;
+    await f.overlay.receive(bridge(nonce, 'host'), f.tabOnly('top-host'));
+    assert.equal(await f.overlay.receive(bridge(nonce, 'renderer'), f.renderer), undefined);
+    assert.equal((await f.overlay.receive(bridge(nonce, 'renderer'), picker)).windowId, f.source.windowId);
+    await f.overlay.receive(bridge(nonce, 'interactive'), { ...picker, documentId: 'other' });
+    assert.deepEqual(f.sends, ['mount']);
+    await f.overlay.receive(bridge(nonce, 'interactive'), picker);
+    await shown;
+    assert.deepEqual(f.sends, ['mount', 'show']);
+    await f.overlay.receive(bridge(nonce, 'focused'), picker);
+    assert.equal(await open, true);
+    await f.overlay.receive(bridge(nonce, 'dismiss'), picker);
+    assert.equal(await f.overlay.receive(bridge(nonce, 'activate'), picker), undefined);
+});
+
 test('a Chrome host grant is preserved for each explicitly enabled feature', async () => {
     const choices = { tabSwitcherCaptureOnVisit: true };
     const removals = [];
@@ -119,7 +148,8 @@ function preloadedFrame() {
         storage: { onChanged: { addListener() {} } },
     };
     const script = readFileSync(new URL('../../public/tab-switcher-inline.js', import.meta.url), 'utf8');
-    runInNewContext(script, { window, chrome, document: { hasFocus: () => focused }, Date: { now: () => now } });
+    runInNewContext(script, { window, chrome, navigator: { platform: 'MacIntel' },
+        document: { hasFocus: () => focused }, Date: { now: () => now } });
     const option = (type, extra) => keys.get(type)({ key: 'Alt', altKey: type === 'keydown', isTrusted: true, ...extra });
     const probe = (id = chrome.runtime.id) => {
         let accepted;

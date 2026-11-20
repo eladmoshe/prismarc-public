@@ -2,17 +2,21 @@ import archiver from 'archiver';
 import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { storeArchive, storeBuildDirectory } from './fork/chrome-web-store-build.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function createZip() {
-  const distPath = path.resolve(__dirname, '../dist');
-  const zipPath = path.resolve(__dirname, '../arcify-extension.zip');
+  const isStore = process.argv.includes('--chrome-web-store');
+  const distDirectory = isStore ? storeBuildDirectory : 'dist';
+  const zipFilename = isStore ? storeArchive : 'arcify-extension.zip';
+  const distPath = path.resolve(__dirname, '..', distDirectory);
+  const zipPath = path.resolve(__dirname, '..', zipFilename);
   
   // Check if dist folder exists
   if (!await fs.pathExists(distPath)) {
-    console.error('❌ dist folder not found. Please run "npm run build" first.');
+    console.error(`❌ ${distDirectory} folder not found. Build the extension before packaging.`);
     process.exit(1);
   }
   
@@ -32,7 +36,7 @@ async function createZip() {
   output.on('close', () => {
     const sizeInMB = (archive.pointer() / 1024 / 1024).toFixed(2);
     console.log(`✅ Extension packaged successfully!`);
-    console.log(`📦 File: arcify-extension.zip`);
+    console.log(`📦 File: ${zipFilename}`);
     console.log(`📏 Size: ${sizeInMB} MB (${archive.pointer()} bytes)`);
     console.log(`📁 Location: ${zipPath}`);
   });

@@ -1,32 +1,38 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toggleQuickSwitcher } from '../../quick-switcher-window.js';
+import { authorizeQuickSwitcherWindow, confirmQuickSwitcherDeletion, forgetQuickSwitcherPrompt,
+    toggleQuickSwitcher } from '../../quick-switcher-window.js';
 
 function fixture() {
     let source = { id: 1, left: -1440, top: 60, width: 1440, height: 900 };
     let popups = [];
+    const stored = {};
     const calls = [];
     const page = 'chrome-extension://arcify/quick-switcher.html';
     const url = `${page}?windowId=1`;
     const api = {
-        runtime: { getURL: path => `chrome-extension://arcify/${path}` },
+        runtime: { id: 'arcify' },
+        storage: { session: { get: async key => ({ [key]: stored[key] }), set: async changes => Object.assign(stored, changes) } },
         tabs: { update: async (id, options) => { calls.push(['tab-update', id, options]); } },
         windows: {
             getLastFocused: async () => source,
+            get: async id => [source, ...popups].find(window => window.id === id),
             getAll: async () => popups,
-            create: async options => { calls.push(['create', options]); },
+            create: async options => { calls.push(['create', options]); return { id: 77, type: 'popup' }; },
             update: async (id, options) => { calls.push(['update', id, options]); },
             remove: async id => { calls.push(['remove', id]); },
         },
     };
     return { api, calls, setSource: value => { source = value; },
-        setPopups: value => { popups = value; }, url, page };
+        setPopups: value => { popups = value; }, url, page, stored };
 }
 
 test('palette opens centered on the invoking Chrome window, including negative monitor coordinates', async () => {
-    const { api, calls, url } = fixture();
+    const { api, calls, url, stored } = fixture();
     await toggleQuickSwitcher(api);
-    assert.deepEqual(calls, [['create', { url, type: 'popup', incognito: false, width: 640, height: 560,
+    assert.match(stored.quickSwitcherWindow.nonce, /^[a-f0-9-]{36}$/);
+    assert.equal(stored.quickSwitcherWindow.popupId, 77);
+    assert.deepEqual(calls, [['create', { url: `${url}&invocation=${stored.quickSwitcherWindow.nonce}`, type: 'popup', incognito: false, width: 640, height: 560,
         left: -1040, top: 230, focused: true }]]);
 });
 
@@ -34,10 +40,11 @@ test('existing palette is reused after a worker restart and unrelated popup URLs
     const f = fixture();
     f.setPopups([{ id: 40, tabs: [{ id: 100, url: `${f.page}.other` }] }, { id: 41, tabs: [{ id: 101, url: f.url }] }]);
     await toggleQuickSwitcher(f.api);
-    assert.deepEqual(f.calls[0], ['tab-update', 101, { url: f.url }]);
+    assert.deepEqual(f.calls[0], ['tab-update', 101, { url: `${f.url}&invocation=${f.stored.quickSwitcherWindow.nonce}` }]);
     assert.equal(f.calls[1][0], 'update');
     assert.equal(f.calls[1][1], 41);
     assert.equal(f.calls[1][2].focused, true);
+    assert.equal(f.stored.quickSwitcherWindow.popupId, 41);
     f.setSource({ id: 41 });
     await toggleQuickSwitcher(f.api);
     assert.deepEqual(f.calls[2], ['remove', 41]);
@@ -67,6 +74,18 @@ test('a failed window operation does not disable the next shortcut', async () =>
     assert.equal(f.calls[0][0], 'create');
 });
 
+test('a failed renderer binding removes its empty popup and does not disable the next shortcut', async () => {
+    const f = fixture();
+    const set = f.api.storage.session.set;
+    f.api.storage.session.set = async () => { throw new Error('Session storage unavailable'); };
+    await assert.rejects(toggleQuickSwitcher(f.api), /Session storage unavailable/);
+    assert.deepEqual(f.calls.map(call => call[0]), ['create', 'remove']);
+    assert.deepEqual(f.calls[1], ['remove', 77]);
+    f.api.storage.session.set = set;
+    await toggleQuickSwitcher(f.api);
+    assert.equal(f.calls[2][0], 'create');
+});
+
 test('offscreen coordinates fall back to Chrome placement without weakening unrelated error handling', async () => {
     const f = fixture();
     f.api.windows.create = async options => {
@@ -77,7 +96,7 @@ test('offscreen coordinates fall back to Chrome placement without weakening unre
     assert.equal(f.calls.length, 2);
     assert.equal(f.calls[1].left, undefined);
     assert.equal(f.calls[1].top, undefined);
-    assert.equal(f.calls[1].url, f.url);
+    assert.equal(new URL(f.calls[1].url).searchParams.get('windowId'), '1');
     assert.equal(f.calls[1].focused, true);
 });
 
@@ -85,6 +104,53 @@ test('an explicit invoking window wins over stale global focus when opening from
     const f = fixture();
     f.api.windows.get = async id => ({ id, left: 0, top: 0, width: 800, height: 600 });
     await toggleQuickSwitcher(f.api, 9);
-    assert.equal(f.calls[0][1].url, `${f.page}?windowId=9`);
+    assert.equal(new URL(f.calls[0][1].url).searchParams.get('windowId'), '9');
     assert.equal(f.calls[0][1].left, 80);
+});
+
+test('only the created native window and exact renderer URL can load the search', async () => {
+    const f = fixture();
+    await toggleQuickSwitcher(f.api);
+    f.setPopups([{ id: 77, type: 'popup' }, { id: 88, type: 'popup' }]);
+    const sender = { id: 'arcify', tab: { windowId: 77 }, frameId: 0, documentLifecycle: 'active', url: f.calls[0][1].url };
+    assert.deepEqual(await authorizeQuickSwitcherWindow(f.api, sender), { windowId: 1, incognito: false });
+    for (const change of [{ tab: { windowId: 88 } }, { frameId: 3 }, { id: 'unrelated' }, { url: f.url }]) {
+        assert.deepEqual(await authorizeQuickSwitcherWindow(f.api, { ...sender, ...change }), {});
+    }
+});
+
+test('Quick Switcher prefers the focused source tab inline and never falls back over a later tab', async () => {
+    const f = fixture();
+    const active = { id: 32, active: true };
+    f.setSource({ id: 1, type: 'normal', focused: true, tabs: [active] });
+    await toggleQuickSwitcher(f.api, 1, { async openSearch(tab) {
+        assert.equal(tab, active);
+        return true;
+    } });
+    await toggleQuickSwitcher(f.api, 1, { async openSearch() {
+        f.setSource({ id: 1, focused: true, tabs: [{ id: 33, active: true }] });
+        return false;
+    } });
+    assert.deepEqual(f.calls, []);
+});
+
+test('a history confirmation stays in the owning native window and can be read only once', async () => {
+    const f = fixture();
+    f.setSource({ id: 1, type: 'normal', focused: true });
+    f.setPopups([{ id: 77, type: 'popup' }]);
+    const tab = { id: 32, windowId: 1, url: 'https://source.test/' };
+    const draft = { query: 'Synthetic query', urls: ['https://history.test/visited'] };
+    assert.equal(await confirmQuickSwitcherDeletion(f.api, tab, draft, async () => false), false);
+    assert.deepEqual(f.calls, []);
+    assert.equal(await confirmQuickSwitcherDeletion(f.api, tab, draft, async () => true), true);
+    const sender = { id: 'arcify', tab: { windowId: 77 }, frameId: 0, documentLifecycle: 'active', url: f.calls[0][1].url };
+    assert.ok(!sender.url.includes('Synthetic') && !sender.url.includes('history.test'));
+    assert.deepEqual(await authorizeQuickSwitcherWindow(f.api, sender), { windowId: 1, incognito: false,
+        deletion: { ...draft, source: { id: tab.id, url: tab.url } } });
+    assert.deepEqual(await authorizeQuickSwitcherWindow(f.api, sender), { windowId: 1, incognito: false });
+
+    assert.equal(await confirmQuickSwitcherDeletion(f.api, tab, draft, async () => true), true);
+    forgetQuickSwitcherPrompt(77);
+    assert.deepEqual(await authorizeQuickSwitcherWindow(f.api, { ...sender, url: f.calls[1][1].url }),
+        { windowId: 1, incognito: false });
 });

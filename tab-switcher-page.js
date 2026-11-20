@@ -6,20 +6,16 @@ import { TAB_SWITCHER_CAPTURE_ON_VISIT, TAB_SWITCHER_EXCLUDED_DOMAINS,
 import { isBrowsingPreviewCandidate, shouldOfferVisitPreviewHint, TAB_PREVIEW_HINT_DISMISSED,
     TAB_PREVIEW_HINT_PREFS } from './tab-switcher-preview-settings.js';
 import { Utils } from './utils.js';
+import { connectPopupFrame, validPopupToken } from './popup-renderer.js';
 
 const inline = window.parent !== window;
-const validToken = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
 if (inline) {
     // An independently embedded copy stays inert. Its parent never receives picker data.
-    window.addEventListener('message', async event => {
-        if (event.source !== window.parent || event.data?.type !== 'recent-tabs-inline' || !validToken(event.data.nonce)) return;
-        const { token } = await chrome.runtime.sendMessage({ type: 'recent-tabs-inline', action: 'renderer', nonce: event.data.nonce })
-            .catch(() => ({})) ?? {};
-        if (!validToken(token) || document.documentElement.hasAttribute('data-picker-ready')) return;
+    connectPopupFrame(({ token }) => {
         document.documentElement.dataset.pickerReady = '';
         startPicker(token, true);
     });
-} else if (validToken(location.hash.slice(1))) {
+} else if (validPopupToken(location.hash.slice(1))) {
     document.documentElement.dataset.pickerReady = '';
     startPicker(location.hash.slice(1), false);
 }

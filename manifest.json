@@ -83,7 +83,7 @@
     "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; connect-src https://www.googleapis.com/calendar/v3/calendars/primary/events https://oauth2.googleapis.com/revoke; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'none'; form-action 'none'; base-uri 'none';"
   },
   "web_accessible_resources": [{
-    "resources": ["tab-switcher.html"],
+    "resources": ["tab-switcher.html", "quick-switcher.html"],
     "matches": ["http://*/*", "https://*/*"],
     "use_dynamic_url": true
   }],

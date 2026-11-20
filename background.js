@@ -6,7 +6,7 @@ import { LocalStorage } from './localstorage.js';
 import { Logger } from './logger.js';
 import { isTrustedExtensionMessage } from './message-security.js';
 import { NativeFavorites } from './native-favorites.js';
-import { toggleQuickSwitcher } from './quick-switcher-window.js';
+import { authorizeQuickSwitcherWindow, forgetQuickSwitcherPrompt, toggleQuickSwitcher } from './quick-switcher-window.js';
 import { SpaceStore, ownerOf } from './space-store.js';
 import { TabSwitcherOverlay } from './tab-switcher-overlay.js';
 import { TabSwitcher } from './tab-switcher.js';
@@ -70,6 +70,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isTrustedExtensionMessage(message, sender, chrome)) return;
 
     switch (message.type) {
+        case 'quickSwitcherWindow':
+            return respond(authorizeQuickSwitcherWindow(chrome, sender), sendResponse, 'Could not connect Quick Switcher.');
         case 'cleanTabs':
             return handleCleanTabs(message, sender, sendResponse);
         case 'popupSpaceTheme':
@@ -97,7 +99,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     switch (message.action) {
         case 'openQuickSwitcher':
-            return respond(toggleQuickSwitcher(chrome, sender.tab?.windowId ?? message.windowId),
+            return respond(toggleQuickSwitcher(chrome, sender.tab?.windowId ?? message.windowId, tabSwitcherOverlay),
                 sendResponse, 'Could not open Quick Switcher.');
         case 'updateAutoArchiveSettings':
             return respond(setupAutoArchiveAlarm(), sendResponse, 'Could not update the auto-archive alarm.');
@@ -143,6 +145,7 @@ async function getRecentTabs(limit) {
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(Logger.error);
 chrome.windows?.onRemoved?.addListener(() => tabSwitcher.removeWindow().catch(Logger.error));
+chrome.windows?.onRemoved?.addListener(forgetQuickSwitcherPrompt);
 chrome.windows?.onFocusChanged?.addListener(windowId => tabSwitcher.windowFocused(windowId).catch(Logger.error));
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
@@ -175,7 +178,7 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
                 await tabSwitcher.invoke(tab);
                 break;
             case QUICK_SWITCHER_COMMAND:
-                await toggleQuickSwitcher(chrome, tab?.windowId);
+                await toggleQuickSwitcher(chrome, tab?.windowId, tabSwitcherOverlay);
                 break;
             case 'quickPinToggle':
                 await chrome.runtime.sendMessage({ command: 'quickPinToggle' });
@@ -261,16 +264,19 @@ function setTabActivity(tabId, timestamp) {
 }
 
 chrome.tabs.onActivated.addListener(info => {
+    tabSwitcherOverlay.searchTabActivated(info);
     tabSwitcher.tabActivated(info);
     return setTabActivity(info.tabId, Date.now());
 });
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+    if (change.url !== undefined || change.status === 'loading' || change.discarded) tabSwitcherOverlay.searchSourceChanged(tabId);
     tabSwitcher.inlineSourceChanged(tabId, change)?.catch(Logger.error);
     if ((change.status === 'complete' || change.audible !== undefined) && (tab.active || tab.audible)) {
         return setTabActivity(tabId, Date.now());
     }
 });
 chrome.tabs.onRemoved.addListener(async tabId => {
+    tabSwitcherOverlay.searchSourceChanged(tabId);
     tabSwitcher.removeTab(tabId).catch(Logger.error);
     await setTabActivity(tabId);
     await Utils.removeTabNameOverride(tabId).catch(Logger.error);

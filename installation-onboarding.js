@@ -24,8 +24,9 @@ function showSetupStep(index, focus = true) {
     updateMotion();
 }
 let state, windowId, handedOff = false, paused = false;
-const motion = matchMedia('(prefers-reduced-motion: reduce)');
+const motion = __PRISMARC_STORE_BUILD__ ? null : matchMedia('(prefers-reduced-motion: reduce)');
 function updateMotion() {
+    if (__PRISMARC_STORE_BUILD__) return;
     const stopped = paused || motion.matches || document.hidden || handedOff || setupStep !== 1;
     $('setup-gif').hidden = stopped;
     // Remove the animated source while stopped, so the GIF does not keep decoding.
@@ -71,9 +72,11 @@ $('skip').addEventListener('click', async () => {
         render({ status: 'skipped' });
     } catch (error) { showError(error); }
 });
-$('pause').addEventListener('click', () => { paused = !paused; updateMotion(); });
-document.addEventListener('visibilitychange', updateMotion);
-motion.addEventListener('change', updateMotion);
+if (!__PRISMARC_STORE_BUILD__) {
+    $('pause').addEventListener('click', () => { paused = !paused; updateMotion(); });
+    document.addEventListener('visibilitychange', updateMotion);
+    motion.addEventListener('change', updateMotion);
+}
 $('appearance').addEventListener('click', () => chrome.tabs.create({ url: 'chrome://settings/appearance' }).catch(showError));
 function openShortcutSettings() {
     chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }).catch(showError);

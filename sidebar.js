@@ -412,17 +412,19 @@ async function updatePinnedFavicons() {
             existingElement = faviconElement;
         }
         existingElement.dataset.pinnedUrl = tab.baseUrl || tab.url;
-        const calendarUrl = calendarPreview && calendarFavoriteUrl(existingElement.dataset.pinnedUrl);
-        if (calendarUrl) {
-            existingElement.dataset.calendarFavorite = calendarUrl.href;
-            existingElement.setAttribute('aria-haspopup', 'dialog');
-            existingElement.setAttribute('aria-keyshortcuts', 'ArrowDown');
-            existingElement.setAttribute('aria-controls', 'calendarPreview');
-            if (!existingElement.hasAttribute('aria-expanded')) existingElement.setAttribute('aria-expanded', 'false');
-        } else if (existingElement.hasAttribute('data-calendar-favorite')) {
-            delete existingElement.dataset.calendarFavorite;
-            for (const name of ['aria-haspopup', 'aria-keyshortcuts', 'aria-controls', 'aria-expanded']) {
-                existingElement.removeAttribute(name);
+        if (__PRISMARC_INCLUDE_CALENDAR__) {
+            const calendarUrl = calendarPreview && calendarFavoriteUrl(existingElement.dataset.pinnedUrl);
+            if (calendarUrl) {
+                existingElement.dataset.calendarFavorite = calendarUrl.href;
+                existingElement.setAttribute('aria-haspopup', 'dialog');
+                existingElement.setAttribute('aria-keyshortcuts', 'ArrowDown');
+                existingElement.setAttribute('aria-controls', 'calendarPreview');
+                if (!existingElement.hasAttribute('aria-expanded')) existingElement.setAttribute('aria-expanded', 'false');
+            } else if (existingElement.hasAttribute('data-calendar-favorite')) {
+                delete existingElement.dataset.calendarFavorite;
+                for (const name of ['aria-haspopup', 'aria-keyshortcuts', 'aria-controls', 'aria-expanded']) {
+                    existingElement.removeAttribute(name);
+                }
             }
         }
         existingElement.dataset.audioBaseTitle = `${tab.title}\n${tab.baseUrl || tab.url}\nDouble-click to return to saved URL`;
@@ -439,7 +441,7 @@ async function updatePinnedFavicons() {
             if (element) pinnedFavicons.append(element.closest('.favorite-tile'));
         });
     }
-    calendarPreview?.position();
+    if (__PRISMARC_INCLUDE_CALENDAR__) calendarPreview?.position();
 
     // Show/hide placeholder based on whether there are pinned tabs
     const placeholderContainer = pinnedFavicons.querySelector('.pinned-placeholder-container');
@@ -663,10 +665,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             Logger.error('[Quick Switcher] Could not open search:', error);
         }
     });
-    chrome.commands.getAll().then(commands => {
-        document.getElementById('quickSwitcherShortcut').textContent =
-            commands.find(command => command.name === 'mockQuickSwitcher')?.shortcut || 'Search';
-    }).catch(error => Logger.error('[Quick Switcher] Could not read shortcut:', error));
+    const refreshSearchShortcut = async () => {
+        try {
+            const commands = await chrome.commands.getAll();
+            const shortcut = commands.find(command => command.name === 'mockQuickSwitcher')?.shortcut;
+            document.getElementById('quickSwitcherTooltip').textContent = shortcut ? `Quick Switcher · ${shortcut}` : 'Quick Switcher';
+        } catch (error) {
+            Logger.error('[Quick Switcher] Could not read shortcut:', error);
+        }
+    };
+    refreshSearchShortcut();
+    window.addEventListener('focus', refreshSearchShortcut);
     await applyColorOverrides();
 
     // Listen for storage changes to re-apply colors when they're updated
@@ -850,7 +859,7 @@ async function initSidebar() {
     defaultSpaceName = settings.defaultSpaceName || 'Home';
     showAllOpenTabsInCollapsedFolders = Boolean(settings.showAllOpenTabsInCollapsedFolders);
     currentWindow = await chrome.windows.getCurrent({ populate: false });
-    if (!currentWindow.incognito) {
+    if (__PRISMARC_INCLUDE_CALENDAR__ && !currentWindow.incognito) {
         const favorites = document.getElementById('pinnedFavicons');
         calendarPreview = new CalendarPreview(favorites, async (url, reuse = false) => {
             if (reuse) {

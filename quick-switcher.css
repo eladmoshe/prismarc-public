@@ -13,10 +13,11 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 14px;
     color: var(--text);
-    background:
+    --palette-background:
         radial-gradient(ellipse 92% 90% at 0% 0%, var(--prismarc-search-indigo), transparent 72%),
         radial-gradient(ellipse 86% 89% at 100% 100%, var(--prismarc-search-teal), transparent 71%),
         var(--background);
+    background: var(--palette-background);
 }
 :root[data-space-color="prismarc-light"] {
     color-scheme: light;
@@ -29,7 +30,7 @@
     --selected: var(--prismarc-light-selected);
     --shortcut-ink: var(--muted);
     --error-ink: #8b244a;
-    background: var(--prismarc-light-gradient) var(--background);
+    --palette-background: var(--prismarc-light-gradient) var(--background);
 }
 
 * { box-sizing: border-box; }
@@ -41,6 +42,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .icon-definitions { position: absolute; width: 0; height: 0; overflow: hidden; }
 .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .palette { display: flex; flex-direction: column; height: 100vh; }
+:root:not([data-picker-ready]), :root[data-inline-search] { background: transparent; }
+:root:not([data-picker-ready]) body { visibility: hidden; }
+[data-inline-search] body { display: grid; min-height: 100vh; place-items: center; }
+[data-inline-search] .palette {
+    width: min(640px, calc(100% - 24px));
+    height: min(560px, calc(100vh - 24px));
+    overflow: hidden;
+    border: var(--divider);
+    border-radius: 14px;
+    background: var(--palette-background);
+    box-shadow: 0 12px 44px #0d122b80;
+}
 .search-line { display: flex; align-items: center; gap: 14px; padding: 23px 22px; border-bottom: var(--divider); }
 .search-icon { width: 22px; height: 22px; color: var(--accent); }
 #search { min-width: 0; width: 100%; background: transparent; border: 0; padding: 5px 2px; font-size: 18px; letter-spacing: -.35px; }
@@ -109,6 +122,9 @@ kbd { font: inherit; font-size: 11px; padding: 0 4px; border: 1px solid var(--bo
 .has-history-delete:hover .history-delete, .has-history-delete:focus-within .history-delete { opacity: 1; pointer-events: auto; }
 .has-history-delete:hover .result-shortcut, .has-history-delete:focus-within .result-shortcut { visibility: hidden; }
 .has-history-delete:hover .return-icon, .has-history-delete:focus-within .return-icon { visibility: hidden; }
+.has-history-delete[data-confirm-history] .history-delete { opacity: 1; pointer-events: auto; width: 52px; background: var(--soft); color: var(--text); font: inherit; font-size: 12px; }
+.has-history-delete[data-confirm-history] .result { padding-right: 60px; }
+.has-history-delete[data-confirm-history] .result-shortcut { display: none; }
 .history-delete:hover, .history-delete:focus-visible { background: var(--soft); color: var(--text); }
 .history-delete:disabled { cursor: default; }
 .has-history-delete:hover .history-delete:disabled, .has-history-delete:focus-within .history-delete:disabled { opacity: .4; }

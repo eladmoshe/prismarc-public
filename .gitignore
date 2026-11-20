@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 dist-dev/
+dist-store/
 *.zip
 
 # System files

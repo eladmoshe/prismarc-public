@@ -267,29 +267,32 @@ async function setupPreviewDomains() {
   });
 }
 
+function markSwitchPending(control, pending, related) {
+  control.setAttribute('aria-busy', String(pending));
+  for (const input of [control, related].filter(Boolean)) {
+    if (pending) input.setAttribute('aria-disabled', 'true');
+    else input.removeAttribute('aria-disabled');
+  }
+}
+
 function setupInlineSwitcher() {
-  const button = document.getElementById(INLINE_SWITCHER);
-  if (!button) return;
+  const toggle = document.getElementById(INLINE_SWITCHER);
+  if (!toggle) return;
   let choice;
-  let enabled = false;
   let busy = false;
   let revision = 0;
 
   async function refresh() {
     const request = ++revision;
-    const [settings, grants, platform] = await Promise.all([
+    const [settings, grants] = await Promise.all([
       chrome.storage.local.get(INLINE_SWITCHER),
       chrome.permissions.getAll(),
-      chrome.runtime.getPlatformInfo(),
     ]);
     if (request !== revision) return;
-    if (platform.os !== 'mac') return;
-    button.closest('.options-setting-item').style.removeProperty('display');
     choice = settings[INLINE_SWITCHER];
     const hostAccess = grants.origins?.some(origin => origin === '<all_urls>' || /^(?:https?|\*):\/\//.test(origin));
-    enabled = choice === true && grants.permissions?.includes('scripting') && hostAccess;
-    button.textContent = enabled ? 'Use the Recent Tabs window' : 'Show Recent Tabs over webpages';
-    button.disabled = busy;
+    toggle.checked = choice === true && grants.permissions?.includes('scripting') && hostAccess;
+    toggle.disabled = false;
   }
 
   const update = () => refresh().catch(() => {});
@@ -298,17 +301,22 @@ function setupInlineSwitcher() {
   });
   chrome.permissions.onAdded.addListener(update);
   chrome.permissions.onRemoved.addListener(update);
-  button.addEventListener('click', async event => {
+  toggle.addEventListener('click', async event => {
+    const checked = toggle.checked;
+    // Keep the last effective state visible until the native request and save finish.
+    event.preventDefault();
     if (!event.isTrusted || busy) return;
-    busy = button.disabled = true;
+    busy = true;
+    markSwitchPending(toggle, true);
     try {
-      if (!await setInlineSwitcher(chrome, !enabled, choice)) showToast('Chrome kept the Recent Tabs window.');
+      if (!await setInlineSwitcher(chrome, checked, choice)) showToast('Chrome kept the current popup setting.');
       else showToast();
     } catch {
-      showToast('Could not change how Recent Tabs opens.');
+      showToast('Could not change how PrismArc popups open.');
     } finally {
+      await update();
       busy = false;
-      update();
+      markSwitchPending(toggle, false);
     }
   });
   update();
@@ -316,11 +324,10 @@ function setupInlineSwitcher() {
 
 function setupPagePreviews() {
   const checkbox = document.getElementById(TAB_SWITCHER_PAGE_PREVIEWS);
-  const visitButton = document.getElementById(TAB_SWITCHER_CAPTURE_ON_VISIT);
-  if (!checkbox || !visitButton) return;
+  const visitToggle = document.getElementById(TAB_SWITCHER_CAPTURE_ON_VISIT);
+  if (!checkbox || !visitToggle) return;
   const keys = [TAB_SWITCHER_PAGE_PREVIEWS, TAB_SWITCHER_CAPTURE_ON_VISIT];
   let busy = false;
-  let visitEnabled = false;
   let visitChoice;
   let version = 0;
   const fromPreviewHint = location.hash === `#${TAB_SWITCHER_CAPTURE_ON_VISIT}`;
@@ -336,27 +343,27 @@ function setupPagePreviews() {
       if (request !== version) return;
       checkbox.checked = settings[TAB_SWITCHER_PAGE_PREVIEWS] !== false;
       visitChoice = settings[TAB_SWITCHER_CAPTURE_ON_VISIT];
-      visitEnabled = visitChoice === true && granted;
-      visitButton.textContent = visitEnabled ? 'Turn off previews as I browse' : 'Enable previews as I browse';
-      checkbox.disabled = busy;
-      visitButton.disabled = busy || !checkbox.checked;
-      if (focusPreviewAction && !visitButton.disabled) {
+      visitToggle.checked = checkbox.checked && visitChoice === true && granted;
+      checkbox.disabled = false;
+      visitToggle.disabled = !checkbox.checked;
+      if (focusPreviewAction && !visitToggle.disabled) {
         focusPreviewAction = false;
-        if (document.activeElement === document.body) visitButton.focus();
+        if (document.activeElement === document.body) visitToggle.focus();
       }
     } catch {
       // Leave the controls at their last readable state if Chrome rejects the request.
     }
   }
 
-  function startChange() {
+  function startChange(control, related) {
     busy = true;
-    checkbox.disabled = visitButton.disabled = true;
+    markSwitchPending(control, true, related);
   }
 
-  async function finishChange() {
-    busy = false;
+  async function finishChange(control, related) {
     await restore();
+    busy = false;
+    markSwitchPending(control, false, related);
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -366,9 +373,11 @@ function setupPagePreviews() {
   chrome.permissions.onRemoved.addListener(restore);
   restore();
 
-  checkbox.addEventListener('change', async () => {
-    startChange();
+  checkbox.addEventListener('click', async event => {
     const checked = checkbox.checked;
+    event.preventDefault();
+    if (!event.isTrusted || busy) return;
+    startChange(checkbox, visitToggle);
     try {
       const preference = { [TAB_SWITCHER_PAGE_PREVIEWS]: checked };
       if (!checked) preference[TAB_SWITCHER_CAPTURE_ON_VISIT] = false;
@@ -377,15 +386,17 @@ function setupPagePreviews() {
     } catch {
       showToast('Could not change page previews. Try again.');
     } finally {
-      await finishChange();
+      await finishChange(checkbox, visitToggle);
     }
   });
 
-  visitButton.addEventListener('click', async event => {
+  visitToggle.addEventListener('click', async event => {
+    const checked = visitToggle.checked;
+    event.preventDefault();
     if (!event.isTrusted || busy || !checkbox.checked) return;
-    startChange();
+    startChange(visitToggle, checkbox);
     try {
-      if (visitEnabled) {
+      if (!checked) {
         await setPreviewPreferences(chrome, { [TAB_SWITCHER_CAPTURE_ON_VISIT]: false });
       } else {
         const result = await enableVisitPreviews(chrome, visitChoice);
@@ -400,7 +411,7 @@ function setupPagePreviews() {
     } catch {
       showToast('Could not change previews as you browse.');
     } finally {
-      await finishChange();
+      await finishChange(visitToggle, checkbox);
     }
   });
 }
