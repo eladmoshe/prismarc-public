@@ -63,7 +63,7 @@ function startBackground() {
         enqueueBookmarkOperation: async () => ({}), copyCurrentTabUrlWithFallback: async () => {},
         SpaceStore, ownerOf, isProtectedFavorite, NativeFavorites, LocalStorage, Utils, Logger, TabSwitcher,
         TabSwitcherOverlay: class {
-            register() {} receive() {} searchTabActivated() {} searchSourceChanged() {}
+            register() {} receive() {} tabActivated() {} sourceChanged() {}
             isOnTab() { return false; } isOverlayFrame() { return false; }
         },
         TabSwitcherPreviews: class { register() {} }

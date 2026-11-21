@@ -156,14 +156,20 @@
         } else if (action === 'armed' && watch?.nonce === nonce) {
             watch.open = true;
             respond(true);
+        } else if (action === 'focus' && sheet?.nonce === nonce && sheet.search && sheet.host.isConnected) {
+            sheet.focus = document.activeElement;
+            // A visibility:hidden frame cannot receive focus. Keep it transparent and out of hit testing.
+            sheet.frame.style.opacity = '0';
+            sheet.frame.style.pointerEvents = 'none';
+            sheet.frame.style.visibility = 'visible';
+            sheet.frame.focus({ preventScroll: true });
+            respond(true);
         } else if (action === 'show' && sheet?.nonce === nonce && sheet.host.isConnected &&
-            (sheet.search || document.hasFocus())) {
+            document.hasFocus() && (!sheet.search || document.activeElement === sheet.host)) {
             if (watch?.nonce === nonce) watch.open = true;
             sheet.frame.style.visibility = 'visible';
-            if (sheet.search) {
-                sheet.focus = document.activeElement;
-                sheet.frame.focus({ preventScroll: true });
-            }
+            sheet.frame.style.opacity = '';
+            sheet.frame.style.pointerEvents = 'auto';
             respond(true);
         } else if (action === 'confirm-route') {
             const owns = mounting === nonce || sheet?.nonce === nonce;

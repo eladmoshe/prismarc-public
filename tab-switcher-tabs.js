@@ -31,6 +31,15 @@ export async function focusOpenTab(chromeApi, tabId) {
     return tab;
 }
 
+export async function activeSwitcherSource(chromeApi, source) {
+    if (!Number.isInteger(source?.id) || !Number.isInteger(source.windowId)) return null;
+    const window = await chromeApi.windows.get(source.windowId, { populate: true }).catch(() => null);
+    if (!window?.focused || window.type !== 'normal' || Boolean(window.incognito) !== Boolean(source.incognito)) return null;
+    return window.tabs?.find(tab => tab.active && tab.id === source.id && tab.windowId === source.windowId &&
+        Boolean(tab.incognito) === Boolean(source.incognito) &&
+        tab.url === source.url && tab.pendingUrl === source.pendingUrl) ?? null;
+}
+
 function tabAddress(value) {
     let url;
     try {

@@ -31,7 +31,7 @@ const spaceStore = new SpaceStore();
 const favorites = new NativeFavorites();
 const tabSwitcherOverlay = new TabSwitcherOverlay(chrome, {
     input: (token, action) => tabSwitcher.inlineInput(token, action).catch(Logger.error),
-    lost: (token, fallback) => tabSwitcher.inlineLost(token, fallback).catch(Logger.error),
+    lost: token => tabSwitcher.inlineLost(token).catch(Logger.error),
 });
 const tabSwitcherPreviews = new TabSwitcherPreviews(chrome, {
     isCovered: id => tabSwitcherOverlay.coversTab(id), coverVersion: () => tabSwitcherOverlay.coverVersion ?? 0,
@@ -267,18 +267,18 @@ function setTabActivity(tabId, timestamp) {
 }
 
 chrome.tabs.onActivated.addListener(info => {
-    tabSwitcherOverlay.searchTabActivated(info);
+    tabSwitcherOverlay.tabActivated(info);
     tabSwitcher.tabActivated(info);
     return setTabActivity(info.tabId, Date.now());
 });
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
-    if (change.url !== undefined || change.status === 'loading' || change.discarded) tabSwitcherOverlay.searchSourceChanged(tabId, change, tab);
+    if (change.url !== undefined || change.status === 'loading' || change.discarded) tabSwitcherOverlay.sourceChanged(tabId, change, tab);
     if ((change.status === 'complete' || change.audible !== undefined) && (tab.active || tab.audible)) {
         return setTabActivity(tabId, Date.now());
     }
 });
 chrome.tabs.onRemoved.addListener(async tabId => {
-    tabSwitcherOverlay.searchSourceChanged(tabId);
+    tabSwitcherOverlay.sourceChanged(tabId);
     tabSwitcher.removeTab(tabId).catch(Logger.error);
     await setTabActivity(tabId);
     await Utils.removeTabNameOverride(tabId).catch(Logger.error);

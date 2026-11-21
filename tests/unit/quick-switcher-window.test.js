@@ -121,7 +121,7 @@ test('only the created native window and exact renderer URL can load the search'
 
 test('Quick Switcher prefers the focused source tab inline and never falls back over a later tab', async () => {
     const f = fixture();
-    const active = { id: 32, active: true };
+    const active = { id: 32, windowId: 1, active: true };
     f.setSource({ id: 1, type: 'normal', focused: true, tabs: [active] });
     assert.equal(await toggleQuickSwitcher(f.api, 1, { async openSearch(tab) {
         assert.equal(tab, active);
@@ -136,7 +136,7 @@ test('Quick Switcher prefers the focused source tab inline and never falls back 
 
 test('a failed inline invocation does not pop up over a new route in the same tab or a different focused window', async () => {
     const f = fixture();
-    const active = { id: 32, active: true, url: 'https://source.test/start' };
+    const active = { id: 32, windowId: 1, active: true, url: 'https://source.test/start' };
     f.setSource({ id: 1, type: 'normal', focused: true, tabs: [active] });
     assert.equal(await toggleQuickSwitcher(f.api, 1, { async openSearch() {
         f.setSource({ id: 1, type: 'normal', focused: true, tabs: [{ ...active, url: 'https://source.test/later' }] });
@@ -146,6 +146,22 @@ test('a failed inline invocation does not pop up over a new route in the same ta
     f.setSource({ id: 2, type: 'normal', focused: true, tabs: [] });
     assert.equal(await toggleQuickSwitcher(f.api, 1), false);
     assert.deepEqual(f.calls, []);
+});
+
+test('Quick Switcher falls back for an unchanged pending navigation and cancels if its destination changes', async () => {
+    const f = fixture();
+    const active = { id: 32, windowId: 1, active: true, url: 'https://source.test/start',
+        pendingUrl: 'https://source.test/pending' };
+    const source = { id: 1, type: 'normal', focused: true, tabs: [active] };
+    f.setSource(source);
+    assert.equal(await toggleQuickSwitcher(f.api, 1, { async openSearch() {
+        f.setSource({ ...source, tabs: [{ ...active, pendingUrl: 'https://source.test/later' }] });
+        return false;
+    } }), false);
+    assert.deepEqual(f.calls, []);
+    f.setSource(source);
+    assert.equal(await toggleQuickSwitcher(f.api, 1, { openSearch: async () => false }), true);
+    assert.deepEqual(f.calls.map(([operation]) => operation), ['create']);
 });
 
 test('a history confirmation stays in the owning native window and can be read only once', async () => {

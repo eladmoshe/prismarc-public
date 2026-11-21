@@ -2,13 +2,19 @@ import { INLINE_SWITCHER } from './tab-switcher-inline-settings.js';
 import { INLINE_MESSAGE, attachInlineListener, inlinePage, registerInlineSwitcher } from './tab-switcher-inline-registration.js';
 import { confirmQuickSwitcherDeletion } from './quick-switcher-window.js';
 import { historyDestinationIdentity } from './quick-switcher-search.js';
-import { usesOptionShortcut } from './tab-switcher-tabs.js';
+import { activeSwitcherSource, usesOptionShortcut } from './tab-switcher-tabs.js';
 
 const FRAME_PAGE = 'tab-switcher.html';
 const SEARCH_PAGE = 'quick-switcher.html';
-// The preloaded key listener records Option-up while the picker loads.
-const RECENT_READY_MS = 1000;
-const SEARCH_READY_MS = 1500;
+const PICKER_READY_MS = 1500;
+const SEARCH_FOCUS_MS = 600;
+const HOST_REPLY_MS = 500;
+
+function waitForHost(reply, timeoutValue) {
+    let timer;
+    const timeout = new Promise(resolve => { timer = setTimeout(resolve, HOST_REPLY_MS, timeoutValue); });
+    return Promise.race([reply, timeout]).finally(() => clearTimeout(timer));
+}
 
 export class TabSwitcherOverlay {
     constructor(chromeApi, { input, lost }) {
@@ -18,7 +24,7 @@ export class TabSwitcherOverlay {
     }
 
     register() {
-        registerInlineSwitcher(this.chrome, () => this.reset(true));
+        registerInlineSwitcher(this.chrome, () => this.reset());
         this.chrome.runtime.onConnect.addListener(port => {
             if (port.name !== 'recent-tabs-inline-lifetime') return;
             const attempt = this.current;
@@ -80,22 +86,30 @@ export class TabSwitcherOverlay {
         const focused = page === SEARCH_PAGE ? new Promise(resolve => { focus = resolve; }) : null;
         const attempt = { source, token, page, nonce: crypto.randomUUID(), pressedAt, settle, focus };
         this.current = attempt;
-        const timer = setTimeout(() => { settle(false); focus?.(false); }, page === SEARCH_PAGE ? SEARCH_READY_MS : RECENT_READY_MS);
+        let timer = setTimeout(() => settle(false), PICKER_READY_MS);
         try {
             await prepare?.();
-            if (this.current !== attempt) return false;
+            if (this.current !== attempt) return attempt.interrupted === true;
             if (page === SEARCH_PAGE) this.mount(attempt);
             else this.send(attempt, 'probe').then(found => { if (!found) settle(false); }, () => settle(false));
-            if (await ready && this.current === attempt) {
-                if (attempt.keyDocument) this.send(attempt, 'armed', { documentId: attempt.keyDocument }).catch(() => {});
-                attempt.showing = page === FRAME_PAGE;
-                const show = this.send(attempt, 'show', { documentId: attempt.host }).catch(() => false);
-                show.then(shown => { if (!shown) focus?.(false); });
-                if (await (focused || show) && this.current === attempt) {
-                    attempt.visible = true;
-                    if (attempt.released) this.input(attempt.token, 'commit');
-                    return true;
-                }
+            if (!await ready || this.current !== attempt) return attempt.interrupted === true;
+            clearTimeout(timer);
+            if (attempt.keyDocument) this.send(attempt, 'armed', { documentId: attempt.keyDocument }).catch(() => {});
+            const host = { documentId: attempt.host };
+            if (focused) {
+                // Keyboard focus has its own deadline. The overlay stays transparent until input is ready.
+                timer = setTimeout(() => focus(false), SEARCH_FOCUS_MS);
+                this.send(attempt, 'focus', host).then(accepted => { if (!accepted) focus(false); }, () => focus(false));
+                if (!await focused || this.current !== attempt) return attempt.interrupted === true;
+            }
+            attempt.showing = true;
+            const stopped = new Promise(resolve => { attempt.stopShowing = resolve; });
+            const shown = await waitForHost(Promise.race([this.send(attempt, 'show', host).catch(() => false), stopped]), null);
+            if (shown === null && this.current === attempt) this.reset();
+            if (shown && this.current === attempt) {
+                attempt.visible = true;
+                if (attempt.released) this.input(attempt.token, 'commit');
+                return true;
             }
         } finally {
             clearTimeout(timer);
@@ -108,32 +122,32 @@ export class TabSwitcherOverlay {
     async mount(attempt) {
         const extra = attempt.page === SEARCH_PAGE ? { page: SEARCH_PAGE } : {};
         const mounted = await this.send(attempt, 'mount', { frameId: 0 }, extra).catch(error => {
-            if (attempt.page === SEARCH_PAGE && /Receiving end does not exist/i.test(error?.message)) {
-                return this.attachSearchHost(attempt).catch(() => false);
+            if (/Receiving end does not exist/i.test(error?.message)) {
+                return this.attachHost(attempt, extra).catch(() => false);
             }
             return false;
         });
         if (!mounted) attempt.settle(false);
     }
 
-    async attachSearchHost(attempt) {
+    async attachHost(attempt, extra) {
         // An already-open document can predate registration. Repair a missing
         // receiver on the opted-in active tab using only the packaged listener.
-        if (!await this.stillOnSource(attempt) || !await this.available(attempt.source, SEARCH_PAGE) || this.current !== attempt) return false;
+        if (!await this.stillOnSource(attempt) || !await this.available(attempt.source, attempt.page) || this.current !== attempt) return false;
         const [injected] = await attachInlineListener(this.chrome, attempt.source.id);
         if (injected?.frameId !== 0 || !injected.documentId || !await this.stillOnSource(attempt) || this.current !== attempt) return false;
         attempt.intendedHost = injected.documentId;
-        return this.send(attempt, 'mount', { documentId: injected.documentId }, { page: SEARCH_PAGE });
+        return this.send(attempt, 'mount', { documentId: injected.documentId }, extra);
     }
 
     async stillOnSource({ source }) {
-        const window = await this.chrome.windows.get(source.windowId, { populate: true }).catch(() => null);
-        return window?.focused && window.type === 'normal' && !window.incognito &&
-            window.tabs?.some(tab => tab.id === source.id && tab.active && tab.url === source.url && !tab.pendingUrl);
+        return Boolean(!source.incognito && !source.pendingUrl && await activeSwitcherSource(this.chrome, source));
     }
 
     async confirmsInlineRoute(attempt, documentId) {
-        const confirmed = await this.send(attempt, 'confirm-route', { documentId }, { url: attempt.source.url }).catch(() => false);
+        const target = { documentId };
+        const route = { url: attempt.source.url };
+        const confirmed = await this.send(attempt, 'confirm-route', target, route).catch(() => false);
         return confirmed === true && this.current === attempt && await this.stillOnSource(attempt) && this.current === attempt;
     }
 
@@ -143,10 +157,11 @@ export class TabSwitcherOverlay {
         this.current = null;
         attempt.settle(false);
         attempt.focus?.(false);
+        attempt.stopShowing?.(false);
         // A nested input frame must not acknowledge removal of the top frame.
         const documents = new Set([attempt.host, attempt.keyDocument].filter(Boolean));
         const close = documentId => this.send(attempt, 'close', { documentId });
-        return Promise.allSettled([...documents].map(close)).then(() => {
+        return waitForHost(Promise.allSettled([...documents].map(close))).then(() => {
             if (this.covered === attempt) {
                 this.covered = null;
                 this.coverVersion++;
@@ -154,13 +169,13 @@ export class TabSwitcherOverlay {
         });
     }
 
-    reset(fallback = false) {
+    reset() {
         const attempt = this.current;
         if (attempt) {
             this.close(attempt.token);
-            if (attempt.page === FRAME_PAGE && (attempt.visible || attempt.showing)) {
+            if (attempt.visible || attempt.showing) {
                 attempt.interrupted = true;
-                this.lost(attempt.token, fallback);
+                if (attempt.page === FRAME_PAGE) this.lost(attempt.token);
             }
         }
     }
@@ -174,24 +189,17 @@ export class TabSwitcherOverlay {
         return Boolean(this.current?.host && this.current.page !== SEARCH_PAGE && this.current.source.id === tabId);
     }
 
-    searchSourceChanged(tabId, change, tab) {
+    sourceChanged(tabId, change, tab) {
         const attempt = this.current;
-        if (attempt?.page !== SEARCH_PAGE || attempt.source.id !== tabId) return;
-        if (!change || change.discarded || tab?.pendingUrl || tab?.url !== attempt.source.url) {
-            this.close(attempt.token);
-        } else if (change.status === 'loading' && attempt.host) {
-            // A loading notification does not identify a new top document.
-            // Revalidate the existing document. A real navigation also loses its port.
-            this.confirmsInlineRoute(attempt, attempt.host).then(confirmed => {
-                if (!confirmed && this.current === attempt) this.close(attempt.token);
-            });
-        }
+        if (attempt?.source.id !== tabId) return;
+        // A loading notification alone does not identify a different document.
+        if (!change || change.discarded || tab?.pendingUrl || tab?.url !== attempt.source.url) this.reset();
     }
 
-    searchTabActivated({ tabId, windowId }) {
+    tabActivated({ tabId, windowId }) {
         const attempt = this.current;
-        if (attempt?.page === SEARCH_PAGE && !attempt.activating && attempt.source.windowId === windowId && attempt.source.id !== tabId) {
-            this.close(attempt.token);
+        if (attempt && !attempt.activating && attempt.source.windowId === windowId && attempt.source.id !== tabId) {
+            this.reset();
         }
     }
 
@@ -223,16 +231,20 @@ export class TabSwitcherOverlay {
         if (!attempt || message?.type !== INLINE_MESSAGE || message.nonce !== attempt.nonce ||
             !this.matchesSource(attempt, sender)) return;
         if (message.action === 'renderer') return this.acceptRenderer(attempt, sender);
+        if (message.action === 'interactive' && attempt.renderer === sender.documentId &&
+            this.isOverlayFrame(sender, attempt.page)) {
+            attempt.settle(true);
+            return Promise.resolve({});
+        }
         if (attempt.page === SEARCH_PAGE && attempt.renderer === sender.documentId && this.isOverlayFrame(sender, SEARCH_PAGE)) {
-            if (message.action === 'interactive') {
-                attempt.settle(true);
-                return Promise.resolve({});
-            }
             if (message.action === 'focused') {
                 attempt.focus(true);
                 return Promise.resolve({});
             }
-            if (message.action === 'dismiss') return this.close(attempt.token).then(() => ({}));
+            if (message.action === 'dismiss') {
+                attempt.interrupted = true;
+                return this.close(attempt.token).then(() => ({}));
+            }
             if (message.action === 'confirmDelete') return this.confirmDelete(attempt, message.details);
             if (message.action === 'activate') return this.verifySearch(attempt, true);
             if (message.action === 'resume') {
@@ -330,8 +342,8 @@ export class TabSwitcherOverlay {
             this.current !== attempt || attempt.renderer) return;
         attempt.renderer = sender.documentId;
         attempt.open = true;
-        if (attempt.page === SEARCH_PAGE) return { token: attempt.token, windowId: attempt.source.windowId };
-        attempt.settle(true);
-        return { token: attempt.token };
+        return attempt.page === SEARCH_PAGE
+            ? { token: attempt.token, windowId: attempt.source.windowId }
+            : { token: attempt.token };
     }
 }

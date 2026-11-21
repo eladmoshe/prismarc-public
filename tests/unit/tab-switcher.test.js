@@ -213,24 +213,44 @@ test('losing a visible overlay dismisses it even while the source tab still has 
     assert.deepEqual(f.focused, []);
 });
 
-test('a stale inline handshake cannot steal focus with a fallback popup', async () => {
+for (const [description, invalidate] of [
+    ['the source window lost focus', (f, _source) => { f.windows[0].focused = false; }],
+    ['the active tab changed', (f, source) => {
+        f.lookup(source.id).active = false;
+        f.lookup(4).active = true;
+    }],
+    ['the source route changed', (f, source) => { f.lookup(source.id).url += '#new-route'; }],
+    ['the source started navigating', (f, source) => { f.lookup(source.id).pendingUrl = 'https://destination.test/'; }],
+]) {
+    test(`a failed Recent Tabs overlay cannot open a native popup after ${description}`, async () => {
+        const f = fixture();
+        f.windows[0].focused = true;
+        f.lookup(1).active = true;
+        const original = { ...f.lookup(1) };
+        const overlay = {
+            isOnTab: () => false,
+            open: async (_source, _token, _pressedAt, prepare) => {
+                await prepare();
+                invalidate(f, original);
+                return false;
+            },
+        };
+        await new TabSwitcher(f.chrome, undefined, overlay).invoke(original);
+        assert.equal(f.picker(), undefined);
+        assert.equal(f.state(), undefined);
+        assert.deepEqual(f.updates, []);
+        assert.deepEqual(f.focused, []);
+    });
+}
+
+test('Recent Tabs uses the native window when the active source cannot present an overlay', async () => {
     const f = fixture();
     f.windows[0].focused = true;
-    const original = f.lookup(1);
-    original.active = true;
-    const overlay = {
-        isOnTab: () => false,
-        open: async (_source, _token, _pressedAt, prepare) => {
-            await prepare();
-            f.windows[0].focused = false;
-            return false;
-        },
-    };
-    await new TabSwitcher(f.chrome, undefined, overlay).invoke(original);
-    assert.equal(f.picker(), undefined);
-    assert.equal(f.state(), undefined);
-    assert.deepEqual(f.updates, []);
-    assert.deepEqual(f.focused, []);
+    f.lookup(1).active = true;
+    const overlay = { isOnTab: () => false, open: async () => false };
+    await new TabSwitcher(f.chrome, undefined, overlay).invoke({ ...f.lookup(1) });
+    assert.ok(f.picker());
+    assert.equal(f.state().selectedId, 2);
 });
 
 test('back-to-back commands with stale origin snapshot open one real picker and preserve duplicate URLs', async () => {

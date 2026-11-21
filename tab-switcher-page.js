@@ -12,16 +12,17 @@ import { recentTabsLayout, recentTabsPopupAdjustment } from './tab-switcher-layo
 const inline = window.parent !== window;
 if (inline) {
     // An independently embedded copy stays inert. Its parent never receives picker data.
-    connectPopupFrame(({ token }) => {
+    connectPopupFrame(({ token }, send) => {
         document.documentElement.dataset.pickerReady = '';
-        startPicker(token, true);
+        startPicker(token, send);
     });
 } else if (validPopupToken(location.hash.slice(1))) {
     document.documentElement.dataset.pickerReady = '';
-    startPicker(location.hash.slice(1), false);
+    startPicker(location.hash.slice(1));
 }
 
-function startPicker(token, inline) {
+function startPicker(token, sendInline) {
+    const inline = Boolean(sendInline);
     const list = document.getElementById('tabs');
     const status = document.getElementById('switcher-status');
     const previewHint = document.getElementById('preview-hint');
@@ -35,6 +36,7 @@ function startPicker(token, inline) {
     let hasPreviewResponse = false;
     let renderedIds;
     let finished = false;
+    let announced = false;
     const root = document.documentElement;
     if (/^mac/i.test(navigator.userAgentData?.platform || navigator.platform)) {
         chrome.commands.getAll().then(commands => {
@@ -391,6 +393,10 @@ function startPicker(token, inline) {
             refreshPreviews();
         }
         markSelection(state);
+        if (sendInline && !announced) {
+            announced = true;
+            sendInline('interactive');
+        }
     }
 
     chrome.storage.onChanged.addListener((changes, area) => {

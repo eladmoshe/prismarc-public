@@ -1,5 +1,5 @@
 import { isTrustedExtensionMessage } from './message-security.js';
-import { focusOpenTab, recentOpenTabs, TAB_FOCUS_TIMES } from './tab-switcher-tabs.js';
+import { activeSwitcherSource, focusOpenTab, recentOpenTabs, TAB_FOCUS_TIMES } from './tab-switcher-tabs.js';
 import { TAB_PREVIEW_HINT_DISMISSED } from './tab-switcher-preview-settings.js';
 import { TAB_SWITCHER_CAPTURE_ON_VISIT } from './tab-switcher-previews.js';
 import { recentTabsPopupSize } from './tab-switcher-layout.js';
@@ -124,13 +124,6 @@ export class TabSwitcher {
         if (this.privateCycle && this.privateCycle.targetWindowId === windowId && this.privateCycle.targetId !== tabId) {
             this.privateCycle = null;
         }
-        const attempt = this.overlay?.current;
-        if (attempt && attempt.source.windowId === windowId && attempt.source.id !== tabId) {
-            this.run(async () => {
-                const session = await this.session();
-                if (session?.surface === 'overlay' && session.token === attempt.token) await this.finish(session);
-            }).catch(() => {});
-        }
     }
 
     windowFocused(windowId, focusedAt = Date.now()) {
@@ -171,8 +164,8 @@ export class TabSwitcher {
                 prepared = true;
             };
             if (await this.overlay.open(source, session.token, pressedAt, prepare).catch(() => false)) return;
-            if (prepared && !await this.inlineOriginIsActive(session)) {
-                await this.clear();
+            if (!await activeSwitcherSource(this.chrome, source)) {
+                if (prepared) await this.clear();
                 return;
             }
         }
@@ -249,23 +242,12 @@ export class TabSwitcher {
         });
     }
 
-    inlineLost(token, fallback) {
+    inlineLost(token) {
         return this.run(async () => {
             const session = await this.session();
             if (session?.surface !== 'overlay' || session.token !== token) return;
-            await this.overlay?.close(token);
-            if (!fallback || !await this.inlineOriginIsActive(session)) {
-                await this.clear();
-                return;
-            }
-            const { surface: _surface, ...popup } = session;
-            await this.openPopup(popup);
+            await this.finish(session);
         });
-    }
-
-    async inlineOriginIsActive(session) {
-        const window = await this.chrome.windows.get(session.originWindowId, { populate: true }).catch(() => null);
-        return Boolean(window?.focused && window.tabs?.some(tab => tab.id === session.originId && tab.active));
     }
 
     async openPreviewSettings(session) {

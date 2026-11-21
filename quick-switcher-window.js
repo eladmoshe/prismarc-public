@@ -1,4 +1,5 @@
 import { validPopupToken } from './popup-renderer.js';
+import { activeSwitcherSource } from './tab-switcher-tabs.js';
 
 const popupKey = incognito => incognito ? 'privateQuickSwitcherWindow' : 'quickSwitcherWindow';
 const popupPage = chromeApi => `chrome-extension://${chromeApi.runtime.id}/quick-switcher.html`;
@@ -123,9 +124,7 @@ export function toggleQuickSwitcher(chromeApi = globalThis.chrome, sourceWindowI
                 if (existing) await chromeApi.windows.remove(existing.id).catch(() => {});
                 return true;
             }
-            const latest = await chromeApi.windows.get(source.id, { populate: true }).catch(() => null);
-            if (!latest?.focused || !latest.tabs?.some(tab => tab.active && tab.id === active.id &&
-                tab.url === active.url && tab.pendingUrl === active.pendingUrl)) return false;
+            if (!await activeSwitcherSource(chromeApi, active)) return false;
         }
 
         return openNative(chromeApi, source, existing);

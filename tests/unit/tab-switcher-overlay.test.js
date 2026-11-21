@@ -35,7 +35,7 @@ function fixture() {
         },
     };
     const overlay = new TabSwitcherOverlay(api, {
-        input: (...call) => steps.push(call), lost: (token, fallback) => steps.push(['lost', token, fallback]),
+        input: (...call) => steps.push(call), lost: token => steps.push(['lost', token]),
     });
     return { overlay, source, tabOnly, renderer, probe, sends, steps, api };
 }
@@ -61,6 +61,7 @@ test('only the renderer that proves the isolated host capability can access the 
     }
     assert.equal(await f.overlay.receive(bridge('wrong', 'renderer'), f.renderer), undefined);
     assert.deepEqual(await f.overlay.receive(bridge(nonce, 'renderer'), f.renderer), { token: 'picker-token' });
+    await f.overlay.receive(bridge(nonce, 'interactive'), f.renderer);
     assert.equal(await opened, true);
     assert.equal(f.overlay.authorizes({ token: 'picker-token' }, f.renderer), true);
     assert.equal(f.overlay.authorizes({ token: 'picker-token' }, { ...f.renderer, documentId: 'independent' }), false);
@@ -76,10 +77,11 @@ test('an early release is committed only after the same source prepares a render
     await f.overlay.receive(bridge(nonce, 'host'), f.tabOnly('top-host'));
     assert.deepEqual(f.steps, []);
     await f.overlay.receive(bridge(nonce, 'renderer'), f.renderer);
+    await f.overlay.receive(bridge(nonce, 'interactive'), f.renderer);
     assert.equal(await opened, true);
     assert.deepEqual(f.steps, [['same-session', 'commit']]);
     f.overlay.reset();
-    assert.deepEqual(f.steps.at(-1), ['lost', 'same-session', false]);
+    assert.deepEqual(f.steps.at(-1), ['lost', 'same-session']);
 });
 
 test('Recent Tabs still opens after the former startup deadline and preserves the captured release', async t => {
@@ -91,6 +93,7 @@ test('Recent Tabs still opens after the former startup deadline and preserves th
     t.mock.timers.tick(500);
     await f.overlay.receive(bridge(nonce, 'host'), f.tabOnly('host'));
     await f.overlay.receive(bridge(nonce, 'renderer'), f.renderer);
+    await f.overlay.receive(bridge(nonce, 'interactive'), f.renderer);
     assert.equal(await opened, true);
     assert.deepEqual(f.steps, [['slow-picker', 'commit']]);
     await f.overlay.close('slow-picker');
@@ -108,21 +111,46 @@ test('a host lost while revealing Recent Tabs dismisses the prepared gesture', a
         return false;
     };
     await f.overlay.receive(bridge(nonce, 'renderer'), f.renderer);
+    await f.overlay.receive(bridge(nonce, 'interactive'), f.renderer);
     assert.equal(await opened, true);
-    assert.deepEqual(f.steps, [['lost', 'interrupted-picker', false]]);
+    assert.deepEqual(f.steps, [['lost', 'interrupted-picker']]);
     assert.equal(f.overlay.current, null);
 });
 
-test('Quick Switcher waits for its authenticated search input before taking page focus', async () => {
+test('an unanswered reveal cannot open a second surface or stall the gesture', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const f = fixture();
+    const opened = f.overlay.open(f.source, 'unanswered-picker', Date.now());
+    const nonce = await f.probe;
+    await f.overlay.receive(bridge(nonce, 'probe'), f.tabOnly('host'));
+    await f.overlay.receive(bridge(nonce, 'host'), f.tabOnly('host'));
+    let revealing;
+    const started = new Promise(resolve => { revealing = resolve; });
+    f.api.tabs.sendMessage = async (_id, message) => {
+        if (message.action !== 'show') return true;
+        revealing();
+        return new Promise(() => {});
+    };
+    await f.overlay.receive(bridge(nonce, 'renderer'), f.renderer);
+    await f.overlay.receive(bridge(nonce, 'interactive'), f.renderer);
+    await started;
+    t.mock.timers.tick(600);
+    assert.equal(await opened, true);
+    assert.deepEqual(f.steps, [['lost', 'unanswered-picker']]);
+    assert.equal(f.overlay.current, null);
+});
+
+test('Quick Switcher reveals only after focus is confirmed, even past the initial setup deadline', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
     const f = fixture();
     let mount;
-    let show;
+    let focus;
     const mounted = new Promise(resolve => { mount = resolve; });
-    const shown = new Promise(resolve => { show = resolve; });
+    const focusRequested = new Promise(resolve => { focus = resolve; });
     const record = f.api.tabs.sendMessage;
     f.api.tabs.sendMessage = async (id, message) => {
         if (message.action === 'mount') mount(message.nonce);
-        if (message.action === 'show') show();
+        if (message.action === 'focus') focus();
         return record(id, message);
     };
     const picker = { ...f.renderer, url: 'chrome-extension://dynamic/quick-switcher.html' };
@@ -133,11 +161,14 @@ test('Quick Switcher waits for its authenticated search input before taking page
     assert.equal((await f.overlay.receive(bridge(nonce, 'renderer'), picker)).windowId, f.source.windowId);
     await f.overlay.receive(bridge(nonce, 'interactive'), { ...picker, documentId: 'other' });
     assert.deepEqual(f.sends, ['mount']);
+    t.mock.timers.tick(1450);
     await f.overlay.receive(bridge(nonce, 'interactive'), picker);
-    await shown;
-    assert.deepEqual(f.sends, ['mount', 'show']);
+    await focusRequested;
+    t.mock.timers.tick(100);
+    assert.deepEqual(f.sends, ['mount', 'focus']);
     await f.overlay.receive(bridge(nonce, 'focused'), picker);
     assert.equal(await open, true);
+    assert.deepEqual(f.sends, ['mount', 'focus', 'show']);
     await f.overlay.receive(bridge(nonce, 'dismiss'), picker);
     assert.equal(await f.overlay.receive(bridge(nonce, 'activate'), picker), undefined);
 });
@@ -172,9 +203,9 @@ test('a same-document search route requires exact live tab and top-document conf
     f.api.windows.get = originalWindow;
     await claim(host);
     assert.equal(f.overlay.current.host, host.documentId);
-    // A same-URL load signal cannot keep the attempt if its original top document is gone.
-    confirms = false;
-    f.overlay.searchSourceChanged(f.source.id, { status: 'loading' }, f.source);
+    f.overlay.sourceChanged(f.source.id, { status: 'loading' }, f.source);
+    assert.equal(f.overlay.current.host, host.documentId);
+    f.overlay.sourceChanged(f.source.id, { discarded: true }, f.source);
     assert.equal(await open, false);
 });
 
