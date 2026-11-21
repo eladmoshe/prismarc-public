@@ -20,5 +20,9 @@ handling, and packaged extension build and release verification.
 retained native window fallback and history-deletion confirmation, and
 redesigned the Space options menu, Settings page, and first-run guide.
 
+2026-11-21: PrismArc 5.3.0 adds Undo for Clean, nonadjacent tab selection,
+app-wide appearance settings and Space gradients, and a new getting-started
+guide. It also improves the layout and webpage overlays of both switchers.
+
 Original source: https://github.com/nisargkolhe/arcify
 PrismArc source snapshots: https://github.com/eladmoshe/prismarc-public

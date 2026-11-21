@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PrismArc",
-  "version": "5.2.0",
+  "version": "5.3.0",
   "minimum_chrome_version": "116",
   "description": "Organize tabs into spaces, pin bookmarks, and search tabs and history from a sidebar.",
   "permissions": [

@@ -10,6 +10,8 @@ PrismArc reads tab titles and addresses, native Chrome bookmarks, and Chrome bro
 
 Choosing **Delete from browser history** removes visits to the selected result's addresses from Chrome history. Choosing **Search Google** opens a Google search page and sends the search query to Google. Chrome can sync native bookmarks and history according to your Chrome profile settings. Speaker buttons read Chrome’s native audio status and change a tab’s mute setting when you activate them.
 
+Starting with PrismArc 5.3.0, **Clean** keeps eligible page addresses and tab order in extension memory for up to 20 seconds so you can undo the most recent cleanup in that window. PrismArc discards those records when the undo period ends.
+
 ## Zoom launcher cleanup
 
 PrismArc checks tab addresses for Zoom meeting launcher links. For a matching tab, it keeps the tab's Chrome ID and closure deadline in browser session storage. It closes the tab after about a minute if the tab is still on a qualifying launcher and has no pending navigation.
