@@ -6,9 +6,8 @@ import { usesOptionShortcut } from './tab-switcher-tabs.js';
 
 const FRAME_PAGE = 'tab-switcher.html';
 const SEARCH_PAGE = 'quick-switcher.html';
-const READY_MS = 300;
-// Search must initialize its extension frame and focus its input on a busy page.
-// Recent Tabs has a tighter deadline because the Option key may already be up.
+// The preloaded key listener records Option-up while the picker loads.
+const RECENT_READY_MS = 1000;
 const SEARCH_READY_MS = 1500;
 
 export class TabSwitcherOverlay {
@@ -19,7 +18,7 @@ export class TabSwitcherOverlay {
     }
 
     register() {
-        registerInlineSwitcher(this.chrome, () => this.reset());
+        registerInlineSwitcher(this.chrome, () => this.reset(true));
         this.chrome.runtime.onConnect.addListener(port => {
             if (port.name !== 'recent-tabs-inline-lifetime') return;
             const attempt = this.current;
@@ -81,7 +80,7 @@ export class TabSwitcherOverlay {
         const focused = page === SEARCH_PAGE ? new Promise(resolve => { focus = resolve; }) : null;
         const attempt = { source, token, page, nonce: crypto.randomUUID(), pressedAt, settle, focus };
         this.current = attempt;
-        const timer = setTimeout(() => { settle(false); focus?.(false); }, page === SEARCH_PAGE ? SEARCH_READY_MS : READY_MS);
+        const timer = setTimeout(() => { settle(false); focus?.(false); }, page === SEARCH_PAGE ? SEARCH_READY_MS : RECENT_READY_MS);
         try {
             await prepare?.();
             if (this.current !== attempt) return false;
@@ -89,6 +88,7 @@ export class TabSwitcherOverlay {
             else this.send(attempt, 'probe').then(found => { if (!found) settle(false); }, () => settle(false));
             if (await ready && this.current === attempt) {
                 if (attempt.keyDocument) this.send(attempt, 'armed', { documentId: attempt.keyDocument }).catch(() => {});
+                attempt.showing = page === FRAME_PAGE;
                 const show = this.send(attempt, 'show', { documentId: attempt.host }).catch(() => false);
                 show.then(shown => { if (!shown) focus?.(false); });
                 if (await (focused || show) && this.current === attempt) {
@@ -101,7 +101,8 @@ export class TabSwitcherOverlay {
             clearTimeout(timer);
             if (!attempt.visible) await this.close(token);
         }
-        return false;
+        // The host can disappear after revealing the frame but before replying.
+        return attempt.interrupted === true;
     }
 
     async mount(attempt) {
@@ -131,8 +132,8 @@ export class TabSwitcherOverlay {
             window.tabs?.some(tab => tab.id === source.id && tab.active && tab.url === source.url && !tab.pendingUrl);
     }
 
-    async confirmsSearchRoute(attempt, documentId) {
-        const confirmed = await this.send(attempt, 'confirm-search-route', { documentId }, { url: attempt.source.url }).catch(() => false);
+    async confirmsInlineRoute(attempt, documentId) {
+        const confirmed = await this.send(attempt, 'confirm-route', { documentId }, { url: attempt.source.url }).catch(() => false);
         return confirmed === true && this.current === attempt && await this.stillOnSource(attempt) && this.current === attempt;
     }
 
@@ -153,11 +154,14 @@ export class TabSwitcherOverlay {
         });
     }
 
-    reset() {
+    reset(fallback = false) {
         const attempt = this.current;
         if (attempt) {
             this.close(attempt.token);
-            if (attempt.visible && attempt.page !== SEARCH_PAGE) this.lost(attempt.token);
+            if (attempt.page === FRAME_PAGE && (attempt.visible || attempt.showing)) {
+                attempt.interrupted = true;
+                this.lost(attempt.token, fallback);
+            }
         }
     }
 
@@ -178,7 +182,7 @@ export class TabSwitcherOverlay {
         } else if (change.status === 'loading' && attempt.host) {
             // A loading notification does not identify a new top document.
             // Revalidate the existing document. A real navigation also loses its port.
-            this.confirmsSearchRoute(attempt, attempt.host).then(confirmed => {
+            this.confirmsInlineRoute(attempt, attempt.host).then(confirmed => {
                 if (!confirmed && this.current === attempt) this.close(attempt.token);
             });
         }
@@ -275,8 +279,8 @@ export class TabSwitcherOverlay {
             // Verify Chrome's current tab URL AND the exact current route in the
             // active top document that received this invocation's capability.
             const origin = new URL(attempt.source.url).origin;
-            if (attempt.page !== SEARCH_PAGE || sender.origin !== origin || new URL(sender.url).origin !== origin ||
-                sender.tab.url !== attempt.source.url || !await this.confirmsSearchRoute(attempt, sender.documentId) || attempt.host) {
+            if (sender.origin !== origin || new URL(sender.url).origin !== origin ||
+                sender.tab.url !== attempt.source.url || !await this.confirmsInlineRoute(attempt, sender.documentId) || attempt.host) {
                 return { success: false };
             }
         }

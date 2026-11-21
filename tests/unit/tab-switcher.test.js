@@ -191,24 +191,22 @@ test('queued native repeats advance once each before an observed startup release
     assert.equal(f.state(), undefined);
 });
 
-test('navigation in a source tab that lost focus does not open a focused picker', async () => {
+test('losing a visible overlay dismisses it even while the source tab still has focus', async () => {
     const f = fixture();
     const original = f.lookup(1);
+    original.active = true;
+    f.windows[0].focused = true;
     const overlay = {
-        current: { source: original },
         isOnTab: () => true,
-        ownsGesture: () => true,
-        open: async (_source, token, _pressedAt, prepare) => {
+        open: async (_source, _token, _pressedAt, prepare) => {
             await prepare();
-            overlay.current.token = token;
             return true;
         },
         close: async () => {},
     };
     const switcher = new TabSwitcher(f.chrome, undefined, overlay);
     await switcher.invoke(original);
-    f.windows[0].focused = false;
-    await switcher.inlineSourceChanged(original.id, { status: 'loading' });
+    await switcher.inlineLost(f.state().token);
     assert.equal(f.picker(), undefined);
     assert.equal(f.state(), undefined);
     assert.deepEqual(f.updates, []);

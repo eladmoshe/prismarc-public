@@ -35,7 +35,7 @@ function fixture() {
         },
     };
     const overlay = new TabSwitcherOverlay(api, {
-        input: (...call) => steps.push(call), lost: token => steps.push(['lost', token]),
+        input: (...call) => steps.push(call), lost: (token, fallback) => steps.push(['lost', token, fallback]),
     });
     return { overlay, source, tabOnly, renderer, probe, sends, steps, api };
 }
@@ -79,7 +79,38 @@ test('an early release is committed only after the same source prepares a render
     assert.equal(await opened, true);
     assert.deepEqual(f.steps, [['same-session', 'commit']]);
     f.overlay.reset();
-    assert.deepEqual(f.steps.at(-1), ['lost', 'same-session']);
+    assert.deepEqual(f.steps.at(-1), ['lost', 'same-session', false]);
+});
+
+test('Recent Tabs still opens after the former startup deadline and preserves the captured release', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const f = fixture();
+    const opened = f.overlay.open(f.source, 'slow-picker', Date.now());
+    const nonce = await f.probe;
+    await f.overlay.receive(bridge(nonce, 'released-probe'), f.tabOnly('host'));
+    t.mock.timers.tick(500);
+    await f.overlay.receive(bridge(nonce, 'host'), f.tabOnly('host'));
+    await f.overlay.receive(bridge(nonce, 'renderer'), f.renderer);
+    assert.equal(await opened, true);
+    assert.deepEqual(f.steps, [['slow-picker', 'commit']]);
+    await f.overlay.close('slow-picker');
+});
+
+test('a host lost while revealing Recent Tabs dismisses the prepared gesture', async () => {
+    const f = fixture();
+    const opened = f.overlay.open(f.source, 'interrupted-picker', Date.now());
+    const nonce = await f.probe;
+    await f.overlay.receive(bridge(nonce, 'probe'), f.tabOnly('host'));
+    await f.overlay.receive(bridge(nonce, 'host'), f.tabOnly('host'));
+    f.api.tabs.sendMessage = async (_id, message) => {
+        if (message.action !== 'show') return true;
+        await f.overlay.receive(bridge(nonce, 'lost'), f.tabOnly('host'));
+        return false;
+    };
+    await f.overlay.receive(bridge(nonce, 'renderer'), f.renderer);
+    assert.equal(await opened, true);
+    assert.deepEqual(f.steps, [['lost', 'interrupted-picker', false]]);
+    assert.equal(f.overlay.current, null);
 });
 
 test('Quick Switcher waits for its authenticated search input before taking page focus', async () => {
@@ -119,7 +150,7 @@ test('a same-document search route requires exact live tab and top-document conf
     const mount = new Promise(resolve => { mounted = resolve; });
     f.api.tabs.sendMessage = async (_id, message, target) => {
         if (message.action === 'mount') mounted(message.nonce);
-        if (message.action === 'confirm-search-route') {
+        if (message.action === 'confirm-route') {
             assert.deepEqual(target, { documentId: host.documentId });
             assert.equal(message.url, f.source.url);
             return confirms;

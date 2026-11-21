@@ -31,7 +31,7 @@ const spaceStore = new SpaceStore();
 const favorites = new NativeFavorites();
 const tabSwitcherOverlay = new TabSwitcherOverlay(chrome, {
     input: (token, action) => tabSwitcher.inlineInput(token, action).catch(Logger.error),
-    lost: token => tabSwitcher.inlineLost(token).catch(Logger.error),
+    lost: (token, fallback) => tabSwitcher.inlineLost(token, fallback).catch(Logger.error),
 });
 const tabSwitcherPreviews = new TabSwitcherPreviews(chrome, {
     isCovered: id => tabSwitcherOverlay.coversTab(id), coverVersion: () => tabSwitcherOverlay.coverVersion ?? 0,
@@ -273,7 +273,6 @@ chrome.tabs.onActivated.addListener(info => {
 });
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
     if (change.url !== undefined || change.status === 'loading' || change.discarded) tabSwitcherOverlay.searchSourceChanged(tabId, change, tab);
-    tabSwitcher.inlineSourceChanged(tabId, change)?.catch(Logger.error);
     if ((change.status === 'complete' || change.audible !== undefined) && (tab.active || tab.audible)) {
         return setTabActivity(tabId, Date.now());
     }

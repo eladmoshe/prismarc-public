@@ -249,12 +249,12 @@ export class TabSwitcher {
         });
     }
 
-    inlineLost(token) {
+    inlineLost(token, fallback) {
         return this.run(async () => {
             const session = await this.session();
             if (session?.surface !== 'overlay' || session.token !== token) return;
             await this.overlay?.close(token);
-            if (!await this.inlineOriginIsActive(session)) {
+            if (!fallback || !await this.inlineOriginIsActive(session)) {
                 await this.clear();
                 return;
             }
@@ -266,13 +266,6 @@ export class TabSwitcher {
     async inlineOriginIsActive(session) {
         const window = await this.chrome.windows.get(session.originWindowId, { populate: true }).catch(() => null);
         return Boolean(window?.focused && window.tabs?.some(tab => tab.id === session.originId && tab.active));
-    }
-
-    inlineSourceChanged(tabId, change) {
-        const attempt = this.overlay?.current;
-        if (attempt?.source.id === tabId && (change.url !== undefined || change.status === 'loading')) {
-            return this.inlineLost(attempt.token);
-        }
     }
 
     async openPreviewSettings(session) {

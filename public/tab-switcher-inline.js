@@ -13,7 +13,7 @@
     let gesture;
     let watch;
     let sheet;
-    let mountingSearch;
+    let mounting;
     let enabled = true;
     globalThis.prismArcInlineActivate = () => { enabled = true; };
 
@@ -22,6 +22,7 @@
     }
 
     function hide(nonce) {
+        if (mounting === nonce) mounting = null;
         let previousFocus = watch?.nonce === nonce ? watch.focus : null;
         if (watch?.nonce === nonce) watch = null;
         if (sheet?.nonce === nonce) {
@@ -114,7 +115,7 @@
     function deactivate() {
         enabled = false;
         if (sheet) hide(sheet.nonce);
-        gesture = watch = null;
+        gesture = watch = mounting = null;
     }
     window.addEventListener('blur', () => {
         if (!watch) gesture = null;
@@ -155,7 +156,8 @@
         } else if (action === 'armed' && watch?.nonce === nonce) {
             watch.open = true;
             respond(true);
-        } else if (action === 'show' && sheet?.nonce === nonce) {
+        } else if (action === 'show' && sheet?.nonce === nonce && sheet.host.isConnected &&
+            (sheet.search || document.hasFocus())) {
             if (watch?.nonce === nonce) watch.open = true;
             sheet.frame.style.visibility = 'visible';
             if (sheet.search) {
@@ -163,15 +165,15 @@
                 sheet.frame.focus({ preventScroll: true });
             }
             respond(true);
-        } else if (action === 'confirm-search-route') {
-            const owns = mountingSearch === nonce || (sheet?.nonce === nonce && sheet.search);
+        } else if (action === 'confirm-route') {
+            const owns = mounting === nonce || sheet?.nonce === nonce;
             respond(Boolean(enabled && owns && window.top === window && document.visibilityState === 'visible' &&
                 location.href === message.url));
         } else if (action === 'mount' && enabled && window.top === window && !document.fullscreenElement) {
-            if (page === 'quick-switcher.html') mountingSearch = nonce;
+            mounting = nonce;
             send('host', nonce).then(response => {
-                if (response?.success) mount(nonce, page);
-            }).finally(() => { if (mountingSearch === nonce) mountingSearch = null; });
+                if (response?.success && mounting === nonce) mount(nonce, page);
+            }).finally(() => { if (mounting === nonce) mounting = null; });
             respond(true);
         }
     });
