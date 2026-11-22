@@ -10,6 +10,33 @@
 </head>
 
 <body class="options-page">
+    <svg width="0" height="0" class="options-section-symbols" aria-hidden="true" focusable="false">
+        <symbol id="settings-tabs-icon" viewBox="0 0 24 24">
+            <rect x="3.5" y="5" width="17" height="14" rx="2"/>
+            <path d="M9 5v14m0-10h11.5"/>
+        </symbol>
+        <symbol id="settings-routing-icon" viewBox="0 0 24 24">
+            <path d="M4 12h3c4 0 4-5 8-5h5m-3-3 3 3-3 3M7 12c4 0 4 5 8 5h5m-3-3 3 3-3 3"/>
+        </symbol>
+        <symbol id="settings-switcher-icon" viewBox="0 0 24 24">
+            <rect x="7.5" y="7.5" width="13" height="13" rx="2"/>
+            <path d="M16 3.5H5.5a2 2 0 0 0-2 2V16m7.5-4h6m-6 4h4"/>
+        </symbol>
+        <symbol id="settings-appearance-icon" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.5"/>
+            <path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor" stroke="none"/>
+        </symbol>
+        <symbol id="settings-advanced-icon" viewBox="0 0 24 24">
+            <path d="M4 6h4m4 0h8M4 12h10m4 0h2M4 18h4m4 0h8"/>
+            <circle cx="10" cy="6" r="2"/>
+            <circle cx="16" cy="12" r="2"/>
+            <circle cx="10" cy="18" r="2"/>
+        </symbol>
+        <symbol id="settings-guide-icon" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.5"/>
+            <path d="m15.5 8.5-2 5-5 2 2-5Z"/>
+        </symbol>
+    </svg>
     <main class="options-container">
         <header class="options-header">
             <img class="options-mark" src="assets/icon-48.png" alt="" width="42" height="42">
@@ -22,20 +49,44 @@
         <div class="options-layout">
             <nav class="options-nav" aria-label="Settings sections">
                 <ul>
-                    <li><a href="#tabsHeading" aria-current="location">Tabs &amp; spaces</a></li>
-                    <li><a href="#airTrafficHeading">Air Traffic</a></li>
-                    <li><a href="#switcherHeading">Recent Tabs &amp; Quick Switcher</a></li>
-                    <li><a href="#archiveHeading">Auto-archiving</a></li>
-                    <li><a href="#colorsHeading">Appearance</a></li>
-                    <li><a href="#advancedHeading">Advanced</a></li>
-                    <li><a href="#gettingStartedHeading">Getting started</a></li>
+                    <li><a class="options-section-label" href="#tabsHeading" aria-current="location">
+                        <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-tabs-icon"/></svg>
+                        <span>Tabs &amp; spaces</span>
+                    </a></li>
+                    <li><a class="options-section-label" href="#airTrafficHeading">
+                        <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-routing-icon"/></svg>
+                        <span>Air Traffic</span>
+                    </a></li>
+                    <li><a class="options-section-label" href="#switcherHeading">
+                        <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-switcher-icon"/></svg>
+                        <span>Recent Tabs &amp; Quick Switcher</span>
+                    </a></li>
+                    <li><a class="options-section-label" href="#archiveHeading">
+                        <span class="options-section-icon options-section-icon--archive" aria-hidden="true"></span>
+                        <span>Auto-archiving</span>
+                    </a></li>
+                    <li><a class="options-section-label" href="#colorsHeading">
+                        <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-appearance-icon"/></svg>
+                        <span>Appearance</span>
+                    </a></li>
+                    <li><a class="options-section-label" href="#advancedHeading">
+                        <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-advanced-icon"/></svg>
+                        <span>Advanced</span>
+                    </a></li>
+                    <li><a class="options-section-label" href="#gettingStartedHeading">
+                        <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-guide-icon"/></svg>
+                        <span>Getting started</span>
+                    </a></li>
                 </ul>
             </nav>
 
             <div class="options-content">
                 <section class="options-section" aria-labelledby="tabsHeading">
                     <header class="options-section-header">
-                        <h2 id="tabsHeading" class="options-section-title" tabindex="-1">Tabs &amp; spaces</h2>
+                        <h2 id="tabsHeading" class="options-section-title options-section-label" tabindex="-1">
+                            <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-tabs-icon"/></svg>
+                            <span>Tabs &amp; spaces</span>
+                        </h2>
                     </header>
                     <div class="options-setting-item options-setting-field">
                         <div>
@@ -80,7 +131,10 @@
 
                 <section class="options-section" aria-labelledby="airTrafficHeading">
                     <header class="options-section-header">
-                        <h2 id="airTrafficHeading" class="options-section-title" tabindex="-1">Air Traffic</h2>
+                        <h2 id="airTrafficHeading" class="options-section-title options-section-label" tabindex="-1">
+                            <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-routing-icon"/></svg>
+                            <span>Air Traffic</span>
+                        </h2>
                         <p class="options-description">Route temporary tabs to a Space when you open a site or change pages. The first matching rule wins.</p>
                     </header>
                     <form id="airTrafficForm" class="options-setting-item" novalidate>
@@ -119,7 +173,10 @@
 
                 <section class="options-section" aria-labelledby="switcherHeading">
                     <header class="options-section-header">
-                        <h2 id="switcherHeading" class="options-section-title" tabindex="-1">Recent Tabs &amp; Quick Switcher</h2>
+                        <h2 id="switcherHeading" class="options-section-title options-section-label" tabindex="-1">
+                            <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-switcher-icon"/></svg>
+                            <span>Recent Tabs &amp; Quick Switcher</span>
+                        </h2>
                         <p class="options-description">Use your assigned shortcuts to jump between recent tabs and to search open tabs, bookmarks, and history.</p>
                     </header>
                     <div class="options-setting-item options-setting-toggle">
@@ -166,14 +223,20 @@
 
                 <section class="options-section" aria-labelledby="archiveHeading">
                     <header class="options-section-header">
-                        <h2 id="archiveHeading" class="options-section-title" tabindex="-1">Auto-archiving</h2>
+                        <h2 id="archiveHeading" class="options-section-title options-section-label" tabindex="-1">
+                            <span class="options-section-icon options-section-icon--archive" aria-hidden="true"></span>
+                            <span>Auto-archiving</span>
+                        </h2>
                         <p class="options-description">Open <strong>Clean</strong> in the PrismArc sidebar to manage auto-archiving for all spaces.</p>
                     </header>
                 </section>
 
                 <section class="options-section" aria-labelledby="colorsHeading">
                     <header class="options-section-header">
-                        <h2 id="colorsHeading" class="options-section-title" tabindex="-1">Appearance</h2>
+                        <h2 id="colorsHeading" class="options-section-title options-section-label" tabindex="-1">
+                            <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-appearance-icon"/></svg>
+                            <span>Appearance</span>
+                        </h2>
                     </header>
                     <div class="options-setting-item options-setting-field">
                         <div>
@@ -204,7 +267,10 @@
                 <section class="options-section" aria-labelledby="advancedHeading">
                     <h2 id="advancedHeading" class="options-section-title" tabindex="-1">
                         <button type="button" class="advanced-options-toggle" id="advancedOptionsToggle" aria-expanded="false" aria-controls="advancedOptionsContent">
-                            Advanced
+                            <span class="options-section-label">
+                                <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-advanced-icon"/></svg>
+                                <span>Advanced</span>
+                            </span>
                             <span class="advanced-options-chevron" aria-hidden="true"></span>
                         </button>
                     </h2>
@@ -224,7 +290,10 @@
 
                 <section class="options-section" aria-labelledby="gettingStartedHeading">
                     <header class="options-section-header">
-                        <h2 id="gettingStartedHeading" class="options-section-title" tabindex="-1">Getting started</h2>
+                        <h2 id="gettingStartedHeading" class="options-section-title options-section-label" tabindex="-1">
+                            <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-guide-icon"/></svg>
+                            <span>Getting started</span>
+                        </h2>
                         <p class="options-description">Try Quick Switcher and learn how to switch recent tabs, use the sidebar, and pin tabs in a Space.</p>
                         <a href="installation-onboarding.html?replay=1" target="_blank" rel="noopener" class="options-guide-link">Replay the interactive guide</a>
                     </header>

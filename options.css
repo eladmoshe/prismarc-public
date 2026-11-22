@@ -130,8 +130,6 @@ button, input, select, textarea { font: inherit; }
 }
 
 .options-nav a {
-    display: flex;
-    align-items: center;
     min-block-size: 44px;
     padding: .5rem .65rem;
     border-inline-start: 3px solid transparent;
@@ -140,7 +138,6 @@ button, input, select, textarea { font: inherit; }
     font-size: .875rem;
     line-height: 1.34;
     text-decoration: none;
-    overflow-wrap: anywhere;
 }
 
 .options-nav a:hover { background: var(--selection); color: var(--ink); }
@@ -151,6 +148,32 @@ button, input, select, textarea { font: inherit; }
     font-weight: 650;
 }
 .options-nav a:focus-visible { outline-offset: -2px; }
+
+.options-section-symbols { position: absolute; }
+.options-section-label {
+    display: flex;
+    align-items: center;
+    gap: .55em;
+    overflow-wrap: anywhere;
+}
+.options-section-icon {
+    flex: none;
+    inline-size: 1em;
+    block-size: 1em;
+    font-size: 1.25rem;
+    color: var(--accent);
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.options-nav .options-section-icon { font-size: 1rem; color: inherit; }
+.options-nav [aria-current] .options-section-icon { color: var(--accent); }
+.options-section-icon--archive {
+    background: currentColor;
+    mask: url('assets/archive-box.png') center / contain no-repeat;
+}
 
 .options-content { display: grid; gap: 1rem; }
 .options-section { background: var(--surface); }
@@ -359,6 +382,7 @@ button, input, select, textarea { font: inherit; }
 .advanced-options-toggle:focus-visible { outline-offset: -4px; }
 .advanced-options-toggle[aria-expanded="true"] { border-end-start-radius: 0; border-end-end-radius: 0; }
 .advanced-options-chevron {
+    flex: none;
     inline-size: 9px;
     block-size: 9px;
     margin-inline-end: .2rem;
@@ -411,6 +435,7 @@ button, input, select, textarea { font: inherit; }
 
 @media (forced-colors: active) {
     .options-nav [aria-current] { border-inline-start-color: Highlight; }
+    .options-section-icon--archive { background: CanvasText; forced-color-adjust: none; }
     .toggle-label::before { border: 1px solid ButtonText; }
     .toggle-label::after { background: ButtonText; }
     .ios-toggle:checked + .toggle-label::before { background: Highlight; forced-color-adjust: none; }
