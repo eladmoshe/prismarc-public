@@ -53,6 +53,47 @@ test('Air Traffic settings are ordered, validated, persisted, and protected from
     assert.equal(ownerOf(local.spaces, 1).id, 'a');
 });
 
+test('an established profile can save Air Traffic rules before bookmark discovery succeeds', async () => {
+    const store = new SpaceStore();
+    const readChildren = chrome.bookmarks.getChildren;
+    const original = [{ pattern: 'one.test', spaceId: 'a' }];
+    const edited = [{ pattern: 'one.test', spaceId: 'b' }];
+    local.airTrafficRules = structuredClone(original);
+    chrome.bookmarks.getChildren = async () => { throw new Error('Bookmark model unavailable'); };
+
+    await assert.rejects(store.dispatch({ action: 'get' }), { code: 'bookmark_folder_unavailable' });
+    assert.deepEqual(await store.airTraffic({ action: 'get' }), original);
+    const [first, stale] = await Promise.allSettled([
+        store.airTraffic({ action: 'set', rules: edited, expectedRules: original }),
+        store.airTraffic({ action: 'set', rules: [], expectedRules: original })
+    ]);
+    assert.deepEqual(first, { status: 'fulfilled', value: edited });
+    assert.equal(stale.reason?.code, 'air_traffic_conflict');
+
+    chrome.bookmarks.getChildren = readChildren;
+    const fresh = new SpaceStore();
+    await fresh.dispatch({ action: 'get' });
+    assert.equal(fresh.airTrafficRules[0].spaceId, 'b');
+});
+
+test('Air Traffic cannot overwrite rules it could not read', async () => {
+    const store = new SpaceStore();
+    const original = [{ pattern: 'one.test', spaceId: 'a' }];
+    local.airTrafficRules = structuredClone(original);
+    const readLocal = chrome.storage.local.get;
+    chrome.storage.local.get = async () => { throw new Error('Temporary read failure'); };
+    await assert.rejects(store.airTraffic({ action: 'set', rules: [], expectedRules: [] }),
+        { code: 'space_storage_unavailable' });
+    assert.deepEqual(local.airTrafficRules, original);
+
+    chrome.storage.local.get = readLocal;
+    const malformed = [...original, { spaceId: 'a' }];
+    local.airTrafficRules = structuredClone(malformed);
+    await assert.rejects(store.airTraffic({ action: 'get' }), /rules could not be read/);
+    await assert.rejects(store.airTraffic({ action: 'set', rules: [], expectedRules: original }), /rules could not be read/);
+    assert.deepEqual(local.airTrafficRules, malformed);
+});
+
 test('Air Traffic follows new committed URLs and preserves the selected Space for background tabs', async () => {
     session.activeSpaces = { 1: 'a' };
     tabs[0].active = true;

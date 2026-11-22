@@ -1,4 +1,4 @@
-import { AIR_TRAFFIC_RULE_LIMIT, AIR_TRAFFIC_RULES_KEY, compileAirTrafficRule, findAirTrafficDestination } from './air-traffic.js';
+import { AIR_TRAFFIC_RULE_LIMIT, AIR_TRAFFIC_RULES_KEY, compileAirTrafficRule, findAirTrafficDestination, readAirTrafficRules } from './air-traffic.js';
 import { Logger } from './logger.js';
 import { isPracticeUrl } from './tour-practice.js';
 import { syncSpaceGroups } from './tab-group-sync.js';
@@ -99,34 +99,40 @@ export class SpaceStore {
         });
     }
     airTraffic({ action, rules, expectedRules }) {
-        return this.run(async () => {
-            if (action === 'set') {
-                const current = this.airTrafficRules;
-                if (expectedRules !== undefined && (!Array.isArray(expectedRules) ||
-                    expectedRules.length !== current.length || current.some(({ pattern, spaceId }, index) =>
-                        expectedRules[index]?.pattern !== pattern || expectedRules[index]?.spaceId !== spaceId))) {
-                    throw Object.assign(new Error('Air Traffic rules changed. Review the latest rules and try again.'),
-                        { code: 'air_traffic_conflict' });
-                }
-                if (!Array.isArray(rules) || rules.length > AIR_TRAFFIC_RULE_LIMIT) {
-                    throw new Error(`Save up to ${AIR_TRAFFIC_RULE_LIMIT} Air Traffic rules.`);
-                }
-                const compiled = rules.map((rule, index) => {
-                    const compiledRule = compileAirTrafficRule(rule);
-                    if (!compiledRule) throw new Error(`Enter a valid URL pattern and Space for rule ${index + 1}.`);
-                    const { pattern, spaceId } = compiledRule;
-                    if (!this.spaces.some(space => space.id === spaceId) &&
-                        !this.airTrafficRules.some(rule => rule.spaceId === spaceId && rule.pattern === pattern)) {
-                        throw new Error(`The Space for rule ${index + 1} is no longer available.`);
-                    }
-                    return compiledRule;
-                });
-                await storageCall(() => chrome.storage.local.set({ [AIR_TRAFFIC_RULES_KEY]: savedAirTrafficRules(compiled) }));
-                this.airTrafficRules = compiled;
-            } else if (action !== 'get') {
-                throw new Error('Unknown Air Traffic action.');
+        return this.enqueue(async () => {
+            const data = await storageCall(() => chrome.storage.local.get([AIR_TRAFFIC_RULES_KEY, 'spaces', 'spaceModelVersion']));
+            const current = readAirTrafficRules(data[AIR_TRAFFIC_RULES_KEY]);
+            if (action === 'get') return current;
+            if (action !== 'set') throw new Error('Unknown Air Traffic action.');
+            if (expectedRules !== undefined && (!Array.isArray(expectedRules) ||
+                expectedRules.length !== current.length || current.some(({ pattern, spaceId }, index) =>
+                    expectedRules[index]?.pattern !== pattern || expectedRules[index]?.spaceId !== spaceId))) {
+                throw Object.assign(new Error('Air Traffic rules changed. Review the latest rules and try again.'),
+                    { code: 'air_traffic_conflict' });
             }
-            return savedAirTrafficRules(this.airTrafficRules);
+            if (!Array.isArray(rules) || rules.length > AIR_TRAFFIC_RULE_LIMIT) {
+                throw new Error(`Save up to ${AIR_TRAFFIC_RULE_LIMIT} Air Traffic rules.`);
+            }
+            // Stable Space IDs are persisted already on established profiles. Editing
+            // rules needs those IDs, while routing initializes tab and bookmark state.
+            if (!this.initialized && !(data.spaceModelVersion === 2 && Array.isArray(data.spaces) && data.spaces.length)) {
+                await this.initialize();
+            }
+            const spaces = this.initialized ? this.spaces : data.spaces;
+            const compiled = rules.map((rule, index) => {
+                const compiledRule = compileAirTrafficRule(rule);
+                if (!compiledRule) throw new Error(`Enter a valid URL pattern and Space for rule ${index + 1}.`);
+                const { pattern, spaceId } = compiledRule;
+                if (!spaces.some(space => space.id === spaceId) &&
+                    !current.some(rule => rule.spaceId === spaceId && rule.pattern === pattern)) {
+                    throw new Error(`The Space for rule ${index + 1} is no longer available.`);
+                }
+                return compiledRule;
+            });
+            const saved = savedAirTrafficRules(compiled);
+            await storageCall(() => chrome.storage.local.set({ [AIR_TRAFFIC_RULES_KEY]: saved }));
+            this.airTrafficRules = compiled;
+            return saved;
         });
     }
     async makeSpace(name, color, folder = null) {

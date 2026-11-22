@@ -28,6 +28,18 @@ export function compileAirTrafficRule(rule) {
     return { pattern: match.pattern, spaceId: rule.spaceId, match };
 }
 
+export function readAirTrafficRules(stored) {
+    if (stored === undefined) return [];
+    if (!Array.isArray(stored) || stored.length > AIR_TRAFFIC_RULE_LIMIT) {
+        throw new Error('The saved Air Traffic rules could not be read.');
+    }
+    return stored.map(rule => {
+        const compiled = compileAirTrafficRule(rule);
+        if (!compiled) throw new Error('The saved Air Traffic rules could not be read.');
+        return { pattern: compiled.pattern, spaceId: compiled.spaceId };
+    });
+}
+
 export function findAirTrafficDestination(rules, spaces, address) {
     if (!rules.length || !address) return undefined;
     let url;

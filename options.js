@@ -12,7 +12,7 @@ import { INLINE_SWITCHER, setInlineSwitcher } from './tab-switcher-inline-settin
  * - Provides real-time feedback for setting changes
  */
 
-import { AIR_TRAFFIC_RULE_LIMIT, parseAirTrafficPattern } from './air-traffic.js';
+import { AIR_TRAFFIC_RULE_LIMIT, AIR_TRAFFIC_RULES_KEY, parseAirTrafficPattern, readAirTrafficRules } from './air-traffic.js';
 import { getAppearanceTheme, setAppearanceTheme, spaceRequest } from './space-client.js';
 import { APPEARANCE_THEME_KEY, SPACE_COLOR_NAMES } from './space-colors.js';
 import { Utils } from './utils.js';
@@ -309,8 +309,10 @@ async function setupAirTraffic() {
   const save = document.getElementById('saveAirTrafficRules');
   const reload = document.getElementById('reloadAirTrafficRules');
   const status = document.getElementById('airTrafficStatus');
+  const retry = document.getElementById('retryAirTrafficRules');
   const template = document.getElementById('airTrafficRuleRow');
   let spaces = [];
+  let spacesRevision = 0;
   let savedRules = [];
   let revision = 0;
   let savedRevision = 0;
@@ -321,10 +323,14 @@ async function setupAirTraffic() {
     status.toggleAttribute('data-error', error);
   }
 
-  async function requestRules(action, payload) {
-    const response = await chrome.runtime.sendMessage({ type: 'airTraffic', action, ...payload });
+  async function saveRules(rules, expectedRules) {
+    let response;
+    try {
+      response = await chrome.runtime.sendMessage({ type: 'airTraffic', action: 'set', rules, expectedRules });
+    } catch { /* The worker may be restarting. Keep the draft for a retry. */ }
     if (!response?.success || !Array.isArray(response.rules)) {
-      throw Object.assign(new Error(response?.error || 'Air Traffic rules are unavailable.'), { code: response?.code });
+      throw Object.assign(new Error(response?.error || 'Could not confirm the save. Your edits are still here.'),
+        { code: response?.code });
     }
     return response.rules;
   }
@@ -375,15 +381,29 @@ async function setupAirTraffic() {
     updateControls();
   }
 
-  try {
-    const [initialSpaces, rules] = await Promise.all([spaceRequest('get'), requestRules('get')]);
-    spaces = initialSpaces;
-    showSavedRules(rules);
-    fields.disabled = false;
-    report('');
-  } catch {
-    report('Could not load Air Traffic rules. Reopen Settings to try again.', true);
-    return;
+  async function loadRules() {
+    const restoreFocus = document.activeElement === retry;
+    retry.disabled = true;
+    report('Loading rules…');
+    const initialRevision = spacesRevision;
+    try {
+      const data = await chrome.storage.local.get([AIR_TRAFFIC_RULES_KEY, 'spaces', 'spaceModelVersion']);
+      const rules = readAirTrafficRules(data[AIR_TRAFFIC_RULES_KEY]);
+      const initialSpaces = data.spaceModelVersion === 2 && Array.isArray(data.spaces) && data.spaces.length ? data.spaces :
+        await spaceRequest('get', { discoverBookmarks: false });
+      if (!Array.isArray(initialSpaces) || !initialSpaces.length) throw new Error('Spaces are unavailable.');
+      if (initialRevision === spacesRevision) spaces = initialSpaces;
+      showSavedRules(rules);
+      fields.disabled = false;
+      if (restoreFocus && document.activeElement === document.body) (add.disabled ? list.querySelector('input') : add)?.focus();
+      retry.hidden = true;
+      report('');
+    } catch {
+      report('Could not load Air Traffic rules.', true);
+      retry.hidden = false;
+    } finally {
+      retry.disabled = false;
+    }
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -391,6 +411,8 @@ async function setupAirTraffic() {
     if (area !== 'local' || !Array.isArray(next) ||
       (next.length === spaces.length && next.every(({ id, name }, index) => spaces[index].id === id && spaces[index].name === name))) return;
     spaces = next;
+    spacesRevision++;
+    if (fields.disabled) return;
     for (const select of list.querySelectorAll('.air-traffic-space')) fillSpaceSelect(select, select.value);
     updateControls();
   });
@@ -452,7 +474,7 @@ async function setupAirTraffic() {
     updateControls();
     report('Saving rules…');
     try {
-      savedRules = await requestRules('set', { rules: draft, expectedRules: savedRules });
+      savedRules = await saveRules(draft, savedRules);
       savedRevision = savingRevision;
       if (revision === savedRevision) {
         rows.forEach((row, index) => { row.querySelector('.air-traffic-pattern').value = savedRules[index].pattern; });
@@ -475,7 +497,8 @@ async function setupAirTraffic() {
     pending = true;
     updateControls();
     try {
-      const rules = await requestRules('get');
+      const data = await chrome.storage.local.get(AIR_TRAFFIC_RULES_KEY);
+      const rules = readAirTrafficRules(data[AIR_TRAFFIC_RULES_KEY]);
       if (revision === discardRevision) {
         showSavedRules(rules);
         report('Saved rules reloaded.');
@@ -488,6 +511,9 @@ async function setupAirTraffic() {
       updateControls();
     }
   });
+
+  retry.addEventListener('click', loadRules);
+  await loadRules();
 }
 
 async function setupPreviewDomains() {
