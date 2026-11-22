@@ -487,30 +487,34 @@ export function showTabContextMenu(session, x, y, tab, isPinned, isBookmarkOnly,
             moveToSpaceItem.addEventListener('mouseenter', () => {
                 // Wait for next frame to ensure submenu is rendered
                 requestAnimationFrame(() => {
+                    submenu.removeAttribute('style');
                     const submenuRect = submenu.getBoundingClientRect();
+                    if (!submenuRect.width) return;
                     const parentRect = moveToSpaceItem.getBoundingClientRect();
                     const viewportWidth = window.innerWidth;
                     const viewportHeight = window.innerHeight;
+                    const gutter = 5;
+                    const fitsRight = parentRect.right + submenuRect.width <= viewportWidth - gutter;
+                    const fitsLeft = parentRect.left - submenuRect.width >= gutter;
 
-                    // Reset any previous adjustments
-                    submenu.style.left = '';
-                    submenu.style.right = '';
-                    submenu.style.top = '';
-                    submenu.style.bottom = '';
-
-                    // Check if submenu overflows right edge
-                    if (parentRect.right + submenuRect.width > viewportWidth) {
-                        // Position to the left of parent instead
-                        submenu.style.left = 'auto';
-                        submenu.style.right = '100%';
+                    if (fitsRight || fitsLeft) {
+                        const top = Math.max(gutter, Math.min(parentRect.top - gutter, viewportHeight - submenuRect.height - gutter));
+                        submenu.style.left = fitsRight ? '100%' : `${-submenuRect.width}px`;
+                        submenu.style.top = `${top - parentRect.top}px`;
+                        return;
                     }
 
-                    // Check if submenu overflows bottom edge
-                    if (parentRect.top + submenuRect.height > viewportHeight) {
-                        // Align to bottom instead of top
-                        submenu.style.top = 'auto';
-                        submenu.style.bottom = '0';
-                    }
+                    // Keep the mouse path continuous by attaching the menu directly above or below its trigger.
+                    const above = parentRect.top - gutter;
+                    const below = viewportHeight - parentRect.bottom - gutter;
+                    const openBelow = below >= submenuRect.height || below >= above;
+                    const width = Math.min(viewportWidth - 2 * gutter, Math.max(parentRect.width, submenuRect.width));
+                    const left = Math.max(gutter, Math.min(parentRect.left, viewportWidth - width - gutter));
+                    submenu.style.width = `${width}px`;
+                    submenu.style.left = `${left - parentRect.left}px`;
+                    submenu.style.top = openBelow ? '100%' : 'auto';
+                    submenu.style.bottom = openBelow ? 'auto' : '100%';
+                    submenu.style.maxHeight = `${openBelow ? below : above}px`;
                 });
             });
         }

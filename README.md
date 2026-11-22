@@ -59,6 +59,8 @@ To update, pull the latest source, run the install and build commands again, the
 
 If a shortcut is missing or conflicts with Chrome, assign it at `chrome://extensions/shortcuts`. The getting-started guide is available anytime from PrismArc Settings.
 
+To give the webpage more room, drag the divider between the sidebar and the page toward the edge of the Chrome window. Chrome sets the minimum width of the sidebar. [Chrome side panel help](https://support.google.com/chrome/answer/13156494)
+
 ## Privacy
 
 PrismArc processes tab, bookmark, history, and thumbnail data on your device. The maintainer receives no browsing data or usage analytics. Chrome can sync native bookmarks and history according to your profile settings.
