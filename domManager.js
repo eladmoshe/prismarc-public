@@ -579,6 +579,7 @@ export async function showArchivedTabsPopup(popup) {
             const favicon = document.createElement('img');
             setSidebarFavicon(favicon, archivedTab.url);
             favicon.className = 'tab-favicon';
+            favicon.alt = '';
 
             const details = document.createElement('div');
             details.className = 'tab-details';
@@ -588,9 +589,11 @@ export async function showArchivedTabsPopup(popup) {
             details.appendChild(titleSpan);
 
             const restoreButton = document.createElement('button');
+            restoreButton.type = 'button';
             restoreButton.innerHTML = RESTORE_ICON;
             restoreButton.className = 'tab-restore';
-            restoreButton.style.marginLeft = 'auto';
+            restoreButton.title = 'Restore tab';
+            restoreButton.setAttribute('aria-label', `Restore tab: ${archivedTab.name || archivedTab.url}`);
             item.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (restoreButton.disabled) return;

@@ -1321,19 +1321,34 @@ body:has(> .sidebar-container[data-space-theme="prismarc"]) .tab-audio-indicator
     text-overflow: ellipsis;
 }
 
+.archived-item > .tab-details {
+    flex: 1;
+    min-width: 0;
+}
+
 .tab-restore {
+    display: grid;
+    place-items: center;
+    flex: none;
     width: 28px;
     height: 28px;
+    margin-inline-start: 8px;
+    padding: 0;
     border: none;
+    border-radius: 6px;
     background: none;
     color: rgba(0, 0, 0, 0.5);
-    font-size: 22px;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
-    margin-left: 8px;
+}
+
+.tab-restore > svg {
+    width: 16px;
+    height: 16px;
+}
+
+.tab-restore:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
 }
 
 .tab-close,
