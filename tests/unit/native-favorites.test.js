@@ -1,6 +1,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { NativeFavorites, getFavoriteDropTarget } from '../../native-favorites.js';
+import { SpaceFavorites } from '../../space-favorites.js';
 
 let local, session, tabs, updates;
 const area = data => ({
@@ -13,7 +14,7 @@ beforeEach(() => {
     tabs = Array.from({ length: 16 }, (_, index) => ({ id: index + 1, index, windowId: 1,
         url: `https://site.test/${index + 1}?original=1#saved`, title: `Site ${index + 1}`, pinned: false }));
     globalThis.chrome = {
-        storage: { local: area(local), session: area(session) },
+        storage: { local: area(local), session: area(session), onChanged: event() },
         tabs: {
             create: async options => {
                 const tab = { ...options, id: Math.max(0, ...tabs.map(tab => tab.id)) + 1 };
@@ -25,9 +26,190 @@ beforeEach(() => {
                 (query.windowId === undefined || tab.windowId === query.windowId))),
             get: async id => { const tab = tabs.find(tab => tab.id === id); if (!tab) throw new Error('Tab closed'); return structuredClone(tab); },
             update: async (id, change) => { updates.push([id, change]); const tab = tabs.find(tab => tab.id === id); Object.assign(tab, change); return structuredClone(tab); },
+            remove: async id => { tabs = tabs.filter(tab => tab.id !== id); },
+            move: async (id, { index }) => {
+                const tab = tabs.find(item => item.id === id);
+                const pinned = tabs.filter(item => item.pinned && item.windowId === tab.windowId).sort((a, b) => a.index - b.index);
+                pinned.splice(pinned.indexOf(tab), 1);
+                pinned.splice(index, 0, tab);
+                pinned.forEach((item, position) => { item.index = position; });
+            },
             onCreated: event(), onUpdated: event(), onRemoved: event(), onReplaced: event(), onMoved: event()
         }
     };
+});
+
+const scope = { windowId: 1, spaceId: 'home' };
+const get = (store, spaceId = 'home', windowId = 1) => store.dispatch({ action: 'get', spaceId, windowId });
+const scopedStore = (context = {}) => new SpaceFavorites(async () => ({
+    initialSpaceIds: ['home', 'work'], spaceIds: ['home', 'work'], activeSpaceId: 'home', ...context
+}));
+const idsOf = cards => cards.map(card => card.favoriteId);
+
+test('migrates live and closed native Favorites once into startup Spaces, preserving independent order', async () => {
+    const group = 'window-1';
+    tabs[0].pinned = true;
+    const [live, closed] = tabs;
+    local.nativeFavoriteSnapshot = [
+        { tabId: live.id, group, index: 0, favoriteId: 'live', baseUrl: live.url, url: live.url, title: live.title },
+        { tabId: null, group, index: 1, favoriteId: 'closed', baseUrl: closed.url, url: closed.url,
+            title: closed.title, closed: true }
+    ];
+    session.nativeFavoritesSession = { windowGroups: [[1, group]], restoreQueue: [] };
+    const context = { spaceIds: ['home', 'work', 'new'] };
+    const store = scopedStore(context);
+    assert.deepEqual(idsOf(await get(store)), ['live', 'closed']);
+    assert.deepEqual(idsOf(await get(store, 'work')), ['live', 'closed']);
+    assert.deepEqual(await get(store, 'new'), []);
+    await store.dispatch({ ...scope, action: 'reorder', favoriteIds: ['closed', 'live'] });
+    const reloaded = scopedStore(context);
+    assert.deepEqual(idsOf(await get(reloaded)), ['closed', 'live']);
+    assert.deepEqual(idsOf(await get(reloaded, 'work')), ['live', 'closed']);
+    assert.deepEqual(await get(reloaded, 'new'), []);
+    assert.equal(tabs.filter(tab => tab.pinned).length, 1);
+    await reloaded.dispatch({ ...scope, action: 'remove', favoriteId: 'live' });
+    assert.equal(tabs[0].pinned, true);
+    await reloaded.dispatch({ ...scope, spaceId: 'work', action: 'remove', favoriteId: 'live' });
+    assert.equal(tabs[0].pinned, false);
+    assert.deepEqual(idsOf(await get(reloaded)), ['closed']);
+    assert.deepEqual(idsOf(await get(reloaded, 'work')), ['closed']);
+});
+
+test('adds, copies, opens, and moves Favorites by Space identity even at identical URLs', async () => {
+    const store = scopedStore();
+    const [home] = await store.dispatch({ ...scope, action: 'pin', tabIds: [1] });
+    assert.deepEqual(await get(store, 'work'), []);
+    await store.dispatch({ ...scope, action: 'copy', favoriteId: home.favoriteId, targetSpaceId: 'work' });
+    const [work] = await get(store, 'work');
+    assert.equal(work.baseUrl, home.baseUrl);
+    assert.notEqual(work.favoriteId, home.favoriteId);
+    assert.equal(work.closed, true);
+    await store.dispatch({ ...scope, action: 'copy', favoriteId: home.favoriteId, targetSpaceId: 'work' });
+    assert.deepEqual(idsOf(await get(store, 'work')), [work.favoriteId]);
+    const [opened] = await store.dispatch({ ...scope, spaceId: 'work', action: 'open', favoriteId: work.favoriteId });
+    assert.equal(opened.favoriteId, work.favoriteId);
+    assert.notEqual(opened.id, home.id);
+    assert.deepEqual(await store.dispatch({ ...scope, action: 'owner', tabId: opened.id }), [{ spaceId: 'work' }]);
+    assert.deepEqual(await store.dispatch({ ...scope, action: 'move', favoriteId: home.favoriteId, targetSpaceId: 'work' }), []);
+    assert.deepEqual(idsOf(await get(store, 'work')), [work.favoriteId, home.favoriteId]);
+    assert.equal(tabs.filter(tab => tab.pinned).length, 2);
+});
+
+test('space capacity, active native pinning, closure, and removal remain scoped', async () => {
+    const context = { activeSpaceId: 'work' };
+    const store = scopedStore(context);
+    store.install();
+    await store.native.chain;
+    const home = await store.dispatch({ ...scope, action: 'pin', tabIds: Array.from({ length: 12 }, (_, i) => i + 1) });
+    await assert.rejects(store.dispatch({ ...scope, action: 'pin', tabIds: [13] }), /up to 12/);
+    const [work] = await store.dispatch({ ...scope, spaceId: 'work', action: 'pin', tabIds: [13] });
+    tabs.at(-1).pinned = true;
+    chrome.tabs.onUpdated.emit(16, { pinned: true }, tabs.at(-1));
+    await store.native.chain;
+    assert.deepEqual((await get(store, 'work')).map(item => item.id), [13, 16]);
+    tabs = tabs.filter(tab => tab.id !== 13);
+    chrome.tabs.onRemoved.emit(13, { windowId: 1, isWindowClosing: false });
+    await store.native.chain;
+    assert.equal((await get(store, 'work'))[0].closed, true);
+    assert.deepEqual(idsOf(await get(store)), idsOf(home));
+    await store.dispatch({ ...scope, spaceId: 'work', action: 'remove', favoriteId: work.favoriteId });
+    assert.deepEqual((await get(store, 'work')).map(item => item.id), [16]);
+});
+
+test('deleted Space unpins orphan tabs while keeping shared Favorites and the native tabs', async () => {
+    tabs[0].pinned = true;
+    const context = { spaceIds: ['home', 'work'] };
+    const store = scopedStore(context);
+    await get(store);
+    const first = (await get(store, 'work'))[0].favoriteId;
+    await store.dispatch({ ...scope, spaceId: 'work', action: 'pin', tabIds: [2] });
+    context.spaceIds = ['home'];
+    assert.deepEqual(idsOf(await get(store)), [first]);
+    assert.equal(tabs[0].pinned, true);
+    assert.equal(tabs[1].pinned, false);
+    assert.equal(tabs.length, 16);
+    assert.equal(local.spaceFavorites.work, undefined);
+});
+
+test('worker wake matches newly visible pins and keeps private memberships only in browser memory', async () => {
+    const store = scopedStore();
+    await get(store);
+    tabs[0].pinned = true; // Native pin discovered while installing event listeners.
+    tabs[1].windowId = 2;
+    tabs[1].incognito = true;
+    tabs[1].url = 'https://private-fixture.test/site';
+    const reloaded = scopedStore({ activeSpaceId: 'work' });
+    const [work] = await get(reloaded, 'work');
+    assert.deepEqual(await get(reloaded), []);
+    assert.equal(work.id, 1);
+    const [privatePin] = await reloaded.dispatch({ windowId: 2, spaceId: 'home', action: 'pin', tabIds: [2] });
+    const nextWorker = scopedStore({ activeSpaceId: 'work' });
+    assert.deepEqual(idsOf(await get(nextWorker, 'home', 2)), [privatePin.favoriteId]);
+    assert.deepEqual(await get(nextWorker, 'work', 2), []);
+    assert.doesNotMatch(JSON.stringify(local), /private-/);
+    assert.doesNotMatch(JSON.stringify(session), /private-fixture/);
+});
+
+test('scoped close and mute reject stale cards after a move and retain the saved Favorite after close', async () => {
+    const store = scopedStore();
+    tabs[0].audible = true;
+    const [favorite] = await store.dispatch({ ...scope, action: 'pin', tabIds: [1] });
+    const selection = { ...scope, favoriteId: favorite.favoriteId, tabId: favorite.id };
+    await store.dispatch({ ...selection, action: 'toggleMute' });
+    assert.deepEqual(updates.at(-1), [1, { muted: true }]);
+    await store.dispatch({ ...selection, action: 'move', targetSpaceId: 'work' });
+    await assert.rejects(store.dispatch({ ...selection, action: 'toggleMute' }), /no longer/);
+    await assert.rejects(store.dispatch({ ...selection, action: 'close' }), /no longer/);
+    await assert.rejects(store.dispatch({ ...selection, spaceId: 'work', tabId: 2, action: 'close' }), /changed/);
+    const [closed] = await store.dispatch({ ...selection, spaceId: 'work', action: 'close' });
+    assert.equal(closed.favoriteId, favorite.favoriteId);
+    assert.equal(closed.closed, true);
+    assert.equal(closed.id, null);
+    assert.equal(tabs.length, 15);
+    assert.equal(local.nativeFavoriteSnapshot[0].audible, undefined);
+});
+
+test('a native unpin that wakes the worker removes legacy memberships without unpinning other tabs', async () => {
+    const original = scopedStore();
+    tabs[0].pinned = true;
+    const [legacy] = await get(original);
+    assert.deepEqual(idsOf(await get(original, 'work')), [legacy.favoriteId]);
+    tabs[0].pinned = false;
+    const worker = scopedStore();
+    worker.install();
+    chrome.tabs.onUpdated.emit(1, { pinned: false }, tabs[0]);
+    await worker.native.chain;
+    assert.deepEqual(local.spaceFavorites, { home: [], work: [] });
+    assert.equal(tabs.length, 16);
+});
+
+test('a first close from a legacy version still seeds the saved Favorite into the existing Spaces', async () => {
+    const baseUrl = 'https://old.test/saved';
+    local.nativeFavoriteSnapshot = [{ tabId: 81, baseUrl, url: 'https://old.test/away', title: 'Saved' }];
+    session.nativeFavoritesSession = { restoreQueue: [] };
+    chrome.windows = { get: async id => ({ id, type: 'normal', incognito: false }) };
+    const store = scopedStore();
+    store.install();
+    chrome.tabs.onRemoved.emit(81, { windowId: 1, isWindowClosing: false });
+    await store.native.chain;
+    const [favorite] = await get(store);
+    assert.equal(favorite.baseUrl, baseUrl);
+    assert.equal(favorite.closed, true);
+    assert.deepEqual(idsOf(await get(store, 'work')), [favorite.favoriteId]);
+});
+
+test('Space reorder mirrors only its own slots in Chrome and leaves the other Space in order', async () => {
+    const store = scopedStore();
+    for (const [index, tab] of tabs.slice(0, 4).entries()) {
+        await store.dispatch({ ...scope, spaceId: index % 2 ? 'work' : 'home', action: 'pin', tabIds: [tab.id] });
+    }
+    const home = await get(store);
+    const work = await get(store, 'work');
+    const favoriteIds = idsOf(home).reverse();
+    await store.dispatch({ ...scope, action: 'reorder', favoriteIds });
+    assert.deepEqual(idsOf(await get(store)), favoriteIds);
+    assert.deepEqual(idsOf(await get(store, 'work')), idsOf(work));
+    assert.deepEqual(tabs.filter(tab => tab.pinned).sort((a, b) => a.index - b.index).map(tab => tab.id), [3, 2, 1, 4]);
 });
 
 test('twelve Favorites fit; a thirteenth and an oversized batch leave existing pins unchanged', async () => {

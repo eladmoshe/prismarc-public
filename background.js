@@ -5,8 +5,8 @@ import { isProtectedFavorite } from './favorite-safety.js';
 import { LocalStorage } from './localstorage.js';
 import { Logger } from './logger.js';
 import { isTrustedExtensionMessage } from './message-security.js';
-import { NativeFavorites } from './native-favorites.js';
 import { authorizeQuickSwitcherWindow, forgetQuickSwitcherPrompt, toggleQuickSwitcher } from './quick-switcher-window.js';
+import { SpaceFavorites } from './space-favorites.js';
 import { SpaceStore, ownerOf } from './space-store.js';
 import { TabSwitcherOverlay } from './tab-switcher-overlay.js';
 import { TabSwitcher } from './tab-switcher.js';
@@ -28,7 +28,7 @@ let archiveAlarmUpdates = Promise.resolve();
 const reviseArchiveSafety = () => { archiveSafetyRevision++; };
 
 const spaceStore = new SpaceStore();
-const favorites = new NativeFavorites();
+const favorites = new SpaceFavorites(windowId => spaceStore.favoriteContext(windowId));
 const tabSwitcherOverlay = new TabSwitcherOverlay(chrome, {
     input: (token, action) => tabSwitcher.inlineInput(token, action).catch(Logger.error),
     lost: token => tabSwitcher.inlineLost(token).catch(Logger.error),

@@ -180,7 +180,7 @@ export async function initSidebarTour() {
         if (id === 'spaces' && measure().spaces > baseline.spaces) achieved('Space created. Let’s make it yours.');
         if (id === 'pins' && tab?.closest('.pinned-tabs')) achieved('Pinned. This bookmark will stay.');
         if (id === 'folders' && tab?.closest('.folder')) achieved('Filed away. Click the folder to collapse it.');
-        if (id === 'favorites' && tabId && document.querySelector(`#pinnedFavicons [data-tab-id="${tabId}"]`)) achieved('Added to Favorites. Available in every space.');
+        if (id === 'favorites' && tabId && document.querySelector(`#pinnedFavicons [data-tab-id="${tabId}"]`)) achieved('Added to this Space’s Favorites.');
     }
     const observer = new MutationObserver(records => {
         if (!active() || records.every(record => panel.contains(record.target) || record.target === ring)) return;

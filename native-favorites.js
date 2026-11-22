@@ -111,6 +111,11 @@ export class NativeFavorites {
         this.records.delete(id);
     }
 
+    rememberClosed(record) {
+        this.closed.set(record.favoriteId, { ...record, closed: true, tabId: null, url: record.baseUrl });
+        this.records.delete(record.tabId);
+    }
+
     track(tab, restore = true) {
         if (!tab.pinned) { this.detach(tab.id); return; }
         const url = tabUrl(tab);
@@ -131,7 +136,7 @@ export class NativeFavorites {
             title: record?.title || tab.title || url });
     }
 
-    async persist() {
+    async persistLocal(extra = {}) {
         const snapshot = [...this.records.values()].filter(record => record.group);
         if (this.normalWindows.size) this.singleWindowGroup = this.normalWindows.size === 1
             ? this.groupFor([...this.normalWindows][0]) : null;
@@ -142,12 +147,17 @@ export class NativeFavorites {
         for (const [id, record] of this.closed) if (!recoverable.has(record.group)) this.closed.delete(id);
         const local = { [SNAPSHOT_KEY]: [...snapshot, ...this.closed.values(), ...this.restoreQueue],
             [SINGLE_WINDOW_KEY]: this.singleWindowGroup };
-        const session = { restoreQueue: this.restoreQueue, windowGroups: [...this.windowGroups], pendingSingleGroup: this.pendingSingleGroup };
-        const localJson = JSON.stringify(local), sessionJson = JSON.stringify(session);
-        if (localJson !== this.lastLocal) {
-            await chrome.storage.local.set(local);
+        const localJson = JSON.stringify(local);
+        if (localJson !== this.lastLocal || Object.keys(extra).length) {
+            await chrome.storage.local.set({ ...local, ...extra });
             this.lastLocal = localJson;
         }
+    }
+
+    async persist() {
+        await this.persistLocal();
+        const session = { restoreQueue: this.restoreQueue, windowGroups: [...this.windowGroups], pendingSingleGroup: this.pendingSingleGroup };
+        const sessionJson = JSON.stringify(session);
         if (sessionJson !== this.lastSession) {
             await chrome.storage.session.set({ [SESSION_KEY]: session });
             this.lastSession = sessionJson;
@@ -172,16 +182,16 @@ export class NativeFavorites {
         });
     }
 
-    async pin(tabIds) {
+    async pin(tabIds, limit = MAX_FAVORITES) {
         if (!Array.isArray(tabIds) || !tabIds.length || !tabIds.every(id => Number.isInteger(id) && id > 0)) {
             throw new Error('Choose tabs to add to Favorites.');
         }
         const selected = await Promise.all([...new Set(tabIds)].map(id => chrome.tabs.get(id)));
-        for (const windowId of new Set(selected.map(tab => tab.windowId))) {
+        for (const windowId of limit === Infinity ? [] : new Set(selected.map(tab => tab.windowId))) {
             const additions = selected.filter(tab => tab.windowId === windowId && !tab.pinned).length;
             const live = await chrome.tabs.query({ pinned: true, windowId });
             const unloaded = [...this.closed.values()].filter(item => item.group === this.windowGroups.get(windowId));
-            if (additions && live.length + unloaded.length + additions > MAX_FAVORITES) {
+            if (additions && live.length + unloaded.length + additions > limit) {
                 throw new Error(`Favorites is full. You can add up to ${MAX_FAVORITES} per window. Remove a Favorite to make room.`);
             }
         }
@@ -189,6 +199,28 @@ export class NativeFavorites {
             await chrome.tabs.update(tab.id, { pinned: true });
             this.track({ ...tab, pinned: true }, tab.pinned);
         }
+    }
+
+    async release(favoriteId, keepClosed = false) {
+        const record = [...this.records.values()].find(item => item.favoriteId === favoriteId);
+        if (record) {
+            const tab = await chrome.tabs.get(record.tabId).catch(error => {
+                if (/No tab with id:|Tab closed/i.test(error.message)) return null;
+                throw error;
+            });
+            if (tab?.pinned) await chrome.tabs.update(tab.id, { pinned: false });
+            if (keepClosed && record.group) {
+                this.rememberClosed(record);
+                return;
+            }
+            this.detach(record.tabId);
+        }
+        const closed = this.closed.get(favoriteId);
+        if (!keepClosed && closed) {
+            this.closed.delete(favoriteId);
+            this.removeSlot(closed);
+        }
+        this.restoreQueue = this.restoreQueue.filter(item => item.favoriteId !== favoriteId);
     }
 
     async changeFavorite({ action, favoriteId, favoriteIds, windowId }) {
@@ -215,14 +247,7 @@ export class NativeFavorites {
         const item = items.find(tab => typeof favoriteId === 'string' && tab.favoriteId === favoriteId);
         if (!item) throw new Error('This Favorite is no longer in this window.');
         if (action === 'remove') {
-            if (item.closed) {
-                this.closed.delete(favoriteId);
-                this.removeSlot(item);
-            }
-            else {
-                await chrome.tabs.update(item.id, { pinned: false });
-                this.detach(item.id);
-            }
+            await this.release(favoriteId);
         } else if (!item.closed) {
             await chrome.tabs.update(item.id, { active: true });
         } else {
@@ -253,14 +278,19 @@ export class NativeFavorites {
         });
     }
 
-    install() {
-        const handle = operation => this.run(async () => { await operation(); await this.persist(); }).catch(Logger.error);
+    install({ onPinned, onUnpinned, onLegacyClosed } = {}) {
+        const handle = operation => this.run(async () => {
+            try { await operation(); }
+            finally { await this.persist(); }
+        }).catch(Logger.error);
         const trackEvent = async (tab, restore) => {
             if (restore && tab.pinned && !tab.incognito && this.restoreQueue.length && !this.records.has(tab.id)) {
                 const pinned = (await chrome.tabs.query({ pinned: true })).filter(t => !t.incognito);
                 this.bindRestoredWindows(pinned);
             }
             this.track(tab, restore);
+            const record = this.records.get(tab.id);
+            if (record) await onPinned?.(tab.windowId, record);
         };
         chrome.tabs.onCreated.addListener(tab => {
             if (tab.pinned) handle(() => trackEvent(tab, true));
@@ -271,12 +301,17 @@ export class NativeFavorites {
                 // intentional unpin leaves a live, unpinned tab in this window.
                 handle(async () => {
                     const unpinned = await chrome.tabs.query({ windowId: tab.windowId, pinned: false });
-                    if (unpinned.some(live => live.id === id)) this.detach(id);
+                    if (unpinned.some(live => live.id === id)) {
+                        const record = this.records.get(id);
+                        this.detach(id);
+                        if (record?.favoriteId) await onUnpinned?.(record.favoriteId, !record.group);
+                    }
                 });
             } else if (change.pinned === true || (tab.pinned && change.url)) handle(() => trackEvent(tab, change.pinned !== true));
         });
         chrome.tabs.onRemoved.addListener((id, info) => handle(async () => {
             let record = this.records.get(id);
+            let legacy = false;
             if (record && !record.favoriteId && Number.isInteger(info?.windowId)) {
                 // Older versions stored only the tab id and URLs. Upgrade a sleeping
                 // worker's first close only when Chrome confirms its regular window.
@@ -284,6 +319,7 @@ export class NativeFavorites {
                 if (window?.type === 'normal' && !window.incognito) {
                     record = { ...record, favoriteId: crypto.randomUUID(), group: this.groupFor(window.id),
                         index: (await this.list(window.id)).length };
+                    legacy = true;
                 }
             }
             if (record?.group) {
@@ -294,9 +330,11 @@ export class NativeFavorites {
                         this.normalWindows.delete(owner[0]);
                         this.windowGroups.delete(owner[0]);
                     }
-                } else this.closed.set(record.favoriteId, { ...record, closed: true, tabId: null, url: record.baseUrl });
+                } else this.rememberClosed(record);
             }
             this.records.delete(id);
+            if (legacy) await onLegacyClosed?.(info.windowId, record);
+            if (record && !record.group) await onUnpinned?.(record.favoriteId, true);
         }));
         chrome.tabs.onReplaced.addListener((added, removed) => handle(async () => {
             const record = this.records.get(removed);

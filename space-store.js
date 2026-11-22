@@ -79,6 +79,15 @@ export class SpaceStore {
     run(operation) {
         return this.enqueue(async () => { await this.initialize(); return operation(); });
     }
+    favoriteContext(windowId) {
+        return this.run(() => ({
+            spaceIds: this.spaces.map(space => space.id),
+            initialSpaceIds: this.initialSpaceIds,
+            activeSpaceId: (this.spaces.find(space => space.id === this.active[windowId]) ||
+                this.spaces.find(space => space.id === this.lastActiveSpaceId) ||
+                resolveDefaultSpace(this.spaces, this.defaultSpaceName))?.id
+        }));
+    }
     appearanceTheme({ action, theme, windowId, tabId }) {
         return this.enqueue(async () => {
             if (action === 'get') {
@@ -245,6 +254,7 @@ export class SpaceStore {
             this.lastActiveSpaceId = Object.values(this.active)
                 .find(spaceId => this.spaces.some(space => space.id === spaceId)) || null;
         }
+        this.initialSpaceIds = this.spaces.map(space => space.id);
         this.initialized = true;
         await this.persist();
     }

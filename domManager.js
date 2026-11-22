@@ -17,7 +17,6 @@ import { setSidebarFavicon, wrapSidebarFavicon } from './sidebar-favicon.js';
  */
 
 import { Utils } from './utils.js';
-import { favoriteRequest } from './native-favorites.js';
 import { RESTORE_ICON } from './icons.js';
 import { Logger } from './logger.js';
 
@@ -320,7 +319,7 @@ export function activateSpaceInDOM(spaceId, spaces, updateSpaceSwitcher) {
     updateSpaceSwitcher();
 }
 
-export function showTabContextMenu(session, x, y, tab, isPinned, isBookmarkOnly, tabElement, closeTab, spaces, moveTabToSpace, setActiveSpace, allBookmarkSpaceFolders, createSpaceFromInactive, onReplaceBookmarkUrlWithCurrent = null, moveFavoriteToSpace = null, bulkActions = null, createFolder = null) {
+export function showTabContextMenu(session, x, y, tab, isPinned, isBookmarkOnly, tabElement, closeTab, spaces, moveTabToSpace, setActiveSpace, allBookmarkSpaceFolders, createSpaceFromInactive, onReplaceBookmarkUrlWithCurrent = null, moveFavoriteToSpace = null, bulkActions = null, createFolder = null, addToFavorites = null) {
     const contextMenu = document.createElement('div');
     contextMenu.id = 'tab-context-menu';
     contextMenu.className = 'context-menu'; // Reuse general context menu styling
@@ -339,21 +338,23 @@ export function showTabContextMenu(session, x, y, tab, isPinned, isBookmarkOnly,
 
     // Only show these options for actual tabs that are part of a space
     if (!isBookmarkOnly) {
-        const addToFavoritesOption = document.createElement('div');
-        addToFavoritesOption.className = 'context-menu-item';
-        addToFavoritesOption.textContent = plural ? `Add ${selectedCount} Tabs to Favorites` : 'Add to Favorites';
-        addToFavoritesOption.setAttribute('role', 'menuitem');
-        addToFavoritesOption.addEventListener('click', async () => {
-            session.close();
-            try {
-                if (bulkActions) await bulkActions.addToFavorites(bulkActions.tabIds);
-                else await favoriteRequest('pin', { tabIds: [tab.id] });
-                finishBulkAction();
-            } catch (error) {
-                alert(error.message);
-            }
-        });
-        contextMenu.appendChild(addToFavoritesOption);
+        if (addToFavorites) {
+            const addToFavoritesOption = document.createElement('button');
+            addToFavoritesOption.type = 'button';
+            addToFavoritesOption.className = 'context-menu-item';
+            addToFavoritesOption.textContent = plural ? `Add ${selectedCount} Tabs to Favorites` : 'Add to Favorites';
+            addToFavoritesOption.setAttribute('role', 'menuitem');
+            addToFavoritesOption.addEventListener('click', async () => {
+                session.close();
+                try {
+                    await addToFavorites(bulkActions?.tabIds || [tab.id]);
+                    finishBulkAction();
+                } catch (error) {
+                    alert(error.message);
+                }
+            });
+            contextMenu.appendChild(addToFavoritesOption);
+        }
 
         const pinInSpaceOption = document.createElement('div');
         pinInSpaceOption.className = 'context-menu-item';

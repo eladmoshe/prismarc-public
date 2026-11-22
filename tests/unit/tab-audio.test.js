@@ -100,6 +100,20 @@ test('speaker actions check fresh mute state and never change activation or anot
     assert.equal(actions.length, 1);
 });
 
+test('audio events route Favorite mute controls through their scoped action', async () => {
+    const favorite = host(true);
+    const tab = { id: 7, windowId: 1, audible: true };
+    const requests = [];
+    updateWindowTabAudio({ querySelectorAll: () => [favorite] }, tab, tab.windowId,
+        (...args) => requests.push(args));
+    const [button] = favorite.closest('.favorite-tile').children;
+    await button.listeners.click({ stopPropagation() {} });
+    assert.deepEqual(requests, [[favorite, tab.id]]);
+    button.remove();
+    await button.listeners.click({ stopPropagation() {} });
+    assert.equal(requests.length, 1);
+});
+
 test('offline bookmarks never inherit audio and updates stay within the native owning window', () => {
     const element = host();
     updateTabAudioIndicator(element, { id: 7, audible: true }, { live: false });

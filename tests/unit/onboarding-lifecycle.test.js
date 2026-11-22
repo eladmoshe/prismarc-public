@@ -33,7 +33,7 @@ function background(completed = false, onboardingVersion = undefined, version = 
         TabSwitcherOverlay: class { register() {} receive() {} isOnTab() { return false; } isOverlayFrame() { return false; } },
         TabSwitcherPreviews: class { register() {} },
         registerBookmarkListeners() {}, createCleanTabsHandler: () => () => {},
-        NativeFavorites: class { install() {} async dispatch() { return []; } },
+        SpaceFavorites: class { install() {} async dispatch() { return []; } },
         enqueueBookmarkOperation: async () => ({ orders: {} }),
         SpaceStore: class { install() {} async dispatch() { return [{ id: 'home' }]; } },
         Utils: {

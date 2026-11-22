@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { SpaceStore, ownerOf } from '../../space-store.js';
 import { isProtectedFavorite } from '../../favorite-safety.js';
-import { NativeFavorites } from '../../native-favorites.js';
+import { SpaceFavorites } from '../../space-favorites.js';
 import { LocalStorage } from '../../localstorage.js';
 import { Utils } from '../../utils.js';
 import { Logger } from '../../logger.js';
@@ -61,7 +61,7 @@ function startBackground() {
         chrome, console, isTrustedExtensionMessage, setTimeout, clearTimeout,
         dispatchTourMessage: async () => ({}), registerBookmarkListeners() {}, createCleanTabsHandler: () => () => {},
         enqueueBookmarkOperation: async () => ({}), copyCurrentTabUrlWithFallback: async () => {},
-        SpaceStore, ownerOf, isProtectedFavorite, NativeFavorites, LocalStorage, Utils, Logger, TabSwitcher,
+        SpaceStore, ownerOf, isProtectedFavorite, SpaceFavorites, LocalStorage, Utils, Logger, TabSwitcher,
         TabSwitcherOverlay: class {
             register() {} receive() {} tabActivated() {} sourceChanged() {}
             isOnTab() { return false; } isOverlayFrame() { return false; }

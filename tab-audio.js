@@ -51,7 +51,7 @@ export function tabAudioState(tab) {
     return tab.audible === true ? 'audible' : null;
 }
 
-function createAudioButton(element, { id, windowId }, chromeApi) {
+function createAudioButton(element, { id, windowId }, chromeApi, toggleMute) {
     const button = element.ownerDocument.createElement('button');
     button.className = 'tab-audio-indicator';
     button.type = 'button';
@@ -85,6 +85,10 @@ function createAudioButton(element, { id, windowId }, chromeApi) {
         if (pending || !button.isConnected || (event.detail > 0 && releasedOutside)) return;
         pending = true;
         try {
+            if (toggleMute) {
+                await toggleMute(element, id);
+                return;
+            }
             const current = await chromeApi.tabs.get(id);
             if (!button.isConnected || current.windowId !== windowId || !tabAudioState(current)) return;
             await chromeApi.tabs.update(id, { muted: current.mutedInfo?.muted !== true });
@@ -97,7 +101,7 @@ function createAudioButton(element, { id, windowId }, chromeApi) {
     return button;
 }
 
-export function updateTabAudioIndicator(element, tab, { live = true, chromeApi = globalThis.chrome } = {}) {
+export function updateTabAudioIndicator(element, tab, { live = true, chromeApi = globalThis.chrome, toggleMute } = {}) {
     const state = live ? tabAudioState(tab) : null;
     const favorite = element.classList.contains('pinned-favicon');
     // Native Favorites keep their activation and audio as sibling buttons.
@@ -106,7 +110,7 @@ export function updateTabAudioIndicator(element, tab, { live = true, chromeApi =
     const label = state === 'audible' ? 'Playing audio' : state === 'muted' ? 'Muted' : '';
     if (state && host) {
         if (!indicator) {
-            indicator = createAudioButton(element, tab, chromeApi);
+            indicator = createAudioButton(element, tab, chromeApi, toggleMute);
             const close = favorite ? null : host.querySelector(':scope > .tab-close, :scope > .tab-remove');
             host.insertBefore(indicator, close);
         }
@@ -138,9 +142,11 @@ export function updateTabAudioIndicator(element, tab, { live = true, chromeApi =
     if (favorite) element.setAttribute('aria-label', element.title);
 }
 
-export function updateWindowTabAudio(document, tab, windowId) {
+export function updateWindowTabAudio(document, tab, windowId, toggleFavoriteMute) {
     if (tab?.windowId !== windowId || !Number.isInteger(tab?.id) || tab.id < 0) return;
     for (const element of document.querySelectorAll(`.tab[data-tab-id="${tab.id}"], .pinned-favicon[data-tab-id="${tab.id}"]`)) {
-        updateTabAudioIndicator(element, tab);
+        updateTabAudioIndicator(element, tab, {
+            toggleMute: element.classList.contains('pinned-favicon') ? toggleFavoriteMute : undefined
+        });
     }
 }
