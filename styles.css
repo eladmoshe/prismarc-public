@@ -1728,11 +1728,20 @@ body:has(> .sidebar-container[data-space-theme="prismarc"]) .tab-audio-indicator
     border-radius: 3px;
 }
 
-.svg-icon {
-    width: 18px;
-    margin: 0 4px;
-    fill: currentColor;
-    opacity: 0.7;
+.archive-icon {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin-inline: 5px;
+    background: currentColor;
+    mask: url('assets/archive-box.png') center / contain no-repeat;
+}
+
+@media (forced-colors: active) {
+    .archive-icon {
+        forced-color-adjust: none;
+        background: ButtonText;
+    }
 }
 
 @media (max-width: 600px) {
