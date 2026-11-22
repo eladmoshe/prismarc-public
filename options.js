@@ -13,6 +13,7 @@ import { INLINE_SWITCHER, setInlineSwitcher } from './tab-switcher-inline-settin
  */
 
 import { AIR_TRAFFIC_RULE_LIMIT, AIR_TRAFFIC_RULES_KEY, parseAirTrafficPattern, readAirTrafficRules } from './air-traffic.js';
+import { KEYBOARD_SHORTCUTS_ERROR, openKeyboardShortcuts } from './chromeHelper.js';
 import { getAppearanceTheme, setAppearanceTheme, spaceRequest } from './space-client.js';
 import { APPEARANCE_THEME_KEY, SPACE_COLOR_NAMES } from './space-colors.js';
 import { Utils } from './utils.js';
@@ -732,4 +733,12 @@ document.addEventListener('DOMContentLoaded', () => {
   setupInlineSwitcher();
   setupPagePreviews();
   setupPreviewDomains();
+  addListenerIfExists('openKeyboardShortcuts', 'click', async () => {
+    try {
+      await openKeyboardShortcuts();
+    } catch (error) {
+      Logger.warn('Could not open keyboard shortcut settings:', error);
+      showToast(KEYBOARD_SHORTCUTS_ERROR);
+    }
+  });
 });

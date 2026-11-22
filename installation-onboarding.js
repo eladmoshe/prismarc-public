@@ -1,4 +1,5 @@
 import { readBookmarkSpaces } from './onboarding-bookmarks.js';
+import { KEYBOARD_SHORTCUTS_ERROR, openKeyboardShortcuts } from './chromeHelper.js';
 import { watchAppearance } from './space-client.js';
 import { usesOptionShortcut } from './tab-switcher-tabs.js';
 
@@ -66,10 +67,10 @@ function openSettings(url, error) {
 async function openShortcutSettings() {
     el('error').hidden = true;
     try {
-        await chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+        await openKeyboardShortcuts(windowId);
         openedShortcutSettings = true;
     } catch {
-        showError('Could not open keyboard shortcut settings. Enter chrome://extensions/shortcuts in the address bar.');
+        showError(KEYBOARD_SHORTCUTS_ERROR);
     }
 }
 

@@ -27,7 +27,7 @@ import { beginSidebarContextMenu } from './sidebar-context-menu.js';
  * - Manages archived tabs and auto-archive settings
  */
 
-import { ChromeHelper } from './chromeHelper.js';
+import { ChromeHelper, KEYBOARD_SHORTCUTS_ERROR, openKeyboardShortcuts } from './chromeHelper.js';
 import { getAppearanceTheme, spaceRequest as requestSpace } from './space-client.js';
 import { SpacePatchQueue } from './space-patch-queue.js';
 import { RefreshCoordinator } from './refresh-coordinator.js';
@@ -1197,6 +1197,7 @@ function createSpaceElement(space) {
     const newFolderBtn = spaceElement.querySelector('.new-folder-btn');
     const deleteSpaceBtn = spaceElement.querySelector('.delete-space-btn');
     const settingsBtn = spaceElement.querySelector('.settings-btn');
+    const shortcutsBtn = spaceElement.querySelector('.keyboard-shortcuts-btn');
 
     newFolderBtn.addEventListener('click', () => {
         closeOptions();
@@ -1227,6 +1228,15 @@ function createSpaceElement(space) {
     settingsBtn.addEventListener('click', () => {
         closeOptions();
         chrome.runtime.openOptionsPage();
+    });
+    shortcutsBtn.addEventListener('click', async () => {
+        closeOptions();
+        try {
+            await openKeyboardShortcuts(currentWindow.id);
+        } catch (error) {
+            Logger.warn('Could not open keyboard shortcut settings:', error);
+            alert(KEYBOARD_SHORTCUTS_ERROR);
+        }
     });
 
     // Load tabs

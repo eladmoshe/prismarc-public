@@ -57,7 +57,7 @@ To update, pull the latest source, run the install and build commands again, the
 2. Click **Search anything** in the sidebar to try Quick Switcher. Open **Settings → Getting started** to see your assigned shortcuts and practice using them.
 3. On macOS, try **Option+A** for **Cycle through open tabs**, or keep **Option+Tab** if it already works. Tap the shortcut to return to your previous tab. Hold **Option** and repeat the shortcut to choose another, then release **Option** to switch.
 
-If a shortcut is missing or conflicts with Chrome, assign it at `chrome://extensions/shortcuts`. The getting-started guide is available anytime from PrismArc Settings.
+If a shortcut is missing or conflicts with Chrome, choose **Keyboard shortcuts…** from the active Space’s three-dot menu or **Settings → Recent Tabs & Quick Switcher**. Chrome opens its shortcut editor, where you can assign PrismArc commands. The getting-started guide is available anytime from PrismArc Settings.
 
 To give the webpage more room, drag the divider between the sidebar and the page toward the edge of the Chrome window. Chrome sets the minimum width of the sidebar. [Chrome side panel help](https://support.google.com/chrome/answer/13156494)
 
