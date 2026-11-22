@@ -12,7 +12,8 @@ import { INLINE_SWITCHER, setInlineSwitcher } from './tab-switcher-inline-settin
  * - Provides real-time feedback for setting changes
  */
 
-import { getAppearanceTheme, setAppearanceTheme } from './space-client.js';
+import { AIR_TRAFFIC_RULE_LIMIT, parseAirTrafficPattern } from './air-traffic.js';
+import { getAppearanceTheme, setAppearanceTheme, spaceRequest } from './space-client.js';
 import { APPEARANCE_THEME_KEY, SPACE_COLOR_NAMES } from './space-colors.js';
 import { Utils } from './utils.js';
 import { LocalStorage } from './localstorage.js';
@@ -299,6 +300,196 @@ function setupAutoSave() {
   checkboxIds.forEach(id => addListenerIfExists(id, 'change', saveOptions));
 }
 
+async function setupAirTraffic() {
+  const form = document.getElementById('airTrafficForm');
+  const fields = form.querySelector('fieldset');
+  const list = document.getElementById('air-traffic-rules');
+  const empty = document.getElementById('airTrafficEmpty');
+  const add = document.getElementById('addAirTrafficRule');
+  const save = document.getElementById('saveAirTrafficRules');
+  const reload = document.getElementById('reloadAirTrafficRules');
+  const status = document.getElementById('airTrafficStatus');
+  const template = document.getElementById('airTrafficRuleRow');
+  let spaces = [];
+  let savedRules = [];
+  let revision = 0;
+  let savedRevision = 0;
+  let pending = false;
+
+  function report(message, error = false) {
+    status.textContent = message;
+    status.toggleAttribute('data-error', error);
+  }
+
+  async function requestRules(action, payload) {
+    const response = await chrome.runtime.sendMessage({ type: 'airTraffic', action, ...payload });
+    if (!response?.success || !Array.isArray(response.rules)) {
+      throw Object.assign(new Error(response?.error || 'Air Traffic rules are unavailable.'), { code: response?.code });
+    }
+    return response.rules;
+  }
+
+  function fillSpaceSelect(select, selectedId) {
+    select.replaceChildren(new Option('Choose a Space', '', false, false));
+    select.options[0].disabled = true;
+    for (const { id, name } of spaces) {
+      select.add(new Option(name, id));
+    }
+    if (selectedId && !spaces.some(({ id }) => id === selectedId)) {
+      select.add(new Option('Unavailable Space', selectedId));
+      select.options[select.options.length - 1].disabled = true;
+    }
+    select.value = selectedId;
+  }
+
+  function makeRow({ pattern = '', spaceId = '' } = {}) {
+    const row = template.content.firstElementChild.cloneNode(true);
+    row.querySelector('.air-traffic-pattern').value = pattern;
+    fillSpaceSelect(row.querySelector('.air-traffic-space'), spaceId);
+    return row;
+  }
+
+  function updateControls() {
+    const rows = [...list.children];
+    empty.hidden = rows.length > 0;
+    add.disabled = !spaces.length || rows.length >= AIR_TRAFFIC_RULE_LIMIT;
+    save.disabled = pending || revision === savedRevision || !reload.hidden;
+    reload.disabled = pending;
+    for (const row of rows) {
+      row.querySelector('[data-air-traffic-action="up"]').disabled = row === rows[0];
+      row.querySelector('[data-air-traffic-action="down"]').disabled = row === rows.at(-1);
+    }
+  }
+
+  function edit() {
+    revision++;
+    if (reload.hidden) report('');
+    updateControls();
+  }
+
+  function showSavedRules(rules) {
+    savedRules = rules;
+    list.replaceChildren(...rules.map(makeRow));
+    savedRevision = revision;
+    reload.hidden = true;
+    updateControls();
+  }
+
+  try {
+    const [initialSpaces, rules] = await Promise.all([spaceRequest('get'), requestRules('get')]);
+    spaces = initialSpaces;
+    showSavedRules(rules);
+    fields.disabled = false;
+    report('');
+  } catch {
+    report('Could not load Air Traffic rules. Reopen Settings to try again.', true);
+    return;
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    const next = changes.spaces?.newValue;
+    if (area !== 'local' || !Array.isArray(next) ||
+      (next.length === spaces.length && next.every(({ id, name }, index) => spaces[index].id === id && spaces[index].name === name))) return;
+    spaces = next;
+    for (const select of list.querySelectorAll('.air-traffic-space')) fillSpaceSelect(select, select.value);
+    updateControls();
+  });
+
+  form.addEventListener('input', event => {
+    event.target.removeAttribute('aria-invalid');
+    event.target.removeAttribute('aria-errormessage');
+    edit();
+  });
+  add.addEventListener('click', () => {
+    const row = makeRow();
+    list.append(row);
+    edit();
+    row.querySelector('.air-traffic-pattern').focus();
+  });
+
+  list.addEventListener('click', event => {
+    const button = event.target.closest('[data-air-traffic-action]');
+    if (!button || button.disabled) return;
+    const row = button.closest('.air-traffic-rule');
+    const { previousElementSibling: previous, nextElementSibling: next } = row;
+    const action = button.dataset.airTrafficAction;
+    if (action === 'up' && previous) list.insertBefore(row, previous);
+    if (action === 'down' && next) list.insertBefore(next, row);
+    if (action === 'remove') row.remove();
+    edit();
+    if (action === 'remove') {
+      ((next || previous)?.querySelector('.air-traffic-pattern') || add).focus();
+    } else {
+      (button.disabled ? row.querySelector('[data-air-traffic-action]:enabled') : button)?.focus();
+    }
+  });
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (save.disabled) return;
+    const draft = [];
+    const rows = [...list.children];
+    for (const [index, row] of rows.entries()) {
+      const input = row.querySelector('.air-traffic-pattern');
+      const select = row.querySelector('.air-traffic-space');
+      const pattern = parseAirTrafficPattern(input.value)?.pattern;
+      const spaceId = select.value;
+      const validSpace = spaces.some(space => space.id === spaceId) ||
+        savedRules.some(rule => rule.spaceId === spaceId && rule.pattern === pattern);
+      if (!pattern || !validSpace) {
+        const invalid = pattern ? select : input;
+        invalid.setAttribute('aria-invalid', 'true');
+        invalid.setAttribute('aria-errormessage', status.id);
+        invalid.focus();
+        report(pattern ? `Choose a destination Space for rule ${index + 1}.` : `Enter a valid URL pattern for rule ${index + 1}.`, true);
+        return;
+      }
+      draft.push({ pattern, spaceId });
+    }
+
+    const savingRevision = revision;
+    pending = true;
+    updateControls();
+    report('Saving rules…');
+    try {
+      savedRules = await requestRules('set', { rules: draft, expectedRules: savedRules });
+      savedRevision = savingRevision;
+      if (revision === savedRevision) {
+        rows.forEach((row, index) => { row.querySelector('.air-traffic-pattern').value = savedRules[index].pattern; });
+        report('Air Traffic rules saved.');
+      } else {
+        report('Select Save rules to apply your latest edits.');
+      }
+    } catch (error) {
+      reload.hidden = error.code !== 'air_traffic_conflict';
+      report(reload.hidden ? error.message || 'Could not save rules. Try again.' :
+        'The saved rules changed elsewhere. Your edits are still here.', true);
+    } finally {
+      pending = false;
+      updateControls();
+    }
+  });
+
+  reload.addEventListener('click', async () => {
+    const discardRevision = revision;
+    pending = true;
+    updateControls();
+    try {
+      const rules = await requestRules('get');
+      if (revision === discardRevision) {
+        showSavedRules(rules);
+        report('Saved rules reloaded.');
+        add.focus();
+      }
+    } catch {
+      report('Could not reload rules. Your edits are still here.', true);
+    } finally {
+      pending = false;
+      updateControls();
+    }
+  });
+}
+
 async function setupPreviewDomains() {
   const form = document.getElementById('previewDomainsForm');
   const field = document.getElementById(TAB_SWITCHER_EXCLUDED_DOMAINS);
@@ -511,6 +702,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSectionNavigation();
   setupAdvancedOptions();
   setupAutoSave();
+  setupAirTraffic();
   setupInlineSwitcher();
   setupPagePreviews();
   setupPreviewDomains();

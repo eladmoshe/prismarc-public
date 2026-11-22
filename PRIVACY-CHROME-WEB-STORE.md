@@ -6,6 +6,8 @@ PrismArc organizes and switches between tabs and bookmarks in Chrome. It process
 
 ## Tabs, bookmarks, and search
 
+Air Traffic stores your URL patterns and destination Spaces on this device. It compares addresses locally when you open or navigate a temporary tab.
+
 PrismArc reads tab titles and addresses, native Chrome bookmarks, and Chrome browsing history to display the sidebar and answer Quick Switcher searches. It saves spaces, saved tab information, archive entries, and preferences in Chrome's local extension storage.
 
 Choosing **Delete from browser history** removes visits to the selected result's addresses from Chrome history. Choosing **Search Google** opens a Google search page and sends the search query to Google. Chrome can sync native bookmarks and history according to your Chrome profile settings. Speaker buttons read Chrome’s native audio status and change a tab’s mute setting when you activate them.

@@ -35,6 +35,52 @@ test('startup bookmark binding preserves navigated pins and does not steal their
     assert.equal(bindings.find(([id]) => id === 1)[1].bookmarkId, 'bound');
 });
 
+test('opening a Space pin establishes membership before navigating to its saved URL', async () => {
+    mock();
+    const events = [];
+    const url = 'https://saved.test/';
+    const tab = { id: 1, title: 'Saved' };
+    chrome.tabs.create = async ({ url }) => {
+        events.push(['create', url]);
+        return tab;
+    };
+    chrome.runtime.sendMessage = async message => {
+        events.push(['assign', message.spaceId, message.tabId, message.pinned]);
+        return { success: true, spaces: [{ id: 's', spaceBookmarks: [1], temporaryTabs: [] }] };
+    };
+    chrome.tabs.update = async (id, changes) => {
+        events.push(['update', id, changes]);
+        return { ...tab, ...changes };
+    };
+    const spaces = [{ id: 's', spaceBookmarks: [], temporaryTabs: [] }];
+    const result = await BookmarkUtils.openBookmarkAsTab({ url, title: 'Saved', bookmarkId: 'bound' }, 's', null, {
+        spaces, currentWindow: { id: 2 }, saveSpaces() {},
+        Utils: { async setPinnedTabState(id, binding) { events.push(['bind', id, binding]); } },
+    }, true);
+    assert.equal(result.url, url);
+    assert.deepEqual(spaces[0].spaceBookmarks, [1]);
+    assert.deepEqual(events, [
+        ['create', 'about:blank'],
+        ['assign', 's', 1, true],
+        ['update', 1, { url }],
+        ['bind', 1, { bookmarkId: 'bound', pinnedUrl: url }],
+        ['update', 1, { active: true }],
+    ]);
+});
+
+test('a Space pin whose destination disappeared closes the unused blank tab', async () => {
+    mock();
+    chrome.tabs.create = async () => ({ id: 1, url: 'about:blank' });
+    chrome.tabs.get = async () => ({ id: 1, url: 'about:blank' });
+    const removed = [];
+    chrome.tabs.remove = async id => removed.push(id);
+    chrome.tabs.update = async () => assert.fail('must not navigate an unassigned pin');
+    await assert.rejects(BookmarkUtils.openBookmarkAsTab({ url: 'https://saved.test/' }, 'missing', null, {
+        spaces: [], currentWindow: { id: 2 },
+    }, true), /no longer available/);
+    assert.deepEqual(removed, [1]);
+});
+
 test('a stale binding never deletes the first URL twin', async () => {
     const { removed } = mock();
     await removeSpacePin({ bookmarkFolderId: 'space' }, { bookmarkId: 'missing', url: 'https://saved.test/' });

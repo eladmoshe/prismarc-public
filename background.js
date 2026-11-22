@@ -79,6 +79,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'appearanceTheme':
             return respond(spaceStore.appearanceTheme(message).then(theme => ({ theme })),
                 sendResponse, 'Could not update appearance.', messageError);
+        case 'airTraffic':
+            return respond(spaceStore.airTraffic(message).then(rules => ({ rules })),
+                sendResponse, 'Could not update Air Traffic.', messageError);
         case 'spaceStore':
             return respond(spaceStore.dispatch(message).then(spaces => ({ spaces })),
                 sendResponse, 'Could not complete the space operation.', messageError);

@@ -23,6 +23,7 @@
             <nav class="options-nav" aria-label="Settings sections">
                 <ul>
                     <li><a href="#tabsHeading" aria-current="location">Tabs &amp; spaces</a></li>
+                    <li><a href="#airTrafficHeading">Air Traffic</a></li>
                     <li><a href="#switcherHeading">Recent Tabs &amp; Quick Switcher</a></li>
                     <li><a href="#archiveHeading">Auto-archiving</a></li>
                     <li><a href="#colorsHeading">Appearance</a></li>
@@ -75,6 +76,44 @@
                             <label for="syncTabGroups" class="toggle-label" aria-hidden="true"></label>
                         </div>
                     </div>
+                </section>
+
+                <section class="options-section" aria-labelledby="airTrafficHeading">
+                    <header class="options-section-header">
+                        <h2 id="airTrafficHeading" class="options-section-title" tabindex="-1">Air Traffic</h2>
+                        <p class="options-description">Route temporary tabs to a Space when you open a site or change pages. The first matching rule wins.</p>
+                    </header>
+                    <form id="airTrafficForm" class="options-setting-item" novalidate>
+                        <p id="airTrafficPatternHelp" class="options-description">Use a hostname like <code>example.com</code>, an exact path, or a path prefix like <code>example.com/projects/*</code>.</p>
+                        <fieldset class="air-traffic-controls" disabled>
+                            <ol id="air-traffic-rules" aria-label="Routing rules in priority order" role="list"></ol>
+                            <p id="airTrafficEmpty" class="options-description" hidden>No routing rules yet.</p>
+                            <div class="air-traffic-actions">
+                                <button type="button" id="addAirTrafficRule" class="options-button">Add rule</button>
+                                <button type="submit" id="saveAirTrafficRules" class="options-button options-button-primary" disabled>Save rules</button>
+                                <button type="button" id="reloadAirTrafficRules" class="options-button" hidden>Discard draft and reload</button>
+                            </div>
+                        </fieldset>
+                        <p id="airTrafficStatus" class="options-form-status" role="status">Loading rules…</p>
+                    </form>
+                    <template id="airTrafficRuleRow">
+                        <li class="air-traffic-rule">
+                            <label>
+                                <span class="options-label">URL pattern</span>
+                                <input type="text" class="options-input air-traffic-pattern" maxlength="2048" placeholder="example.com"
+                                    autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="airTrafficPatternHelp">
+                            </label>
+                            <label>
+                                <span class="options-label">Destination Space</span>
+                                <select class="options-input air-traffic-space"></select>
+                            </label>
+                            <div class="air-traffic-rule-actions">
+                                <button type="button" class="options-button" data-air-traffic-action="up" aria-label="Move rule up" title="Move rule up">↑</button>
+                                <button type="button" class="options-button" data-air-traffic-action="down" aria-label="Move rule down" title="Move rule down">↓</button>
+                                <button type="button" class="options-button" data-air-traffic-action="remove" aria-label="Remove rule">Remove</button>
+                            </div>
+                        </li>
+                    </template>
                 </section>
 
                 <section class="options-section" aria-labelledby="switcherHeading">

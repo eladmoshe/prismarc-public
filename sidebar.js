@@ -772,6 +772,7 @@ async function adoptStoredSpaces(next, { render = true } = {}) {
         ({ id, name, color, bookmarkFolderId, spaceBookmarks, temporaryTabs })));
     const needsRender = projection(spaces) !== projection(next);
     const old = spaces;
+    const previousActiveOwner = ownerOf(old, activeChromeTabId);
     const oldMetadata = new Map(old.map(s => [s.id, { name: s.name, color: s.color }]));
     spaces = next.map(space => {
         const existing = old.find(s => s.id === space.id);
@@ -809,6 +810,16 @@ async function adoptStoredSpaces(next, { render = true } = {}) {
     if (!spaces.some(s => s.id === activeSpaceId)) {
         spaceSwipe?.cancel();
         activeSpaceId = spaces[0]?.id;
+    } else if (!previousActiveOwner || previousActiveOwner.id === activeSpaceId) {
+        // Follow the foreground tab when its ownership first arrives or changes.
+        const activeOwner = ownerOf(spaces, activeChromeTabId);
+        if (activeOwner && activeOwner.id !== activeSpaceId) {
+            spaceSwipe?.cancel();
+            closeCleanPreview();
+            previousSpaceId = activeSpaceId;
+            activeSpaceId = activeOwner.id;
+            clearTabSelection();
+        }
     }
     if (needsRender && render) {
         await activateSpaceInDOM(activeSpaceId, spaces, updateSpaceSwitcher);

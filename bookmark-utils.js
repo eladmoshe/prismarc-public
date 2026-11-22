@@ -101,12 +101,27 @@ export const BookmarkUtils = {
 
         Logger.log('[BookmarkUtils] Opening bookmark as tab:', bookmarkData.url, targetSpaceId);
 
-        // Create the bookmark tab and assign its target space
-        const newTab = await chrome.tabs.create({
-            url: bookmarkData.url,
+        // Register a Space pin before its navigation so Air Traffic never treats it as a temporary tab.
+        let newTab = await chrome.tabs.create({
+            url: isPinned ? 'about:blank' : bookmarkData.url,
             active: true,
             windowId: currentWindow.id
         });
+        if (isPinned) {
+            try {
+                const assigned = await spaceRequest('assign', { tabId: newTab.id, spaceId: targetSpaceId, pinned: true });
+                if (!assigned.find(space => space.id === targetSpaceId)?.spaceBookmarks.includes(newTab.id)) {
+                    throw new Error('The bookmark Space is no longer available.');
+                }
+                newTab = await chrome.tabs.update(newTab.id, { url: bookmarkData.url });
+            } catch (error) {
+                const remaining = await chrome.tabs.get(newTab.id).catch(() => null);
+                if ((remaining?.pendingUrl || remaining?.url) === 'about:blank') {
+                    await chrome.tabs.remove(newTab.id).catch(() => {});
+                }
+                throw error;
+            }
+        }
 
         // Keep the legacy title fallback for ordinary bookmarks. A named
         // Space pin gets its alias from its bookmark, not a tab-ID override.
@@ -128,8 +143,8 @@ export const BookmarkUtils = {
             }
         }
 
-        // Assign the new tab in extension storage
-        await spaceRequest('assign', { tabId: newTab.id, spaceId: targetSpaceId, pinned: isPinned });
+        // Pins are already assigned before navigation. Other bookmarks keep their existing assignment.
+        if (!isPinned) await spaceRequest('assign', { tabId: newTab.id, spaceId: targetSpaceId });
         for (const space of spaces) {
             space.spaceBookmarks = space.spaceBookmarks.filter(id => id !== newTab.id);
             space.temporaryTabs = space.temporaryTabs.filter(id => id !== newTab.id);

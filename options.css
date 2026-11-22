@@ -240,6 +240,36 @@ button, input, select, textarea { font: inherit; }
 .options-form-status:not(:empty) { margin-block-start: .4rem; }
 .options-form-status[data-error] { color: var(--error); }
 
+.air-traffic-controls {
+    min-inline-size: 0;
+    margin: .55rem 0 0;
+    padding: 0;
+    border: 0;
+}
+
+#air-traffic-rules {
+    display: grid;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.air-traffic-rule {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+    align-items: end;
+    gap: .65rem;
+    padding-block: .65rem;
+    border-block-start: 1px solid var(--line);
+}
+
+.air-traffic-rule .options-label { margin-block-end: .3rem; }
+.air-traffic-rule-actions,
+.air-traffic-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.air-traffic-rule-actions [data-air-traffic-action="up"],
+.air-traffic-rule-actions [data-air-traffic-action="down"] { min-inline-size: 42px; }
+.air-traffic-actions { margin-block-start: .55rem; }
+
 .toggle-switch-container {
     position: relative;
     inline-size: 49px;
@@ -375,6 +405,7 @@ button, input, select, textarea { font: inherit; }
     .options-setting-field, .options-form-controls, .color-overrides-grid { grid-template-columns: minmax(0, 1fr); }
     .options-setting-field select { inline-size: 100%; }
     .options-form-controls .options-button { justify-self: start; }
+    .air-traffic-rule { grid-template-columns: minmax(0, 1fr); }
     .color-override-item:nth-child(2n) { border-inline-start: 0; }
 }
 

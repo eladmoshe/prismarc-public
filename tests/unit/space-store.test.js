@@ -25,12 +25,126 @@ beforeEach(() => {
         runtime: { getURL: path => `chrome-extension://arcify/${path}` },
         storage: { local: area(local), session: area(session), onChanged: event() },
         tabs: { onCreated: event(), onUpdated: event(), onRemoved: event(), onReplaced: event(), onActivated: event(), onMoved: event(), query: async query => tabs.filter(t => query.groupId === undefined || query.groupId === t.groupId),
+            get: async id => {
+                const tab = tabs.find(tab => tab.id === id);
+                if (!tab) throw new Error(`No tab with id: ${id}.`);
+                return structuredClone(tab);
+            },
             group: async args => { mutations.push(['group', args]); const id = args.groupId ?? 100 + groups.length; if (!groups.some(g => g.id === id)) groups.push({ id, windowId: 1 }); tabs.filter(t => args.tabIds.includes(t.id)).forEach(t => t.groupId = id); return id; },
             move: async (...args) => mutations.push(['move', ...args]) },
         tabGroups: { onRemoved: event(), onUpdated: event(), query: async () => groups, update: async (id, attrs) => { mutations.push(['update', id, attrs]); Object.assign(groups.find(g => g.id === id), attrs); } },
         bookmarks: { search: async () => [{ id: 'root' }], get: async id => id === 'root' ? [{ id, title: 'Arcify' }] : [],
             getChildren: async () => [], create: async ({ title }) => ({ id: title, title }) }
     };
+});
+
+test('Air Traffic settings are ordered, validated, persisted, and protected from stale edits', async () => {
+    const store = new SpaceStore();
+    const rules = [{ pattern: ' one.test/* ', spaceId: 'b' }, { pattern: 'two.test/example', spaceId: 'a' }];
+    assert.deepEqual(await store.airTraffic({ action: 'get' }), []);
+    const saved = await store.airTraffic({ action: 'set', rules, expectedRules: [] });
+    assert.deepEqual(saved, [{ ...rules[0], pattern: 'one.test/*' }, rules[1]]);
+    assert.deepEqual(await new SpaceStore().airTraffic({ action: 'get' }), saved);
+    await assert.rejects(store.airTraffic({ action: 'set', rules: [], expectedRules: [saved[1], saved[0]] }),
+        { code: 'air_traffic_conflict' });
+    await assert.rejects(store.airTraffic({ action: 'set', rules: [{ pattern: 'https://', spaceId: 'a' }] }), /valid URL pattern/);
+    await assert.rejects(store.airTraffic({ action: 'set', rules: [{ pattern: 'one.test', spaceId: 'removed' }] }), /no longer available/);
+    assert.deepEqual(local.airTrafficRules, saved);
+    assert.equal(ownerOf(local.spaces, 1).id, 'a');
+});
+
+test('Air Traffic follows new committed URLs and preserves the selected Space for background tabs', async () => {
+    session.activeSpaces = { 1: 'a' };
+    tabs[0].active = true;
+    local.spaces[0].lastTab = 1;
+    const store = new SpaceStore();
+    store.install();
+    await store.airTraffic({ action: 'set', rules: [{ pattern: 'one.test/*', spaceId: 'b' }] });
+    assert.equal(ownerOf(local.spaces, 1).id, 'a'); // No sweep on rule edits.
+
+    const background = { id: 3, windowId: 1, openerTabId: 1, url: 'https://one.test/background' };
+    tabs.push(background);
+    chrome.tabs.onCreated.emit(background);
+    await store.run(() => store.persist());
+    assert.equal(ownerOf(local.spaces, 3).id, 'b');
+    assert.equal(session.activeSpaces[1], 'a');
+
+    tabs[0].url = 'https://one.test/foreground';
+    chrome.tabs.onUpdated.emit(1, { url: tabs[0].url }, tabs[0]);
+    await store.run(() => store.persist());
+    assert.deepEqual(local.spaces.map(space => space.temporaryTabs), [[], [2, 3, 1]]);
+    assert.equal(local.spaces[0].lastTab, undefined);
+    assert.equal(local.spaces[1].lastTab, 1);
+    assert.equal(session.activeSpaces[1], 'b');
+
+    tabs[0].url = 'https://other.test/';
+    chrome.tabs.onUpdated.emit(1, { url: tabs[0].url }, tabs[0]);
+    await store.run(() => store.persist());
+    assert.equal(ownerOf(local.spaces, 1).id, 'b');
+    assert.deepEqual(mutations, []);
+});
+
+test('Air Traffic keeps Space pins, native Favorites, and private tabs out of routing', async () => {
+    local.spaces[0].spaceBookmarks = [1];
+    local.spaces[0].temporaryTabs = [3];
+    tabs[1].pinned = true;
+    tabs.push({ id: 3, windowId: 2, incognito: true, url: 'https://one.test/' });
+    const store = new SpaceStore();
+    store.install();
+    await store.airTraffic({ action: 'set', rules: [{ pattern: 'one.test/*', spaceId: 'b' }] });
+
+    for (const tab of tabs) {
+        tab.url = 'https://one.test/subpage';
+        chrome.tabs.onUpdated.emit(tab.id, { url: tab.url }, tab);
+    }
+    await store.run(() => store.persist());
+    assert.deepEqual(local.spaces[0].spaceBookmarks, [1]);
+    assert.deepEqual(local.spaces[0].temporaryTabs, [3]);
+    assert.deepEqual(local.spaces[1].temporaryTabs, []);
+    assert.equal(ownerOf(local.spaces, 2), undefined);
+});
+
+test('Air Traffic skips a stale committed URL and a tab that closes while the lookup is queued', async () => {
+    session.activeSpaces = { 1: 'a' };
+    const store = new SpaceStore();
+    store.install();
+    await store.airTraffic({ action: 'set', rules: [{ pattern: 'one.test/*', spaceId: 'b' }] });
+
+    tabs[0].url = 'https://other.test/latest';
+    chrome.tabs.onUpdated.emit(1, { url: 'https://one.test/stale' }, { ...tabs[0], url: 'https://one.test/stale' });
+    await store.run(() => store.persist());
+    assert.equal(ownerOf(local.spaces, 1).id, 'a');
+
+    tabs[0].url = 'https://one.test/close';
+    tabs[0].active = true;
+    const nativeGet = chrome.tabs.get;
+    const reached = Promise.withResolvers();
+    const resume = Promise.withResolvers();
+    chrome.tabs.get = async id => {
+        reached.resolve();
+        await resume.promise;
+        return nativeGet(id);
+    };
+    chrome.tabs.onUpdated.emit(1, { url: tabs[0].url }, tabs[0]);
+    await reached.promise;
+    tabs = tabs.filter(tab => tab.id !== 1);
+    chrome.tabs.onRemoved.emit(1, { windowId: 1, isWindowClosing: false });
+    resume.resolve();
+    await store.run(() => store.persist());
+    assert.equal(ownerOf(local.spaces, 1), undefined);
+    assert.equal(session.activeSpaces[1], 'a');
+    assert.equal(local.spaces[1].lastTab, undefined);
+});
+
+test('Air Traffic routes a replacement tab after a native prerender swap', async () => {
+    const store = new SpaceStore();
+    store.install();
+    await store.airTraffic({ action: 'set', rules: [{ pattern: 'one.test/*', spaceId: 'b' }] });
+    tabs[0] = { ...tabs[0], id: 9, url: 'https://one.test/prerender' };
+    chrome.tabs.onReplaced.emit(9, 1);
+    await store.run(() => store.persist());
+    assert.equal(ownerOf(local.spaces, 1), undefined);
+    assert.equal(ownerOf(local.spaces, 9).id, 'b');
 });
 test('independent default ignores group identity and order and retains empty spaces', async () => {
     tabs[0].groupId = 99; tabs.reverse();

@@ -21,6 +21,7 @@
 ## Make the sidebar your own
 
 - **Organize with Spaces.** Give work, personal browsing, or a project its own list of tabs. Drag tabs between Spaces and give each Space a color.
+- **Route tabs with Air Traffic.** In **Settings → Air Traffic**, add a URL pattern, choose a destination Space, and save. Use `example.com/*` for the whole site or `example.com/projects` for an exact path. PrismArc checks rules from top to bottom when a temporary tab opens or navigates.
 - **Keep useful pages within reach.** Add frequently used pages to Favorites at the top. Pin project links inside a Space and group them into folders. Space pins are saved as Chrome bookmarks.
 - **Clear out old tabs.** Use **Clean** to preview which temporary tabs will close and undo a cleanup if needed. Turn on **Auto-archive** to close idle tabs and restore them later from **Archived Tabs**.
 

@@ -1,3 +1,4 @@
+import { AIR_TRAFFIC_RULE_LIMIT, AIR_TRAFFIC_RULES_KEY, compileAirTrafficRule, findAirTrafficDestination } from './air-traffic.js';
 import { Logger } from './logger.js';
 import { isPracticeUrl } from './tour-practice.js';
 import { syncSpaceGroups } from './tab-group-sync.js';
@@ -11,6 +12,7 @@ export const tabIds = space => sections.flatMap(key => space?.[key] || []);
 export const ownerOf = (spaces, tabId) => spaces.find(space => tabIds(space).includes(tabId));
 export const resolveDefaultSpace = (spaces, name = 'Home') => spaces.find(space => space.name === name) || spaces[0];
 const clone = value => structuredClone(value);
+const savedAirTrafficRules = rules => rules.map(({ pattern, spaceId }) => ({ pattern, spaceId }));
 const persistenceDelay = 150;
 const storageUnavailable = cause => Object.assign(new Error('Space storage is unavailable.', { cause }),
     { code: 'space_storage_unavailable' });
@@ -20,6 +22,13 @@ const bookmarksUnavailable = cause => Object.assign(new Error('The space bookmar
 async function storageCall(operation) {
     try { return await operation(); }
     catch (error) { throw storageUnavailable(error); }
+}
+async function getLiveTab(id) {
+    try { return await chrome.tabs.get(id); }
+    catch (error) {
+        if (/No tab with id:/i.test(error?.message || String(error))) return null;
+        throw error;
+    }
 }
 
 // The service worker is the only writer. UI patches express changes relative to the
@@ -89,6 +98,37 @@ export class SpaceStore {
             return theme;
         });
     }
+    airTraffic({ action, rules, expectedRules }) {
+        return this.run(async () => {
+            if (action === 'set') {
+                const current = this.airTrafficRules;
+                if (expectedRules !== undefined && (!Array.isArray(expectedRules) ||
+                    expectedRules.length !== current.length || current.some(({ pattern, spaceId }, index) =>
+                        expectedRules[index]?.pattern !== pattern || expectedRules[index]?.spaceId !== spaceId))) {
+                    throw Object.assign(new Error('Air Traffic rules changed. Review the latest rules and try again.'),
+                        { code: 'air_traffic_conflict' });
+                }
+                if (!Array.isArray(rules) || rules.length > AIR_TRAFFIC_RULE_LIMIT) {
+                    throw new Error(`Save up to ${AIR_TRAFFIC_RULE_LIMIT} Air Traffic rules.`);
+                }
+                const compiled = rules.map((rule, index) => {
+                    const compiledRule = compileAirTrafficRule(rule);
+                    if (!compiledRule) throw new Error(`Enter a valid URL pattern and Space for rule ${index + 1}.`);
+                    const { pattern, spaceId } = compiledRule;
+                    if (!this.spaces.some(space => space.id === spaceId) &&
+                        !this.airTrafficRules.some(rule => rule.spaceId === spaceId && rule.pattern === pattern)) {
+                        throw new Error(`The Space for rule ${index + 1} is no longer available.`);
+                    }
+                    return compiledRule;
+                });
+                await storageCall(() => chrome.storage.local.set({ [AIR_TRAFFIC_RULES_KEY]: savedAirTrafficRules(compiled) }));
+                this.airTrafficRules = compiled;
+            } else if (action !== 'get') {
+                throw new Error('Unknown Air Traffic action.');
+            }
+            return savedAirTrafficRules(this.airTrafficRules);
+        });
+    }
     async makeSpace(name, color, folder = null) {
         if (!folder) {
             try { folder = await LocalStorage.getOrCreateSpaceFolder(name); }
@@ -105,13 +145,17 @@ export class SpaceStore {
     async initialize() {
         if (this.initialized) return;
         const data = await storageCall(() => chrome.storage.local.get([
-            'spaces', 'spaceModelVersion', 'spaceTabSnapshot', 'archivedTabs', 'lastActiveSpaceId', 'defaultSpaceName'
+            'spaces', 'spaceModelVersion', 'spaceTabSnapshot', 'archivedTabs', 'lastActiveSpaceId', 'defaultSpaceName',
+            AIR_TRAFFIC_RULES_KEY
         ]));
         const session = await storageCall(() => chrome.storage.session.get([
             'spaceSession', 'spaceRestoreQueue', 'spaceRestoreWindows', 'spaceKnownWindows', 'spaceStartupPending', 'activeSpaces',
             'lastActiveSpaceId', 'restoredTabRanks'
         ]));
         this.spaces = data.spaces || [];
+        const rules = data[AIR_TRAFFIC_RULES_KEY];
+        this.airTrafficRules = Array.isArray(rules) ?
+            rules.slice(0, AIR_TRAFFIC_RULE_LIMIT).map(compileAirTrafficRule).filter(Boolean) : [];
         this.restoreQueue = [];
         this.restoreWindows = new Map();
         this.startupPending = new Set();
@@ -323,6 +367,36 @@ export class SpaceStore {
             else space[key].push(tab.id);
         }
     }
+    assignTab(tabId, target, pinned) {
+        this.startupPending.delete(tabId);
+        this.restoredRanks.delete(tabId);
+        for (const space of this.spaces) for (const key of sections) space[key] = space[key].filter(id => id !== tabId);
+        target[pinned ? 'spaceBookmarks' : 'temporaryTabs'].push(tabId);
+    }
+    async routeTab(tab, checkedTab) {
+        if (!this.airTrafficRules.length || !tab.url || tab.pinned || tab.incognito || tab.discarded) return;
+        const source = ownerOf(this.spaces, tab.id);
+        if (!source?.temporaryTabs.includes(tab.id)) return;
+        const target = findAirTrafficDestination(this.airTrafficRules, this.spaces, tab.url);
+        if (!target || source === target) return;
+
+        // A queued URL event can outlive a redirect, a pin or the tab itself.
+        const current = checkedTab ?? await getLiveTab(tab.id);
+        if (!current || current.url !== tab.url || current.pinned || current.incognito || current.discarded ||
+            (current.pendingUrl && current.pendingUrl !== current.url)) return;
+
+        this.assignTab(current.id, target, false);
+        if (source.lastTab === current.id) delete source.lastTab;
+        if (current.active) {
+            target.lastTab = current.id;
+            // Follow the active tab while leaving a manually selected Space in place.
+            const selected = this.active[current.windowId];
+            if (!selected || selected === source.id) {
+                this.active[current.windowId] = target.id;
+                this.lastActiveSpaceId = target.id;
+            }
+        }
+    }
     schedulePersistence() {
         this.persistencePending = true;
         if (this.persistenceTimer) return;
@@ -474,12 +548,7 @@ export class SpaceStore {
                     break;
                 case 'assign': {
                     const target = this.spaces.find(s => s.id === message.spaceId);
-                    if (target) {
-                        this.startupPending.delete(message.tabId);
-                        this.restoredRanks.delete(message.tabId);
-                        for (const space of this.spaces) for (const key of sections) space[key] = space[key].filter(id => id !== message.tabId);
-                        target[message.pinned ? 'spaceBookmarks' : 'temporaryTabs'].push(message.tabId);
-                    }
+                    if (target) this.assignTab(message.tabId, target, message.pinned);
                     break;
                 }
                 case 'import': {
@@ -508,13 +577,19 @@ export class SpaceStore {
         });
     }
     install() {
-        const handle = operation => this.run(() => {
-            operation();
+        const handle = operation => this.run(async () => {
+            await operation();
             this.schedulePersistence();
         }).catch(error => this.reportFailure(error));
-        chrome.tabs.onCreated.addListener(tab => handle(() => this.track(tab, undefined, true)));
+        chrome.tabs.onCreated.addListener(tab => handle(async () => {
+            this.track(tab, undefined, true);
+            await this.routeTab(tab);
+        }));
         chrome.tabs.onUpdated.addListener((id, change, tab) => {
-            if (change.url || change.pinned !== undefined) handle(() => this.track(tab));
+            if (change.url || change.pinned !== undefined) return handle(async () => {
+                this.track(tab);
+                if (change.url && change.url === tab.url) await this.routeTab(tab);
+            });
         });
         chrome.tabs.onRemoved.addListener((id, info) => handle(() => {
             const previous = this.snapshotByTab.get(id) || this.previousSnapshotByTab?.get(id);
@@ -546,7 +621,7 @@ export class SpaceStore {
                 if (space.lastTab === id) delete space.lastTab;
             }
         }));
-        chrome.tabs.onReplaced.addListener((added, removed) => handle(() => {
+        chrome.tabs.onReplaced.addListener((added, removed) => handle(async () => {
             const record = this.snapshotByTab.get(removed);
             if (record) this.snapshotByTab.set(added, { ...record, tabId: added });
             this.snapshotByTab.delete(removed);
@@ -565,6 +640,13 @@ export class SpaceStore {
             for (const space of this.spaces) {
                 for (const key of sections) space[key] = space[key].map(id => id === removed ? added : id);
                 if (space.lastTab === removed) space.lastTab = added;
+            }
+            if (this.airTrafficRules.length) {
+                const replacement = await getLiveTab(added);
+                if (replacement) {
+                    this.track(replacement);
+                    await this.routeTab(replacement, replacement);
+                }
             }
         }));
         chrome.tabs.onActivated.addListener(info => handle(() => {
