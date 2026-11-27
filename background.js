@@ -1,6 +1,7 @@
 import { registerBookmarkListeners } from './bookmark-events.js';
 import { createCleanTabsHandler } from './clean-tabs-service.js';
 import { enqueueBookmarkOperation } from './bookmark-writer.js';
+import { ElementCapture, ELEMENT_CAPTURE_COMMAND } from './element-capture.js';
 import { isProtectedFavorite } from './favorite-safety.js';
 import { LocalStorage } from './localstorage.js';
 import { Logger } from './logger.js';
@@ -33,11 +34,17 @@ const tabSwitcherOverlay = new TabSwitcherOverlay(chrome, {
     input: (token, action) => tabSwitcher.inlineInput(token, action).catch(Logger.error),
     lost: token => tabSwitcher.inlineLost(token).catch(Logger.error),
 });
+const elementCapture = new ElementCapture(chrome, {
+    canStart: id => !tabSwitcherOverlay.coversTab(id),
+    getAppearance: (windowId, tabId) => spaceStore.appearanceTheme({ action: 'get', windowId, tabId }),
+});
 const tabSwitcherPreviews = new TabSwitcherPreviews(chrome, {
-    isCovered: id => tabSwitcherOverlay.coversTab(id), coverVersion: () => tabSwitcherOverlay.coverVersion ?? 0,
+    isCovered: id => tabSwitcherOverlay.coversTab(id) || elementCapture.coversTab(id),
+    coverVersion: () => (tabSwitcherOverlay.coverVersion ?? 0) + elementCapture.coverVersion,
 });
 const tabSwitcher = new TabSwitcher(chrome, tabSwitcherPreviews, tabSwitcherOverlay);
 tabSwitcherOverlay.register();
+elementCapture.register();
 registerBookmarkListeners();
 for (const event of [chrome.bookmarks.onCreated, chrome.bookmarks.onMoved,
     chrome.bookmarks.onChanged, chrome.bookmarks.onRemoved]) {
@@ -65,6 +72,8 @@ function messageError(error) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const capture = elementCapture.receive(message, sender);
+    if (capture) return respond(capture, sendResponse, 'Could not capture the selected element.');
     const bridge = tabSwitcherOverlay.receive(message, sender);
     if (bridge) return respond(bridge, sendResponse, 'Could not connect the in-page tab picker.');
     const pickerOperation = tabSwitcher.receive(message, sender);
@@ -165,6 +174,38 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
         Logger.error(Logger.context('Could not open the setup guide.'), error);
     }
 });
+const captureBadgeTimers = new Map();
+
+async function startElementCapture(tab) {
+    if (await elementCapture.start(tab) || !Number.isInteger(tab?.id) || tab.id < 0) return;
+    const tabId = tab.id;
+    clearTimeout(captureBadgeTimers.get(tabId));
+    await chrome.action.setBadgeBackgroundColor({ tabId, color: '#a83238' }).catch(() => {});
+    await chrome.action.setBadgeText({ tabId, text: '!' }).catch(() => {});
+    captureBadgeTimers.set(tabId, setTimeout(() => {
+        captureBadgeTimers.delete(tabId);
+        chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
+    }, 1600));
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+    chrome.contextMenus.remove(ELEMENT_CAPTURE_COMMAND, () => {
+        // On first install there is no menu item to remove.
+        void chrome.runtime.lastError;
+        chrome.contextMenus.create({
+            id: ELEMENT_CAPTURE_COMMAND,
+            title: 'Capture element',
+            contexts: ['page', 'action', 'frame', 'selection', 'link', 'editable', 'image', 'video', 'audio'],
+            documentUrlPatterns: ['http://*/*', 'https://*/*'],
+        }, () => {
+            if (chrome.runtime.lastError) Logger.warn('Could not add the Capture element menu.');
+        });
+    });
+});
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId === ELEMENT_CAPTURE_COMMAND) return startElementCapture(tab);
+});
+
 chrome.runtime.onInstalled.addListener(refreshAutoArchiveAlarm);
 chrome.runtime.onStartup.addListener(refreshAutoArchiveAlarm);
 refreshAutoArchiveAlarm();
@@ -199,6 +240,9 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
                 else await Utils.moveToPrevTabInSpace(activeTab.id, space);
                 break;
             }
+            case ELEMENT_CAPTURE_COMMAND:
+                await startElementCapture(tab);
+                break;
             case 'copyCurrentUrl':
                 await copyCurrentTabUrlWithFallback({ tab });
                 break;

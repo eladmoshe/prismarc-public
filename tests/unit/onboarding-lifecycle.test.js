@@ -4,12 +4,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { TabSwitcher } from '../../tab-switcher.js';
+import { ElementCapture, ELEMENT_CAPTURE_COMMAND } from '../../element-capture.js';
 
 const source = readFileSync(new URL('../../background.js', import.meta.url), 'utf8')
     .replace(/^import .*;\s*$/gm, '');
 function background(completed = false, onboardingVersion = undefined, version = '5.1.0') {
     const installed = [], messages = [], commands = [], opened = [];
     const commandFailures = [];
+    const menus = new Map();
+    const menuClicks = [];
     const event = { addListener() {} };
     const chrome = {
         runtime: {
@@ -21,6 +24,19 @@ function background(completed = false, onboardingVersion = undefined, version = 
             getManifest: () => ({ version })
         },
         sidePanel: { setPanelBehavior: async () => {} },
+        windows: {}, permissions: {},
+        contextMenus: {
+            onClicked: { addListener: listener => menuClicks.push(listener) },
+            remove(id, done) {
+                menus.delete(id);
+                done();
+            },
+            create(options, done) {
+                assert.equal(menus.has(options.id), false);
+                menus.set(options.id, options);
+                done();
+            },
+        },
         commands: { onCommand: { addListener: listener => commands.push(listener) } },
         alarms: { onAlarm: event, get: async () => undefined, clear: async () => {} },
         bookmarks: { onCreated: event, onMoved: event, onChanged: event, onRemoved: event },
@@ -28,14 +44,18 @@ function background(completed = false, onboardingVersion = undefined, version = 
         tabs: { create: async tab => opened.push(tab), onActivated: event, onUpdated: event, onRemoved: event }
     };
     runInNewContext(source, {
-        registerZoomLaunchTabs() {},
+        registerZoomLaunchTabs() {}, ElementCapture, ELEMENT_CAPTURE_COMMAND,
         chrome, console, isTrustedExtensionMessage, TabSwitcher, dispatchTourMessage: async () => 'tour',
-        TabSwitcherOverlay: class { register() {} receive() {} isOnTab() { return false; } isOverlayFrame() { return false; } },
+        TabSwitcherOverlay: class { register() {} receive() {} coversTab() { return false; } isOverlayFrame() { return false; } },
         TabSwitcherPreviews: class { register() {} },
         registerBookmarkListeners() {}, createCleanTabsHandler: () => () => {},
         SpaceFavorites: class { install() {} async dispatch() { return []; } },
         enqueueBookmarkOperation: async () => ({ orders: {} }),
-        SpaceStore: class { install() {} async dispatch() { return [{ id: 'home' }]; } },
+        SpaceStore: class {
+            install() {}
+            async dispatch() { return [{ id: 'home' }]; }
+            async appearanceTheme() { return 'dark'; }
+        },
         Utils: {
             getSettings: async () => ({ autoArchiveEnabled: false }),
             moveToPrevTabInSpace: async () => { throw new Error('Tab closed during shortcut'); }
@@ -43,7 +63,7 @@ function background(completed = false, onboardingVersion = undefined, version = 
         ownerOf: (_spaces, tabId) => tabId === 1 ? { id: 'home' } : undefined,
         Logger: { log() {}, error: (...args) => commandFailures.push(args), context: value => value }
     });
-    return { installed, messages, commands, opened, commandFailures, chrome };
+    return { installed, messages, commands, opened, commandFailures, menus, menuClicks, chrome };
 }
 
 test('a fresh install opens the onboarding guide once', async () => {
@@ -70,6 +90,48 @@ test('a completed install sees the onboarding once when this extension version c
     const current = background(true, '5.1.0');
     await Promise.all(current.installed.map(listener => listener({ reason: 'update', previousVersion: '5.0.0' })));
     assert.equal(current.opened.length, 0);
+});
+
+test('the Capture element menu stays registered once and opens the picker in the clicked tab', async () => {
+    const { installed, menus, menuClicks: [click], chrome } = background();
+    for (const reason of ['install', 'update']) {
+        await Promise.all(installed.map(listener => listener({ reason })));
+        assert.equal(menus.size, 1);
+        const menu = menus.get(ELEMENT_CAPTURE_COMMAND);
+        assert.equal(menu.title, 'Capture element');
+        for (const context of ['page', 'action', 'image', 'link']) assert.ok(menu.contexts.includes(context));
+    }
+
+    const tab = { id: 42, windowId: 3, active: true, url: 'https://example.org/article' };
+    const requests = [];
+    const injections = [];
+    const messages = [];
+    chrome.permissions.request = async permission => { requests.push(permission); return true; };
+    chrome.tabs.query = async () => assert.fail('Use the tab provided by the menu click.');
+    chrome.windows.get = async (id, options) => {
+        assert.equal(id, tab.windowId);
+        assert.equal(options.populate, true);
+        return { type: 'normal', focused: true, tabs: [tab] };
+    };
+    chrome.scripting = { async executeScript(details) {
+        injections.push(details);
+        return [{ documentId: 'top-document', frameId: 0 }];
+    } };
+    chrome.tabs.sendMessage = async (tabId, message, options) => {
+        messages.push({ tabId, action: message.action, documentId: options.documentId });
+        return { success: true };
+    };
+
+    await click({ menuItemId: 'unrelated' }, tab);
+    assert.deepEqual(requests, []);
+    try {
+        await click({ menuItemId: ELEMENT_CAPTURE_COMMAND }, tab);
+        assert.deepEqual(requests, [{ permissions: ['scripting'] }]);
+        assert.deepEqual(injections.map(details => details.target), [{ tabId: tab.id }]);
+        assert.deepEqual(messages, [{ tabId: tab.id, action: 'start', documentId: 'top-document' }]);
+    } finally {
+        await click({ menuItemId: ELEMENT_CAPTURE_COMMAND }, tab);
+    }
 });
 
 test('space-store replies are not intercepted by unrelated Promise listeners', async () => {

@@ -22,6 +22,10 @@
             <rect x="7.5" y="7.5" width="13" height="13" rx="2"/>
             <path d="M16 3.5H5.5a2 2 0 0 0-2 2V16m7.5-4h6m-6 4h4"/>
         </symbol>
+        <symbol id="settings-capture-icon" viewBox="0 0 24 24">
+            <path d="M9 4H5a1 1 0 0 0-1 1v4m11-5h4a1 1 0 0 1 1 1v4M4 15v4a1 1 0 0 0 1 1h4m6 0h4a1 1 0 0 0 1-1v-4"/>
+            <rect x="8" y="8" width="8" height="8" rx="1.5"/>
+        </symbol>
         <symbol id="settings-appearance-icon" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="8.5"/>
             <path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor" stroke="none"/>
@@ -60,6 +64,10 @@
                     <li><a class="options-section-label" href="#switcherHeading">
                         <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-switcher-icon"/></svg>
                         <span>Recent Tabs &amp; Quick Switcher</span>
+                    </a></li>
+                    <li><a class="options-section-label" href="#captureHeading">
+                        <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-capture-icon"/></svg>
+                        <span>Element capture</span>
                     </a></li>
                     <li><a class="options-section-label" href="#archiveHeading">
                         <span class="options-section-icon options-section-icon--archive" aria-hidden="true"></span>
@@ -222,6 +230,20 @@
                         </div>
                         <p id="previewDomainsStatus" class="options-form-status" role="status"></p>
                     </form>
+                </section>
+
+                <section class="options-section" aria-labelledby="captureHeading">
+                    <header class="options-section-header">
+                        <h2 id="captureHeading" class="options-section-title options-section-label" tabindex="-1">
+                            <svg class="options-section-icon" aria-hidden="true" focusable="false"><use href="#settings-capture-icon"/></svg>
+                            <span>Element capture</span>
+                        </h2>
+                        <p class="options-description">Right-click a webpage and choose <strong>Capture element</strong>. Click an element or drag an area to copy it as an image.</p>
+                    </header>
+                    <div class="options-setting-item">
+                        <button type="button" id="allowElementCapture" class="options-button" hidden>Allow element picker</button>
+                        <button type="button" id="captureShortcut" class="options-button">Set capture shortcut…</button>
+                    </div>
                 </section>
 
                 <section class="options-section" aria-labelledby="archiveHeading">

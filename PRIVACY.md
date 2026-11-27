@@ -1,10 +1,12 @@
 # PrismArc privacy policy
 
-Effective November 20, 2026.
+Effective November 27, 2026.
 
 PrismArc organizes your tabs and bookmarks in Chrome. The extension runs on your device. Its maintainer does not receive your browsing history, page images, calendar events, or usage analytics.
 
 **Tabs, bookmarks, and search.** PrismArc reads tab titles and URLs, native bookmarks, and Chrome history to display the sidebar and answer Quick Switcher searches. Space membership, saved tab information, archive entries, and preferences are stored in your browser profile. Choosing **Delete from browser history** removes visits to the selected result's URLs from Chrome history. Choosing **Search Google** sends the search text to Google by opening a browser tab. Chrome can sync native bookmarks and history according to your profile settings. Speaker buttons use Chrome's native audio status and change a tab's mute setting when activated.
+
+**Element capture.** When you choose **Capture element**, PrismArc uses optional scripting access to show a picker on the current webpage. Confirming a selection captures the visible tab, crops it on your device, and copies the selected pixels to your system clipboard as a PNG. PrismArc discards the temporary image after the operation. This feature works independently of Recent Tabs previews.
 
 **PrismArc popups over webpages.** This optional setting asks Chrome for site access and permission to open Recent Tabs and Quick Switcher over permitted pages. The listener runs in Chrome’s isolated world and shows an extension-owned frame when you invoke a switcher. Search text, tab titles, URLs, history results, and page images stay inside the extension. When you ask to delete a history result from the overlay, Quick Switcher moves the query and result into its own window for confirmation. Privileged pages and private windows use their existing switching behavior. The separate browsing-preview setting controls automatic page images.
 

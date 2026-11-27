@@ -35,6 +35,7 @@ test('manifest denies outside messaging and confines the optional embedding to t
     assert.equal(manifest.content_scripts, undefined);
     assert.equal(manifest.permissions.filter(permission => permission === 'history').length, 1);
     assert.equal(manifest.permissions.filter(permission => permission === 'activeTab').length, 1);
+    assert.equal(manifest.permissions.filter(permission => permission === 'contextMenus').length, 1);
     for (const permission of ['scripting', 'debugger', 'tabCapture', 'desktopCapture', 'cookies', 'clipboardRead']) {
         assert.equal(manifest.permissions.includes(permission), false);
     }
@@ -73,11 +74,13 @@ test('preferences read and write local storage even if synced data differs', asy
 test('runtime sources restrict remote requests to the Calendar integration and deny direct remote favicons and Chrome Sync', () => {
     for (const name of readdirSync(root).filter(name => /\.(js|html|css)$/.test(name) && !name.startsWith('vite.') && name !== 'jest.config.js')) {
         const source = readFileSync(new URL(name, root), 'utf8');
-        if (name !== 'tab-switcher-previews.js') assert.doesNotMatch(source, /\bcaptureVisibleTab\s*\(/, name);
+        if (!['tab-switcher-previews.js', 'element-capture.js'].includes(name)) {
+            assert.doesNotMatch(source, /\bcaptureVisibleTab\s*(?:\?\.)?\(/, name);
+        }
         if (!['calendar-events.js', 'calendar-auth.js'].includes(name)) assert.doesNotMatch(source, /\bfetch\s*\(/, name);
         assert.doesNotMatch(source, /chrome\.storage\.sync|(?:XMLHttpRequest|WebSocket|EventSource)\s*\(|sendBeacon\s*\(/, name);
-        if (name !== 'tab-switcher-inline-registration.js') {
-            assert.doesNotMatch(source, /scripting\.(?:executeScript|registerContentScripts)/, name);
+        if (!['tab-switcher-inline-registration.js', 'element-capture.js'].includes(name)) {
+            assert.doesNotMatch(source, /\bscripting(?:\?\.|\.)(?:executeScript|registerContentScripts)/, name);
         }
         assert.doesNotMatch(source, /(?:src|href)\s*=\s*["']https?:\/\/|\.src\s*=\s*tab\.favIconUrl/, name);
         assert.doesNotMatch(source, /\bhistory\.(?:addUrl|deleteAll|deleteRange)\s*\(/, name);

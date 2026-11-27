@@ -722,6 +722,29 @@ function setupPagePreviews() {
   });
 }
 
+function setupCaptureControls() {
+  const allow = document.getElementById('allowElementCapture');
+  const shortcut = document.getElementById('captureShortcut');
+  const permission = { permissions: ['scripting'] };
+  async function refresh() {
+    allow.hidden = await chrome.permissions.contains(permission).catch(() => false);
+    const commands = await chrome.commands.getAll().catch(() => []);
+    const assigned = commands.find(command => command.name === 'captureElement')?.shortcut;
+    const suggested = /Mac/i.test(navigator.platform) ? '⌘⇧2' : 'Ctrl+Shift+2';
+    shortcut.textContent = assigned ? `Change shortcut (${assigned})…` : `Set up ${suggested}…`;
+  }
+  allow.addEventListener('click', async () => {
+    if (await chrome.permissions.request(permission).catch(() => false)) {
+      showToast('Picker ready. Right-click a webpage to capture an element.');
+    }
+    refresh();
+  });
+  chrome.permissions.onAdded.addListener(refresh);
+  chrome.permissions.onRemoved.addListener(refresh);
+  window.addEventListener('focus', refresh);
+  refresh();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   restoreOptions();
   setupAppearance();
@@ -733,12 +756,15 @@ document.addEventListener('DOMContentLoaded', () => {
   setupInlineSwitcher();
   setupPagePreviews();
   setupPreviewDomains();
-  addListenerIfExists('openKeyboardShortcuts', 'click', async () => {
+  setupCaptureControls();
+  async function editShortcuts() {
     try {
       await openKeyboardShortcuts();
     } catch (error) {
       Logger.warn('Could not open keyboard shortcut settings:', error);
       showToast(KEYBOARD_SHORTCUTS_ERROR);
     }
-  });
+  }
+  addListenerIfExists('openKeyboardShortcuts', 'click', editShortcuts);
+  addListenerIfExists('captureShortcut', 'click', editShortcuts);
 });

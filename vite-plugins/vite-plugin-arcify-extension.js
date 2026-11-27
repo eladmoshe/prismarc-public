@@ -69,6 +69,7 @@ function getExtensionPlugins({ isStore = false, outDir }) {
     'styles.css',
     'LICENSE',
     'NOTICE',
+    'capture-picker.js',
     'assets/archive-box.png',
     'assets/default_icon.png',
     'assets/icon.png',

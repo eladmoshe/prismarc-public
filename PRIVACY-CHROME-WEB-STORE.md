@@ -1,6 +1,6 @@
 # PrismArc privacy policy for the Chrome Web Store release
 
-Effective November 20, 2026.
+Effective November 27, 2026.
 
 PrismArc organizes and switches between tabs and bookmarks in Chrome. It processes browsing data on your device. The maintainer receives no browsing history, page images, or usage analytics.
 
@@ -17,6 +17,10 @@ Starting with PrismArc 5.3.0, **Clean** keeps eligible page addresses and tab or
 ## Zoom launcher cleanup
 
 PrismArc checks tab addresses for Zoom meeting launcher links. For a matching tab, it keeps the tab's Chrome ID and closure deadline in browser session storage. It closes the tab after about a minute if the tab is still on a qualifying launcher and has no pending navigation.
+
+## Element capture
+
+When you choose **Capture element**, PrismArc uses optional scripting access to show a picker on the current webpage. Confirming a selection captures the visible tab, crops it on your device, and copies the selected pixels to your system clipboard as a PNG. PrismArc discards the temporary image after the operation. This feature works independently of Recent Tabs previews.
 
 ## PrismArc popups over webpages
 

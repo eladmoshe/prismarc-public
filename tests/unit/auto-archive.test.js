@@ -10,6 +10,7 @@ import { LocalStorage } from '../../localstorage.js';
 import { Utils } from '../../utils.js';
 import { Logger } from '../../logger.js';
 import { TabSwitcher } from '../../tab-switcher.js';
+import { ElementCapture, ELEMENT_CAPTURE_COMMAND } from '../../element-capture.js';
 
 const threshold = 360 * 60 * 1000;
 const alarmName = 'autoArchiveTabsAlarm';
@@ -36,6 +37,8 @@ function startBackground() {
     const chrome = globalThis.chrome = {
         runtime: { id: 'arcify', getURL: path => `chrome-extension://arcify/${path}`, onInstalled: event(), onStartup: event(), onMessage: event() },
         sidePanel: { setPanelBehavior: async () => {} },
+        windows: {}, permissions: {},
+        contextMenus: { onClicked: { addListener() {} }, remove: (_id, done) => done(), create: (_options, done) => done() },
         commands: { onCommand: event() },
         alarms: {
             onAlarm: event(),
@@ -57,7 +60,7 @@ function startBackground() {
         }
     };
     runInNewContext(source, {
-        registerZoomLaunchTabs() {},
+        registerZoomLaunchTabs() {}, ElementCapture, ELEMENT_CAPTURE_COMMAND,
         chrome, console, isTrustedExtensionMessage, setTimeout, clearTimeout,
         dispatchTourMessage: async () => ({}), registerBookmarkListeners() {}, createCleanTabsHandler: () => () => {},
         enqueueBookmarkOperation: async () => ({}), copyCurrentTabUrlWithFallback: async () => {},

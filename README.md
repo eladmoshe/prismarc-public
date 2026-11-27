@@ -34,6 +34,12 @@
 
 <sub>The screenshots show a sample workspace with the optional webpage overlay enabled for both switchers.</sub>
 
+## Copy part of a page
+
+Right-click a webpage and choose **Capture element**. Hover to highlight an element, then click to copy its visible portion as a PNG. Drag to select a rectangle. Use **↑** for the parent, **↓** to return to the child, **Enter** to copy, or **Esc** to cancel. Paste the image wherever you need it.
+
+For keyboard access, open **Settings → Element capture** and assign **⌘⇧2** on Mac or **Ctrl+Shift+2** on Windows and Linux. Capture is based on [DivPic by Matan Orland](https://github.com/rainDelay9/divpic).
+
 ## Install PrismArc
 
 Build and load PrismArc from source. You’ll need **desktop Chrome 116 or newer**, Git, and Node.js **22.13+ on the 22.x line or 24+** with npm.
