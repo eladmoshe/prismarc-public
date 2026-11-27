@@ -45,6 +45,7 @@ async function verifyBuild() {
     ...(manifest.web_accessible_resources ?? []).flatMap(entry => entry.resources),
     'tab-switcher-inline.js',
     'capture-picker.js',
+    'capture-unavailable.html',
     // These pages are opened from runtime code rather than declared in the manifest.
     'installation-onboarding.html',
     'tutorial-practice.html',

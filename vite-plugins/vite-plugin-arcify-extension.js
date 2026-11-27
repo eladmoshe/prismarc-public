@@ -27,6 +27,7 @@ function getExtensionInputs(isStore) {
     'options-script': resolve(process.cwd(), 'options.js'),
     'installation-onboarding-script': resolve(process.cwd(), 'installation-onboarding.js'),
     offscreen: resolve(process.cwd(), 'offscreen.html'),
+    'capture-unavailable': resolve(process.cwd(), 'capture-unavailable.html'),
     'quick-switcher': resolve(process.cwd(), 'quick-switcher.html'),
     'tab-switcher': resolve(process.cwd(), 'tab-switcher.html'),
   };

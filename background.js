@@ -2,6 +2,7 @@ import { registerBookmarkListeners } from './bookmark-events.js';
 import { createCleanTabsHandler } from './clean-tabs-service.js';
 import { enqueueBookmarkOperation } from './bookmark-writer.js';
 import { ElementCapture, ELEMENT_CAPTURE_COMMAND } from './element-capture.js';
+import { showCaptureUnavailable } from './element-capture-notice.js';
 import { isProtectedFavorite } from './favorite-safety.js';
 import { LocalStorage } from './localstorage.js';
 import { Logger } from './logger.js';
@@ -174,18 +175,13 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
         Logger.error(Logger.context('Could not open the setup guide.'), error);
     }
 });
-const captureBadgeTimers = new Map();
-
 async function startElementCapture(tab) {
-    if (await elementCapture.start(tab) || !Number.isInteger(tab?.id) || tab.id < 0) return;
-    const tabId = tab.id;
-    clearTimeout(captureBadgeTimers.get(tabId));
-    await chrome.action.setBadgeBackgroundColor({ tabId, color: '#a83238' }).catch(() => {});
-    await chrome.action.setBadgeText({ tabId, text: '!' }).catch(() => {});
-    captureBadgeTimers.set(tabId, setTimeout(() => {
-        captureBadgeTimers.delete(tabId);
-        chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
-    }, 1600));
+    try {
+        await elementCapture.start(tab, (reason, source, isCurrentAttempt) =>
+            showCaptureUnavailable(chrome, reason, source, isCurrentAttempt, elementCapture.getAppearance));
+    } catch {
+        Logger.warn('Could not show the Capture element notice.');
+    }
 }
 
 chrome.runtime.onInstalled.addListener(() => {

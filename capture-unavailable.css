@@ -1,0 +1,45 @@
+@import url('/prismarc-colors.css');
+
+:root {
+    color-scheme: dark;
+    --background: var(--prismarc-search-charcoal);
+    --text: #f4f1f7;
+    --muted: #b3adbd;
+    --accent: #c5a9ed;
+    --button: #37313e;
+    --border: #52475d;
+    --primary-text: #22182d;
+    background: var(--background);
+    color: var(--text);
+    font: 14px/1.4 system-ui, sans-serif;
+}
+
+:root[data-appearance="light"] {
+    color-scheme: light;
+    --background: var(--prismarc-light-base);
+    --text: var(--prismarc-light-ink);
+    --muted: var(--prismarc-light-muted);
+    --accent: var(--prismarc-light-accent);
+    --button: var(--prismarc-light-frost);
+    --border: #68789b54;
+    --primary-text: white;
+}
+
+body { margin: 0; }
+main { padding: 16px 20px; }
+h1 { margin: 0 0 8px; font-size: 17px; font-weight: 650; }
+p { margin: 0; }
+#next-step { color: var(--muted); margin-top: 4px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+button {
+    padding: 5px 14px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--button);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+#allow { border-color: var(--accent); background: var(--accent); color: var(--primary-text); }
+button:disabled { cursor: wait; opacity: .65; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

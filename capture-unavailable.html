@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Capture element</title>
+  <link rel="stylesheet" href="capture-unavailable.css">
+  <script type="module" src="capture-unavailable.js"></script>
+</head>
+<body>
+  <main aria-labelledby="reason">
+    <div role="status">
+      <h1 id="reason">Couldn’t open the element picker</h1>
+      <p id="next-step"></p>
+    </div>
+    <div class="actions">
+      <button id="close" type="button" autofocus>Close</button>
+      <button id="allow" type="button" hidden>Allow element picker</button>
+    </div>
+  </main>
+</body>
+</html>

@@ -55,6 +55,8 @@
                 if (messageText) {
                     dispose();
                     feedback(messageText, 4000);
+                    respond({ success: false, feedbackShown: true });
+                    return;
                 } else {
                     picker = mountPicker();
                 }
@@ -536,7 +538,10 @@
             // Keep suppressing the trailing click even if starting the clipboard write failed synchronously.
             await new Promise(resolve => setTimeout(resolve, 0));
             dispose();
-            feedback('Couldn’t copy screenshot', 2500);
+            const message = document.featurePolicy?.allowsFeature('clipboard-write') === false
+                ? 'This page blocks copying images. Use your device’s screenshot shortcut instead.'
+                : 'Screenshot wasn’t copied. Keep this tab in front and select the area again.';
+            feedback(message, 5000);
             return;
         }
         if (viewportMatches(viewport)) feedback('Copied', 1500, { rect, region });
@@ -546,38 +551,141 @@
     function copiedStyles(duration) {
         const accent = captureAccent();
         return `
-            .copied-outline { position: fixed; pointer-events: none; }
-            .copied-stroke {
-                position: absolute; inset: 0; border-radius: 4px;
+            .copied-outline, .copied-stroke {
+                box-sizing: border-box; position: fixed; pointer-events: none; border-radius: 4px;
                 box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 2px ${accent};
-                background: linear-gradient(150deg, ${accent}2b, ${accent}15);
-                animation: prismarc-capture-settle 520ms cubic-bezier(.22, 1, .36, 1) both;
             }
-            .copied-outline.region .copied-stroke { border-radius: 0; }
+            .copied-outline.region { border-radius: 0; }
             .copied {
-                display: flex; align-items: center; gap: 5px; border-radius: 100px;
+                display: flex; align-items: center; gap: 7px; width: max-content; border-radius: 100px;
                 max-width: calc(100% - 12px);
-                animation: prismarc-capture-confirm ${duration}ms ease both;
             }
-            .copied-check { color: ${accent}; font-weight: 700; }
-            @keyframes prismarc-capture-settle {
-                0% { transform: none; opacity: 1; }
-                36% { transform: var(--settled-scale); opacity: .9; }
-                100% { transform: var(--settled-scale); opacity: 0; }
+            .copied-clipboard {
+                position: relative; display: grid; place-items: center; flex: none;
+                box-sizing: border-box; width: 14px; height: 16px; border: 1.5px solid currentColor;
+                border-radius: 3px; color: ${accent};
             }
+            .copied-clipboard::before {
+                content: ''; position: absolute; width: 7px; height: 4px; top: -3px; left: 50%;
+                transform: translateX(-50%); border-radius: 2px; background: currentColor;
+            }
+            .copied-check { font: 750 10px/1 system-ui, sans-serif; }
+            .copied-stroke { display: none; }
             @keyframes prismarc-capture-confirm {
-                0% { opacity: 0; transform: translateY(3px); }
-                12%, 84% { opacity: 1; transform: none; }
-                100% { opacity: 0; transform: none; }
+                84% { opacity: 1; }
+                100% { opacity: 0; }
             }
-            @media (prefers-reduced-motion: reduce) {
-                .copied-stroke, .copied { animation: none; }
-                .copied-stroke { background: transparent; }
+            @keyframes prismarc-capture-lift {
+                0% {
+                    left: var(--source-x); top: var(--source-y); width: var(--source-width); height: var(--source-height);
+                    border-radius: var(--source-radius); background-color: transparent;
+                    animation-timing-function: cubic-bezier(.2, .65, .35, 1);
+                }
+                34% {
+                    left: var(--lift-x); top: var(--lift-y); width: var(--lift-width); height: var(--lift-height);
+                    border-radius: 5px; background-color: transparent;
+                    animation-timing-function: cubic-bezier(.52, .04, .35, 1);
+                }
+                48%, 88% { background-color: ${theme === 'dark' ? '#342944' : '#e5e9fc'}; }
+                92%, 100% {
+                    left: var(--dock-x); top: var(--dock-y); width: 9px; height: 11px; border-radius: 2px;
+                }
+                88% { opacity: 1; }
+                100% { opacity: 0; }
+            }
+            @keyframes prismarc-capture-fold {
+                0%, 25%, 81%, 100% { opacity: 0; }
+                39%, 64% { opacity: 1; }
+            }
+            @keyframes prismarc-capture-source {
+                0% { opacity: 1; }
+                100% { opacity: 0; }
+            }
+            @keyframes prismarc-capture-check {
+                0%, 84% { opacity: 0; transform: scale(.55); }
+                95% { opacity: 1; transform: scale(1.12); }
+                100% { opacity: 1; transform: scale(1); }
+            }
+            @media (prefers-reduced-motion: no-preference) {
+                .copied { animation: prismarc-capture-confirm ${duration}ms ease both; }
+                .copied-outline { animation: prismarc-capture-source 140ms ease-out both; }
+                .copied-stroke {
+                    display: block; transform: translate(-50%, -50%);
+                    animation: prismarc-capture-lift 470ms ease both;
+                }
+                .copied-stroke::after {
+                    content: ''; position: absolute; right: 2px; top: 2px; width: 10px; height: 10px;
+                    background: linear-gradient(45deg, ${accent} 50%, transparent 51%);
+                    border-radius: 0 0 0 2px;
+                    animation: prismarc-capture-fold 470ms ease both;
+                }
+                .copied-check { animation: prismarc-capture-check 510ms ease both; }
             }
             @media (forced-colors: active) {
-                .copied-stroke { border: 2px solid Highlight; background: transparent; }
+                .copied-outline, .copied-stroke { border: 2px solid Highlight; }
+                .copied-clipboard { color: ButtonText; }
+                .copied-clipboard::before, .copied-stroke::after { forced-color-adjust: none; }
+                .copied-stroke::after { background: linear-gradient(45deg, Highlight 50%, transparent 51%); }
             }
         `;
+    }
+
+    function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), Math.max(min, max));
+    }
+
+    function showCopyConfirmation(root, notice, { rect, region }) {
+        const clipboard = document.createElement('span');
+        clipboard.className = 'copied-clipboard';
+        clipboard.setAttribute('aria-hidden', 'true');
+        const check = document.createElement('span');
+        check.className = 'copied-check';
+        check.textContent = '✓';
+        clipboard.append(check);
+        notice.prepend(clipboard);
+
+        const { x, y, width, height } = rect;
+        const viewport = viewportSize();
+        const sourceX = x + width / 2;
+        const sourceY = y + height / 2;
+        const noticeWidth = notice.offsetWidth;
+        const noticeHeight = notice.offsetHeight;
+        const margin = 6;
+        const gap = 12;
+        const roomAbove = y - margin;
+        const roomBelow = viewport.height - y - height - margin;
+        // If the selection fills the viewport, use the nearest edge inside it.
+        let noticeTop = y + height + gap;
+        if (roomAbove >= noticeHeight + gap) {
+            noticeTop = y - noticeHeight - gap;
+        } else if (roomBelow < noticeHeight + gap) {
+            noticeTop = roomAbove >= roomBelow ? y + gap : y + height - noticeHeight - gap;
+        }
+        notice.style.left = `${clamp(sourceX - noticeWidth / 2, margin, viewport.width - noticeWidth - margin)}px`;
+        notice.style.top = `${clamp(noticeTop, margin, viewport.height - noticeHeight - margin)}px`;
+
+        const outline = node(region ? 'copied-outline region' : 'copied-outline');
+        outline.setAttribute('aria-hidden', 'true');
+        Object.assign(outline.style, { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` });
+
+        const icon = clipboard.getBoundingClientRect();
+        const dockX = icon.left + icon.width / 2;
+        const dockY = icon.top + icon.height / 2;
+        const liftWidth = Math.min(clamp(width * .24, 32, 60), viewport.width);
+        const liftHeight = Math.min(clamp(height * .24, 22, 38), viewport.height);
+        const liftX = clamp(sourceX + (dockX < sourceX ? 18 : -18), liftWidth / 2, viewport.width - liftWidth / 2);
+        const liftY = clamp(sourceY + (dockY < sourceY ? -15 : 15), liftHeight / 2, viewport.height - liftHeight / 2);
+
+        const echo = node('copied-stroke');
+        echo.setAttribute('aria-hidden', 'true');
+        echo.style.cssText = `
+            --source-x: ${sourceX}px; --source-y: ${sourceY}px; --source-width: ${width}px; --source-height: ${height}px;
+            --source-radius: ${region ? 0 : 4}px;
+            --lift-x: ${liftX}px; --lift-y: ${liftY}px; --lift-width: ${liftWidth}px; --lift-height: ${liftHeight}px;
+            --dock-x: ${dockX}px; --dock-y: ${dockY}px;
+        `;
+        root.prepend(outline);
+        root.append(echo);
     }
 
     function feedback(message, duration, selection) {
@@ -586,36 +694,9 @@
         const notice = node(selection ? 'chip copied' : 'chip notice');
         notice.setAttribute('role', 'status');
         notice.textContent = message;
-        if (selection) {
-            const { rect, region } = selection;
-            const outline = node('copied-outline');
-            outline.classList.toggle('region', region);
-            outline.setAttribute('aria-hidden', 'true');
-            Object.assign(outline.style, {
-                left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px`,
-            });
-            // Move each edge inward by at most 6px or 9% of its axis.
-            const scaleX = Math.max(.82, 1 - 12 / rect.width);
-            const scaleY = Math.max(.82, 1 - 12 / rect.height);
-            outline.style.setProperty('--settled-scale', `scale(${scaleX}, ${scaleY})`);
-            outline.append(node('copied-stroke'));
-            root.append(outline);
-            const check = document.createElement('span');
-            check.className = 'copied-check';
-            check.setAttribute('aria-hidden', 'true');
-            check.textContent = '✓';
-            notice.prepend(check);
-        }
         root.append(notice);
         showLayer(host);
-        if (selection) {
-            const { x, y } = selection.rect;
-            const gap = 6;
-            const above = y - notice.offsetHeight - gap;
-            const top = above >= gap ? above : y + gap;
-            notice.style.left = `clamp(${gap}px, ${x}px, calc(100% - ${notice.offsetWidth + gap}px))`;
-            notice.style.top = `clamp(${gap}px, ${top}px, calc(100% - ${notice.offsetHeight + gap}px))`;
-        }
+        if (selection) showCopyConfirmation(root, notice, selection);
         const watchers = new AbortController();
         const options = { signal: watchers.signal };
         window.addEventListener('pagehide', clearState, options);

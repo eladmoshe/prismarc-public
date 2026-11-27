@@ -127,9 +127,41 @@ test('discards a capture when Chrome replaces the source document during screens
 test('a denied scripting grant leaves the page untouched', async t => {
     const { capture, chrome, tab, sent, scriptCalls, screenshots } = fixture(t);
     chrome.permissions.request = async () => false;
-    assert.equal(await capture.start(tab), false);
+    const failed = t.mock.fn();
+    assert.equal(await capture.start(tab, failed), false);
+    assert.deepEqual(failed.mock.calls.map(call => call.arguments.slice(0, 2)), [['permission', tab]]);
     assert.equal(capture.coversTab(tab.id), false);
     assert.deepEqual(scriptCalls, []);
     assert.deepEqual(sent, []);
+    assert.deepEqual(screenshots, []);
+});
+
+test('browser pages and the Web Store report separate failures before requesting scripting', async t => {
+    const { capture, chrome, tab, scriptCalls } = fixture(t);
+    const request = t.mock.method(chrome.permissions, 'request');
+    const failed = t.mock.fn();
+    for (const [url, reason] of [
+        ['chrome://version/', 'protected'],
+        ['https://chromewebstore.google.com/detail/example', 'store'],
+        ['https://chrome.google.com/webstore/detail/example', 'store'],
+    ]) {
+        const source = { ...tab, url };
+        assert.equal(await capture.start(source, failed), false);
+        assert.deepEqual(failed.mock.calls.at(-1)?.arguments.slice(0, 2), [reason, source]);
+        assert.equal(capture.coversTab(source.id), false);
+    }
+    assert.equal(request.mock.callCount(), 0);
+    assert.deepEqual(scriptCalls, []);
+});
+
+test('the worker skips its failure notice when the picker already provided feedback', async t => {
+    const { capture, chrome, tab, screenshots } = fixture(t);
+    chrome.tabs.sendMessage = async (_tabId, message) => message.action === 'start'
+        ? { success: false, feedbackShown: true }
+        : { success: true };
+    const failed = t.mock.fn();
+    assert.equal(await capture.start(tab, failed), false);
+    assert.equal(failed.mock.callCount(), 0);
+    assert.equal(capture.coversTab(tab.id), false);
     assert.deepEqual(screenshots, []);
 });

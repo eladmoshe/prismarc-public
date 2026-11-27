@@ -36,7 +36,7 @@
 
 ## Copy part of a page
 
-Right-click a webpage and choose **Capture element**. Hover to highlight an element, then click to copy its visible portion as a PNG. Drag to select a rectangle. Use **↑** for the parent, **↓** to return to the child, **Enter** to copy, or **Esc** to cancel. Paste the image wherever you need it.
+Right-click a webpage and choose **Capture element**. Hover to highlight an element, then click to copy its visible portion as a PNG. Drag to select a rectangle. Use **↑** for the parent, **↓** to return to the child, **Enter** to copy, or **Esc** to cancel. When **Copied** appears, paste the image wherever you need it. On protected pages such as the Chrome Web Store, PrismArc explains how to take a screenshot with your device instead.
 
 For keyboard access, open **Settings → Element capture** and assign **⌘⇧2** on Mac or **Ctrl+Shift+2** on Windows and Linux. Capture is based on [DivPic by Matan Orland](https://github.com/rainDelay9/divpic).
 

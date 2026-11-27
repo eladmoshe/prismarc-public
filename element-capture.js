@@ -7,24 +7,25 @@ const CANCEL_TYPE = 'elementCaptureCancel';
 const ACTIVITY_TYPE = 'elementCaptureActivity';
 const PICKER_LIFETIME_MS = 25_000;
 const SCRIPTING = { permissions: ['scripting'] };
+const STORE_DOMAINS = ['chrome.google.com', 'chromewebstore.google.com'];
 const PNG_PREFIX = 'data:image/png;base64,';
 const MAX_SIDE = 16_384;
 const MAX_PIXELS = 40_000_000;
 const MAX_ENCODED_LENGTH = 48 * 1024 * 1024;
 const CAPTURE_ERROR = 'Could not capture this selection.';
 
-function eligibleTab(tab) {
+function tabUnavailableReason(tab) {
     if (!tab || !Number.isInteger(tab.id) || tab.id < 0 ||
-        !Number.isInteger(tab.windowId) || tab.windowId < 0 || tab.discarded ||
-        (tab.pendingUrl && tab.pendingUrl !== tab.url)) return false;
+        !Number.isInteger(tab.windowId) || tab.windowId < 0) return 'unavailable';
     try {
         const url = new URL(tab.url);
-        return (url.protocol === 'https:' || url.protocol === 'http:') &&
-            url.hostname !== 'chromewebstore.google.com' &&
-            !(url.hostname === 'chrome.google.com' && url.pathname.startsWith('/webstore'));
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') return 'protected';
+        const host = url.hostname.replace(/\.$/, '');
+        if (STORE_DOMAINS.some(domain => host === domain || host.endsWith(`.${domain}`))) return 'store';
     } catch {
-        return false;
+        return 'unavailable';
     }
+    if (tab.discarded || (tab.pendingUrl && tab.pendingUrl !== tab.url)) return 'unavailable';
 }
 
 function boundedSize(width, height) {
@@ -146,25 +147,35 @@ export class ElementCapture {
         });
     }
 
-    async start(tab) {
+    async start(tab, onFailure) {
         const attempt = ++this.#attempt;
+        const isCurrentAttempt = () => this.#attempt === attempt;
+        const fail = async reason => {
+            if (!isCurrentAttempt()) return true;
+            await onFailure?.(reason, tab, isCurrentAttempt);
+            return false;
+        };
         const previous = this.#session;
         if (previous) {
             this.#retire(previous, true);
             if (tab?.id === previous.tabId || tab === undefined) return true;
         }
-        if (tab && (!eligibleTab(tab) || !this.canStart(tab.id))) return false;
+        const hasInvocationTab = Boolean(tab);
         let session;
         try {
-            // Native extension commands and menu clicks carry the user gesture.
-            // Also honor an existing grant if Chrome does not forward it here.
-            const permitted = await this.chrome.permissions.request(SCRIPTING)
-                .catch(() => this.chrome.permissions.contains(SCRIPTING));
-            if (this.#attempt !== attempt) return true;
-            if (!permitted) return false;
             tab ??= (await this.chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
-            if (this.#attempt !== attempt) return true;
-            if (!eligibleTab(tab) || !this.canStart(tab.id)) return false;
+            if (!isCurrentAttempt()) return true;
+            const reason = tabUnavailableReason(tab);
+            if (reason) return fail(reason);
+            if (!this.canStart(tab.id)) return fail('unavailable');
+            // With a supplied tab, request permission before awaiting anything
+            // so Chrome can use the native gesture. The fallback lookup can
+            // use an existing grant or the notice's explicit permission button.
+            const permitted = await (hasInvocationTab
+                ? this.chrome.permissions.request(SCRIPTING).catch(() => this.chrome.permissions.contains(SCRIPTING))
+                : this.chrome.permissions.contains(SCRIPTING));
+            if (!isCurrentAttempt()) return true;
+            if (!permitted) return fail('permission');
             session = { token: crypto.randomUUID(), tabId: tab.id, windowId: tab.windowId, url: tab.url };
             this.#session = session;
             this.#coverVersion++;
@@ -181,6 +192,10 @@ export class ElementCapture {
             session.documentId = result.documentId;
             this.#renew(session);
             const response = await this.#messagePicker(session, 'start', { theme });
+            if (response?.feedbackShown === true) {
+                this.#retire(session);
+                return false;
+            }
             if (response?.success !== true) throw new Error(CAPTURE_ERROR);
             return true;
         } catch {
@@ -189,7 +204,7 @@ export class ElementCapture {
                 this.#retire(session, true);
                 if (wasCancelled) return true;
             }
-            return false;
+            return fail('unavailable');
         }
     }
 
@@ -239,7 +254,7 @@ export class ElementCapture {
         const window = await this.chrome.windows.get(session.windowId, { populate: true });
         const tab = window.tabs?.find(candidate => candidate.active);
         return this.#session === session && this.canStart(session.tabId) && window.focused && window.type === 'normal' &&
-            eligibleTab(tab) && tab.id === session.tabId && tab.windowId === session.windowId && tab.url === session.url;
+            !tabUnavailableReason(tab) && tab.id === session.tabId && tab.windowId === session.windowId && tab.url === session.url;
     }
 
     async #verifySource(session, viewport) {
