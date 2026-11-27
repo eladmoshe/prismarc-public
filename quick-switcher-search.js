@@ -3,6 +3,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const HISTORY_LIMIT = 100;
 const sourceOrder = { tab: 0, bookmark: 1, history: 2 };
 const safeChromePages = new Set(['newtab', 'new-tab-page', 'settings', 'history', 'bookmarks', 'downloads', 'extensions']);
+const commonCountrySuffixLabels = new Set(['ac', 'co', 'com', 'edu', 'gov', 'net', 'org']);
 
 export function searchableUrl(value) {
     try {
@@ -33,19 +34,52 @@ export function urlIdentity(value) {
 }
 
 const callbackResponseKeys = ['code', 'state', 'error', 'access_token', 'id_token'];
+const oktaHosts = ['okta.com', 'oktapreview.com', 'okta-emea.com'];
+const signInHost = /^(?:auth|oauth2?|sso|login|signin|sign-in|idp)\.[^.]+\./;
+const signInRoute = /^\/(?:log-?in|log-?out|sign[-_]?in|sign[-_]?out)(?:\.(?:html?|php|aspx?))?$/;
+const accountSignInRoute = /^\/(?:login\/login\.htm|(?:users|accounts?)\/(?:login|sign[-_]?in)|sessions?\/new)$/;
+const authProtocolRoute = /^\/(?:(?:api\/)?auth|oauth2?|oidc|saml2?|sso|connect)(?:\/(?:default|v\d[\d.]*))*\/([^/]+)(?:\/[^/]+)?$/;
+const authEndpoints = new Set(['authorize', 'authorization', 'consent', 'callback', 'redirect', 'token', 'acs']);
+const providerAuthRoute = /^\/(?:login\/oauth\/(?:authorize|access_token)|(?:auth\/)?realms\/[^/]+\/protocol\/openid-connect\/(?:auth|token|logout))$/;
+const callbackRoute = /^\/(?:callback|(?:auth|oauth2?|oidc|login)[-_/]callback)$/;
+
+function isOktaHost(host) {
+    return oktaHosts.some(domain => host === domain || host.endsWith(`.${domain}`));
+}
+
+function isAuthRequest(params) {
+    return params.has('response_type') && (params.has('client_id') || params.has('redirect_uri'));
+}
+
+function isAuthResponse(params) {
+    return params.has('state') && (params.has('code') || params.has('error'));
+}
+
+function suggestionUrl(value) {
+    const href = searchableUrl(value);
+    if (!href) return null;
+    const url = new URL(href);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return href;
+    const host = url.hostname.replace(/\.$/, '');
+    const path = url.pathname.toLowerCase().replace(/\/$/, '');
+    const endpoint = authProtocolRoute.exec(path)?.[1];
+    if (signInHost.test(host) || host === 'accounts.google.com' || path === '/auth' || path === '/sso' ||
+        signInRoute.test(path) || accountSignInRoute.test(path) || providerAuthRoute.test(path) ||
+        (endpoint && (authEndpoints.has(endpoint) || signInRoute.test(`/${endpoint}`)))) return null;
+
+    const fragment = new URLSearchParams(url.hash.slice(1));
+    const query = url.searchParams;
+    const hasField = key => query.has(key) || fragment.has(key);
+    if (['access_token', 'id_token', 'SAMLRequest', 'SAMLResponse'].some(hasField) ||
+        isAuthRequest(query) || isAuthRequest(fragment) ||
+        isAuthResponse(fragment) || (callbackRoute.test(path) && isAuthResponse(query)) ||
+        (path === '/enduser/callback' && isOktaHost(host) && callbackResponseKeys.some(hasField))) return null;
+    return href;
+}
 
 function oktaDestination(href) {
     const url = new URL(href);
-    if (!['http:', 'https:'].includes(url.protocol) ||
-        !['okta.com', 'oktapreview.com', 'okta-emea.com'].some(host =>
-            url.hostname === host || url.hostname.endsWith(`.${host}`))) return null;
-    if (url.pathname === '/enduser/callback') {
-        const fragment = new URLSearchParams(url.hash.slice(1));
-        if (callbackResponseKeys.some(key => url.searchParams.has(key) || fragment.has(key))) {
-            url.search = ''; url.hash = '';
-            return { callback: true, title: 'Okta sign-in', detail: 'Sign-in callback', displayUrl: url.href };
-        }
-    }
+    if (!['http:', 'https:'].includes(url.protocol) || !isOktaHost(url.hostname)) return null;
     if (url.pathname === '/app/UserHome') {
         // Remove only issuer decoration, without reserializing unknown query fields.
         if (url.searchParams.has('iss')) {
@@ -74,6 +108,26 @@ export async function resolveSearchWindow(windowId, chromeApi = globalThis.chrom
     const window = await chromeApi.windows.getLastFocused({ windowTypes: ['normal'] });
     if (window.type !== 'normal') throw new Error('No browser window is available');
     return window;
+}
+
+function hostnameMatchScore(href, query) {
+    if (!query) return 0;
+    const url = new URL(href);
+    if (!['http:', 'https:', 'ftp:'].includes(url.protocol)) return 0;
+    const hostname = url.hostname.replace(/\.$/, '');
+    if (hostname === query) return 2;
+    if (hostname.startsWith('[') || /^\d+(?:\.\d+){3}$/.test(hostname)) return 0;
+
+    const labels = hostname.split('.');
+    // Skip the top-level domain and common labels such as "co" in "co.il".
+    const hasCountrySuffix = labels.at(-1).length === 2 && commonCountrySuffixLabels.has(labels.at(-2));
+    const suffixLength = labels.length > 1 ? 1 + Number(hasCountrySuffix) : 0;
+    if (query.includes('.')) {
+        return hostname.endsWith(`.${query}`) && query.split('.').length > suffixLength ? 2 : 0;
+    }
+    const siteLabels = labels.slice(0, labels.length - suffixLength).filter(label => label !== 'www');
+    if (siteLabels.includes(query)) return 2;
+    return siteLabels.some(label => label.startsWith(query)) ? 1 : 0;
 }
 
 function matchScore(item, query) {
@@ -113,7 +167,7 @@ export function mergeSearchResults({ tabs = [], bookmarks = [], history = [], sp
     const candidates = [];
     for (const tab of tabs) {
         if (Boolean(tab.incognito) !== Boolean(context.incognito)) continue;
-        const url = searchableUrl(tab.pendingUrl || tab.url);
+        const url = suggestionUrl(tab.pendingUrl || tab.url);
         if (!url) continue;
         const display = displayTitle(tab.title, url);
         const matched = terms.every(term => `${tab.title || ''} ${display.title} ${url}`.toLowerCase().includes(term));
@@ -123,13 +177,13 @@ export function mergeSearchResults({ tabs = [], bookmarks = [], history = [], sp
             time: tab.lastAccessed || 0, currentWindow: tab.windowId === context.id });
     }
     for (const bookmark of bookmarks) {
-        const url = searchableUrl(bookmark.url);
+        const url = suggestionUrl(bookmark.url);
         if (url) candidates.push({ id: `bookmark-${bookmark.id}`, source: 'bookmark', ...displayTitle(bookmark.title, url), matched: true,
             url, context: 'Saved bookmark', time: bookmark.dateLastUsed || bookmark.dateAdded || 0 });
     }
     for (const page of history) {
-        const url = searchableUrl(page.url);
-        if (url && !oktaDestination(url)?.callback) candidates.push({ id: `history-${page.id}`, source: 'history', ...displayTitle(page.title, url), matched: true,
+        const url = suggestionUrl(page.url);
+        if (url) candidates.push({ id: `history-${page.id}`, source: 'history', ...displayTitle(page.title, url), matched: true,
             url, historyUrls: [page.url], context: 'Visited', time: page.lastVisitTime || 0 });
     }
     // Ignore section fragments when grouping; retain the winning entry's full URL.
@@ -161,8 +215,11 @@ export function mergeSearchResults({ tabs = [], bookmarks = [], history = [], sp
         }
     }
     const genericHistoryHosts = new Set();
-    return [...merged.values()].filter(item => item.matched).sort((a, b) =>
-        // Switching to a matching open tab takes priority over opening a saved/visited page.
+    const matches = [...merged.values()].filter(item => item.matched);
+    const hostnameScores = new Map(matches.map(item => [item, hostnameMatchScore(item.url, text)]));
+    return matches.sort((a, b) =>
+        hostnameScores.get(b) - hostnameScores.get(a) ||
+        // Within the same hostname relevance, prefer switching to an open tab.
         Number(b.source === 'tab') - Number(a.source === 'tab') ||
         // Keep live tabs/bookmarks available; generic history should not crowd out useful recent pages.
         (!text ? Number(a.source === 'history' && a.genericTitle) - Number(b.source === 'history' && b.genericTitle) : 0) ||
@@ -234,8 +291,9 @@ export async function activateBrowserResult(item, context, newTab = false, chrom
     if (Boolean(source.incognito) !== Boolean(context.incognito)) throw new Error('Browser context changed');
     if (!newTab) {
         const tabs = await chromeApi.tabs.query({});
+        // Exclude sign-in tabs when matching destinations without fragments.
         const matches = tabs.filter(tab => Boolean(tab.incognito) === Boolean(context.incognito) &&
-            urlIdentity(tab.pendingUrl || tab.url) === identity);
+            urlIdentity(suggestionUrl(tab.pendingUrl || tab.url)) === identity);
         matches.sort((a, b) => Number(b.id === item.tabId) - Number(a.id === item.tabId) ||
             Number(b.windowId === source.id) - Number(a.windowId === source.id));
         if (matches.length) {

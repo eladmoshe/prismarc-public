@@ -31,11 +31,11 @@ test('phrases, malformed addresses, credentials, and other protocols are ordinar
     ]) assert.equal(typedWebsiteUrl(input), null, input);
 });
 
-test('direct activation revalidates input and always creates a tab in the invoking context', async () => {
+test('direct activation revalidates input and can open an explicitly typed sign-in URL', async () => {
     await assert.rejects(activateTypedWebsite('file:///tmp/example.com', {}, {}), /cannot be opened/);
     for (const incognito of [false, true]) {
         const context = { id: 7, type: 'normal', incognito };
-        const url = 'https://example.com/';
+        const url = 'https://auth.example.test/login?next=%2Fprojects#sign-in';
         const api = {
             windows: {
                 get: async () => context,
@@ -52,7 +52,7 @@ test('direct activation revalidates input and always creates a tab in the invoki
                 },
             },
         };
-        assert.deepEqual(await activateTypedWebsite('example.com', context, api), { id: 12, incognito });
-        await assert.rejects(activateTypedWebsite('example.com', { ...context, incognito: !incognito }, api), /Browser context changed/);
+        assert.deepEqual(await activateTypedWebsite(url, context, api), { id: 12, incognito });
+        await assert.rejects(activateTypedWebsite(url, { ...context, incognito: !incognito }, api), /Browser context changed/);
     }
 });

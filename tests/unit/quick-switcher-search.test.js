@@ -5,29 +5,44 @@ import { searchBrowser, mergeSearchResults, searchableUrl, urlIdentity, activate
 const context = { id: 1, type: 'normal', incognito: false };
 const tab = (id, url, title = 'Project', windowId = 1) => ({ id, url, title, windowId, lastAccessed: 100 });
 
-test('recognized Okta callback responses are excluded only from history, including typed queries', () => {
+test('recognized Okta callback responses are excluded from every source for empty and typed queries', () => {
     const callbacks = ['?state=synthetic', '?code=synthetic', '?error=synthetic', '#access_token=synthetic', '#id_token=synthetic'];
     for (const [host, query] of ['tenant.okta.com', 'tenant.oktapreview.com', 'tenant.okta-emea.com'].flatMap(host => ['', 'okta'].map(query => [host, query]))) {
         const history = callbacks.map((suffix, id) => ({ id, title: 'Okta', url: `https://${host}/enduser/callback${suffix}` }));
-        assert.deepEqual(mergeSearchResults({ history }, query, context), []);
-        const url = history[0].url;
-        const explicit = mergeSearchResults({ history, tabs: [tab(1, url, '', 1)],
-            bookmarks: [{ id: 'saved', title: 'Saved sign-in', url: history[1].url }] }, query, context);
-        assert.deepEqual(explicit.map(item => item.source), ['tab', 'bookmark']);
-        assert.equal(explicit[0].url, url);
-        assert.equal(explicit[0].title, 'Okta sign-in');
-        assert.equal(explicit[0].displayUrl, `https://${host}/enduser/callback`);
+        assert.deepEqual(mergeSearchResults({ history, tabs: history.map(({ id, url }) => tab(id, url, 'Okta')),
+            bookmarks: history }, query, context), []);
     }
 });
 
-test('callback recognition does not hide arbitrary pages, lookalike hosts or ordinary login destinations', () => {
+test('sign-in URLs are omitted before merging tabs, bookmarks, and history', () => {
+    const urls = ['https://auth.example.test/', 'https://sso.example.test/session', 'https://accounts.google.com/',
+        'https://example.test/auth', 'https://example.test/sso', 'https://example.test/oauth/authorize',
+        'https://example.test/login?next=%2Fproducts', 'https://example.test/account/sign_in',
+        'https://example.test/login/oauth/authorize?client_id=synthetic',
+        'https://example.test/realms/example/protocol/openid-connect/auth',
+        'https://example.test/api/auth/callback/provider', 'https://example.test/oauth2/default/v1/authorize',
+        'https://example.test/saml/acs', 'https://example.test/callback?code=example&state=synthetic',
+        'https://example.test/#code=example&state=synthetic', 'https://example.test/redirect#id_token=synthetic',
+        'https://example.test/start?client_id=synthetic&response_type=code',
+        'https://example.test/continue?SAMLRequest=synthetic', 'https://example.test/return?SAMLResponse=synthetic'];
+    const history = urls.map((url, id) => ({ id, url, title: 'Example sign-in' }));
+    const pending = { ...tab(100, 'https://example.test/ordinary-page', 'Example pending tab'), pendingUrl: urls[0] };
+    const data = { history, bookmarks: history, tabs: [...history.map(({ id, url, title }) => tab(id, url, title)), pending] };
+    for (const query of ['', 'example']) assert.deepEqual(mergeSearchResults(data, query, context), []);
+});
+
+test('sign-in rules preserve ordinary destinations and Okta lookalike hosts', () => {
     const urls = ['https://tenant.okta.com/enduser/callback?iss=synthetic',
         'https://tenant.okta.com/enduser/callback-help?state=synthetic',
-        'https://tenant.okta.com/enduser/callback', 'https://tenant.okta.com/login/login.htm',
+        'https://tenant.okta.com/enduser/callback',
         'https://tenant.okta.com/docs?code=example&state=example',
         'https://tenant.okta.com.evil.test/enduser/callback?state=synthetic',
         'https://notokta.com/enduser/callback?state=synthetic',
-        'https://example.test/callback?code=example&state=example'];
+        'https://example.test/callback?state=example',
+        'https://docs.example.test/auth/login-setup', 'https://example.test/docs/oauth2/authorize',
+        'https://example.test/docs/auth', 'https://example.test/docs/saml',
+        'https://example.test/auth/reference/token', 'https://authentication.example.test/docs',
+        'https://example.test/product?affToken=synthetic&redirect=%2Fcheckout', 'https://auth.test/'];
     const results = mergeSearchResults({ history: urls.map((url, id) => ({ id, url, title: `Page ${id}` })) }, 'okta', context);
     assert.deepEqual(new Set(results.map(item => item.url)), new Set(urls));
 });
@@ -194,6 +209,51 @@ test('unsafe, malformed, and extension helper URLs cannot become navigation resu
     assert.deepEqual(results, []);
 });
 
+test('an exact hostname label precedes label prefixes and incidental matches across sources', async () => {
+    const exact = 'https://www.market.co.zz/shop#current';
+    const prefix = 'https://marketnews.test/story';
+    const titleMatch = 'https://inbox.test/thread';
+    const pathMatch = 'https://archive.test/market';
+    const queryMatch = 'https://search.test/?q=market';
+    const api = {
+        tabs: { query: async () => [tab(1, titleMatch, 'Market')] },
+        bookmarks: { search: async () => [
+            { id: 'prefix', title: 'Market', url: prefix },
+            { id: 'query', title: 'Search results', url: queryMatch },
+        ] },
+        history: { search: async () => [
+            { id: 'exact', title: 'Home', url: exact, lastVisitTime: 1 },
+            { id: 'path', title: 'Archived article', url: pathMatch, lastVisitTime: 999 },
+        ] },
+        runtime: { sendMessage: async () => ({ success: true, spaces: [] }) },
+    };
+    const { results } = await searchBrowser('MaRkEt', context, api);
+    assert.deepEqual(results.map(item => [item.source, item.url]), [
+        ['history', exact], ['bookmark', prefix], ['tab', titleMatch],
+        ['bookmark', queryMatch], ['history', pathMatch],
+    ]);
+    assert.deepEqual(results[0].historyUrls, [exact]);
+});
+
+test('hostname ranking requires label boundaries and ignores common hostname decorations', () => {
+    const cases = [
+        ['market.test', 'https://www.market.test/', 'https://market.test.lookalike.test/'],
+        ['market', 'https://shop.market.test/', 'https://supermarket.test/'],
+        ['market', 'https://shop.market.test/', 'https://market@unrelated.test/'],
+        ['co', 'https://co.example.test/', 'https://shop.co.zz/'],
+        ['co.zz', 'https://www.co.zz.example.test/co.zz', 'https://shop.co.zz/', false],
+        ['zz', 'https://zz.example.test/', 'https://shop.co.zz/'],
+        ['www', 'https://www-example.test/', 'https://www.shop.test/'],
+    ];
+    for (const [query, siteUrl, tabUrl, shouldPromote = true] of cases) {
+        const results = mergeSearchResults({
+            tabs: [tab(1, tabUrl, query)],
+            history: [{ id: 'site', title: 'Site', url: siteUrl }],
+        }, query, context);
+        assert.deepEqual(results.map(item => item.url), shouldPromote ? [siteUrl, tabUrl] : [tabUrl, siteUrl], query);
+    }
+});
+
 test('matching pinned and ordinary open tabs precede stronger and newer history matches', () => {
     for (const title of ['cal', 'Calendar archive']) {
         const results = mergeSearchResults({
@@ -277,6 +337,15 @@ test('bookmark/history selection rechecks native tabs and focuses an existing ta
     const f = activationFixture();
     await activateBrowserResult({ url: 'https://open.test/' }, context, false, f.api);
     assert.deepEqual(f.calls, [['activate', 10, { active: true }], ['focus', 2, { focused: true }]]);
+});
+
+test('selection opens the suggested page when its only open variant carries a sign-in response fragment', async () => {
+    const f = activationFixture();
+    const url = 'https://example.test/project#section';
+    f.setTabs([tab(10, 'https://example.test/project#access_token=synthetic')]);
+    const [item] = mergeSearchResults({ bookmarks: [{ id: 'project', title: 'Project', url }] }, 'project', context);
+    await activateBrowserResult(item, context, false, f.api);
+    assert.deepEqual(f.calls, [['create', { url, windowId: 1, active: true }], ['focus', 1, { focused: true }]]);
 });
 
 test('switching to an already-active tab explicitly reveals its owning Arcify space', async () => {
