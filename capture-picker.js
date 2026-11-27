@@ -108,15 +108,24 @@
         return element;
     }
 
-    function visibleRect(bounds) {
+    function captureAccent() {
+        return theme === 'dark' ? '#c5a9ed' : '#485fad';
+    }
+
+    function viewportSize() {
         const viewport = document.compatMode === 'BackCompat' ? document.body : document.documentElement;
         const { clientWidth, clientHeight } = viewport || document.documentElement;
+        return { width: clientWidth || innerWidth, height: clientHeight || innerHeight };
+    }
+
+    function visibleRect(bounds) {
+        const { width, height } = viewportSize();
         const x = Math.max(0, bounds.left);
         const y = Math.max(0, bounds.top);
         return {
             x, y,
-            width: Math.max(0, Math.min(clientWidth || innerWidth, bounds.right) - x),
-            height: Math.max(0, Math.min(clientHeight || innerHeight, bounds.bottom) - y),
+            width: Math.max(0, Math.min(width, bounds.right) - x),
+            height: Math.max(0, Math.min(height, bounds.bottom) - y),
         };
     }
 
@@ -125,20 +134,41 @@
     }
 
     function mountPicker() {
-        const accent = theme === 'dark' ? '#c5a9ed' : '#485fad';
+        const accent = captureAccent();
         const { host, root } = createLayer('picker', `
             .catcher { position: fixed; inset: 0; pointer-events: auto; cursor: crosshair; touch-action: none; outline: none; }
-            .dim { position: fixed; inset: 0; background: #0d0c143d; pointer-events: none; }
+            .selection { position: fixed; inset: 0; pointer-events: none; container-type: inline-size; }
+            .dim { position: absolute; inset: 0; background: #0d0c143d; }
+            .selected .dim {
+                clip-path: polygon(evenodd,
+                    0 0, 100% 0, 100% 100%, 0 100%, 0 var(--top),
+                    var(--left) var(--top), var(--right) var(--top), var(--right) var(--bottom),
+                    var(--left) var(--bottom), var(--left) var(--top), 0 var(--top));
+            }
+            .selection:not(.selected) :is(.outline, .size) { display: none; }
             .outline {
-                position: fixed; pointer-events: none; border-radius: 4px;
-                box-shadow: 0 0 0 1px #fff, 0 0 0 2px ${accent}, 0 0 0 200vmax #0d0c143d;
+                position: absolute; border-radius: 4px;
+                inset: var(--top) calc(100% - var(--right)) calc(100% - var(--bottom)) var(--left);
+                box-shadow: 0 0 0 1px #fff, 0 0 0 2px ${accent};
             }
             .outline.region { border-radius: 0; }
-            .size { padding: 3px 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+            .size {
+                position: absolute; top: 0; left: 0;
+                padding: 3px 6px; font-variant-numeric: tabular-nums; white-space: nowrap;
+                transform: translate(clamp(4px, var(--left), calc(100cqw - 100% - 4px)), var(--size-top));
+            }
+            @media (prefers-reduced-motion: no-preference) {
+                .selection.moving { --motion: 120ms cubic-bezier(.2, .7, .3, 1); }
+                .moving .dim { transition: clip-path var(--motion); }
+                .moving .outline { transition: inset var(--motion); }
+                .moving .size { transition: transform var(--motion); }
+            }
             @media (forced-colors: active) {
+                .dim { background: transparent; }
                 .outline { outline: 2px solid Highlight; }
             }
         `);
+        const selection = node('selection');
         const dim = node('dim');
         const outline = node('outline');
         const size = node('chip size');
@@ -155,6 +185,10 @@
         let drag;
         let base;
         let target;
+        let hoverFrame;
+        let backgroundTimer;
+        let renderedRect;
+        let renderedRegion;
         const children = [];
         let confirming = false;
         let lastActivity = performance.now();
@@ -169,7 +203,8 @@
         hint.id = 'capture-hint';
         hint.textContent = 'Click or Enter to copy · Drag for an area · ↑ ↓ to refine · Esc to cancel';
         size.setAttribute('aria-hidden', 'true');
-        root.append(dim, outline, size, catcher, hint);
+        selection.append(dim, outline, size);
+        root.append(selection, catcher, hint);
         showLayer(host);
 
         const observer = new MutationObserver(() => {
@@ -210,19 +245,27 @@
             return element;
         }
 
-        function choose(element) {
-            if (element === base && target?.isConnected) return;
+        function targetFor(element) {
+            return element === base && target?.isConnected ? target : meaningful(element);
+        }
+
+        function choose(element, candidate = targetFor(element)) {
+            if (element === base && candidate === target) return;
             base = element;
-            target = meaningful(element);
+            target = candidate;
             children.length = 0;
         }
 
-        function pickAt(x, y) {
-            choose(document.elementsFromPoint(x, y).find(element => element !== host && element.getRootNode() !== root));
+        function hitAt(x, y) {
+            return document.elementsFromPoint(x, y).find(element => element !== host && element.getRootNode() !== root);
         }
 
-        function selectedRect() {
-            return target?.isConnected ? visibleRect(target.getBoundingClientRect()) : undefined;
+        function pickAt(x, y) {
+            choose(hitAt(x, y));
+        }
+
+        function rectFor(element) {
+            return element?.isConnected ? visibleRect(element.getBoundingClientRect()) : undefined;
         }
 
         function regionRect(start, point) {
@@ -232,19 +275,62 @@
             });
         }
 
-        function render(rect = selectedRect(), region = false) {
-            const show = usable(rect);
-            dim.hidden = show;
-            outline.hidden = !show;
-            size.hidden = !show;
-            if (!show) return;
+        function render(rect, { region = false, hover = false } = {}) {
+            if (!hover) selection.classList.remove('moving');
+            if (!usable(rect)) {
+                selection.classList.remove('moving', 'selected');
+                renderedRect = undefined;
+                return;
+            }
+            if (renderedRect && rect.x === renderedRect.x && rect.y === renderedRect.y &&
+                rect.width === renderedRect.width && rect.height === renderedRect.height && region === renderedRegion) return;
+
+            selection.classList.toggle('moving', hover && Boolean(renderedRect));
+            selection.classList.add('selected');
             outline.classList.toggle('region', region);
-            Object.assign(outline.style, {
-                left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px`,
-            });
-            size.textContent = `${Math.round(rect.width)} × ${Math.round(rect.height)}`;
-            size.style.left = `clamp(4px, ${rect.x}px, calc(100% - ${size.offsetWidth + 4}px))`;
-            size.style.top = `${rect.y < 28 ? rect.y + 4 : rect.y - 28}px`;
+            selection.style.setProperty('--left', `${rect.x}px`);
+            selection.style.setProperty('--top', `${rect.y}px`);
+            selection.style.setProperty('--right', `${rect.x + rect.width}px`);
+            selection.style.setProperty('--bottom', `${rect.y + rect.height}px`);
+            selection.style.setProperty('--size-top', `${rect.y < 28 ? rect.y + 4 : rect.y - 28}px`);
+            const dimensions = `${Math.round(rect.width)} × ${Math.round(rect.height)}`;
+            if (size.textContent !== dimensions) size.textContent = dimensions;
+            renderedRect = rect;
+            renderedRegion = region;
+        }
+
+        function isBackgroundTarget(element, rect) {
+            if (element === document.body || element === document.documentElement) return true;
+            if (!rect || rect.x !== 0 || rect.y !== 0 || replaced.has(element.localName)) return false;
+            const { width, height } = viewportSize();
+            return rect.width === width && rect.height === height;
+        }
+
+        function renderHover() {
+            hoverFrame = undefined;
+            const element = hitAt(pointer.x, pointer.y);
+            const candidate = targetFor(element);
+            const rect = rectFor(candidate);
+            if (renderedRect && candidate !== target && isBackgroundTarget(candidate, rect)) {
+                // Keep the previous aperture when the pointer briefly crosses a page-sized gap.
+                backgroundTimer ??= setTimeout(() => {
+                    cancelHover();
+                    pickAt(pointer.x, pointer.y);
+                    render(rectFor(target), { hover: true });
+                }, 75);
+                return;
+            }
+            clearTimeout(backgroundTimer);
+            backgroundTimer = undefined;
+            choose(element, candidate);
+            render(rect, { hover: true });
+        }
+
+        function cancelHover() {
+            if (hoverFrame !== undefined) cancelAnimationFrame(hoverFrame);
+            hoverFrame = undefined;
+            clearTimeout(backgroundTimer);
+            backgroundTimer = undefined;
         }
 
         function moveToParent() {
@@ -272,8 +358,9 @@
             if (!event.isTrusted || !event.isPrimary || event.button !== 0 || confirming) return;
             markActivity();
             pointer = { x: event.clientX, y: event.clientY };
+            cancelHover();
             pickAt(pointer.x, pointer.y);
-            render();
+            render(rectFor(target));
             drag = { start: pointer, id: event.pointerId };
             catcher.setPointerCapture(event.pointerId);
         }
@@ -285,11 +372,10 @@
             pointer = { x: event.clientX, y: event.clientY };
             if (drag) {
                 drag.region ||= Math.hypot(pointer.x - drag.start.x, pointer.y - drag.start.y) > 4;
-                if (drag.region) render(regionRect(drag.start, pointer), true);
+                if (drag.region) render(regionRect(drag.start, pointer), { region: true });
                 return;
             }
-            pickAt(pointer.x, pointer.y);
-            render();
+            hoverFrame ??= requestAnimationFrame(renderHover);
         }
 
         function onPointerUp(event) {
@@ -297,13 +383,13 @@
             if (!event.isTrusted || event.button !== 0 || drag?.id !== event.pointerId || confirming) return;
             pointer = { x: event.clientX, y: event.clientY };
             const isRegion = drag.region || Math.hypot(pointer.x - drag.start.x, pointer.y - drag.start.y) > 4;
-            const rect = isRegion ? regionRect(drag.start, pointer) : selectedRect();
+            const rect = isRegion ? regionRect(drag.start, pointer) : rectFor(target);
             drag = undefined;
             if (usable(rect)) {
                 confirming = true;
-                copy(rect);
+                copy(rect, isRegion);
             } else {
-                render();
+                render(rectFor(target));
             }
         }
 
@@ -319,9 +405,14 @@
             swallow(event);
             if (drag || confirming) return;
             markActivity();
+            if (hoverFrame !== undefined) {
+                cancelAnimationFrame(hoverFrame);
+                renderHover();
+            }
+            cancelHover();
             if (event.key === 'ArrowUp') moveToParent();
             if (event.key === 'ArrowDown' && children.length) target = children.pop();
-            const rect = selectedRect();
+            const rect = rectFor(target);
             if (event.key === 'Enter' && !event.repeat && usable(rect)) {
                 confirming = true;
                 copy(rect);
@@ -332,18 +423,19 @@
 
         function onViewportChange() {
             if (confirming) return;
+            cancelHover();
             if (drag?.region) {
-                render(regionRect(drag.start, pointer), true);
+                render(regionRect(drag.start, pointer), { region: true });
                 return;
             }
             if (pointer) pickAt(pointer.x, pointer.y);
-            render();
+            render(rectFor(target));
         }
 
         function stopDrag(event) {
             if (!event.isTrusted || drag?.id !== event.pointerId) return;
             drag = undefined;
-            render();
+            render(rectFor(target));
         }
 
         catcher.addEventListener('pointerdown', onPointerDown, options);
@@ -374,13 +466,14 @@
         } else {
             pickAt(innerWidth / 2, innerHeight / 2);
         }
-        render();
+        render(rectFor(target));
         catcher.focus({ preventScroll: true });
 
         return {
             remove() {
                 watchers.abort();
                 observer.disconnect();
+                cancelHover();
                 clearTimeout(expiry);
                 clearTimeout(activityReport);
                 const restoreFocus = document.activeElement === host;
@@ -406,17 +499,19 @@
         });
     }
 
-    async function requestImage(rect, signal) {
-        const viewportWidth = innerWidth;
-        const viewportHeight = innerHeight;
-        const originalX = scrollX;
-        const originalY = scrollY;
+    function viewportMatches(viewport) {
+        return viewport.width === innerWidth && viewport.height === innerHeight &&
+            viewport.scrollX === scrollX && viewport.scrollY === scrollY;
+    }
+
+    async function requestImage(rect, viewport, signal) {
+        const { width: viewportWidth, height: viewportHeight } = viewport;
         // Leave the catcher present through the click after pointerup, then let Chrome paint the page alone.
         await new Promise(resolve => setTimeout(resolve, 0));
         dispose();
         await nextPaint();
         if (signal.aborted || globalThis[stateKey] !== state || document.visibilityState !== 'visible' ||
-            viewportWidth !== innerWidth || viewportHeight !== innerHeight || originalX !== scrollX || originalY !== scrollY) {
+            !viewportMatches(viewport)) {
             throw new Error('Selection is no longer visible');
         }
         const reply = await chrome.runtime.sendMessage({ type: 'elementCaptureSelection', token, rect, viewportWidth, viewportHeight });
@@ -427,14 +522,14 @@
         return new Blob([bytes], { type: 'image/png' });
     }
 
-    async function copy(rect) {
+    async function copy(rect, region = false) {
+        const viewport = { width: innerWidth, height: innerHeight, scrollX, scrollY };
         const pending = new AbortController();
         try {
             // Starting the write now preserves the trusted pointer or keyboard activation while the PNG is prepared.
-            const png = requestImage(rect, pending.signal);
+            const png = requestImage(rect, viewport, pending.signal);
             png.catch(() => {});
             await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
-            feedback('Screenshot copied', 1500);
         } catch {
             pending.abort();
             sendCancellation();
@@ -442,19 +537,98 @@
             await new Promise(resolve => setTimeout(resolve, 0));
             dispose();
             feedback('Couldn’t copy screenshot', 2500);
+            return;
         }
+        if (viewportMatches(viewport)) feedback('Copied', 1500, { rect, region });
+        else feedback('Screenshot copied', 1500);
     }
 
-    function feedback(message, duration) {
+    function copiedStyles(duration) {
+        const accent = captureAccent();
+        return `
+            .copied-outline { position: fixed; pointer-events: none; }
+            .copied-stroke {
+                position: absolute; inset: 0; border-radius: 4px;
+                box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 2px ${accent};
+                background: linear-gradient(150deg, ${accent}2b, ${accent}15);
+                animation: prismarc-capture-settle 520ms cubic-bezier(.22, 1, .36, 1) both;
+            }
+            .copied-outline.region .copied-stroke { border-radius: 0; }
+            .copied {
+                display: flex; align-items: center; gap: 5px; border-radius: 100px;
+                max-width: calc(100% - 12px);
+                animation: prismarc-capture-confirm ${duration}ms ease both;
+            }
+            .copied-check { color: ${accent}; font-weight: 700; }
+            @keyframes prismarc-capture-settle {
+                0% { transform: none; opacity: 1; }
+                36% { transform: var(--settled-scale); opacity: .9; }
+                100% { transform: var(--settled-scale); opacity: 0; }
+            }
+            @keyframes prismarc-capture-confirm {
+                0% { opacity: 0; transform: translateY(3px); }
+                12%, 84% { opacity: 1; transform: none; }
+                100% { opacity: 0; transform: none; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .copied-stroke, .copied { animation: none; }
+                .copied-stroke { background: transparent; }
+            }
+            @media (forced-colors: active) {
+                .copied-stroke { border: 2px solid Highlight; background: transparent; }
+            }
+        `;
+    }
+
+    function feedback(message, duration, selection) {
         if (globalThis[stateKey] !== state || document.visibilityState !== 'visible') return;
-        const { host, root } = createLayer('feedback', '');
-        const notice = node('chip notice');
+        const { host, root } = createLayer('feedback', selection ? copiedStyles(duration) : '');
+        const notice = node(selection ? 'chip copied' : 'chip notice');
         notice.setAttribute('role', 'status');
         notice.textContent = message;
+        if (selection) {
+            const { rect, region } = selection;
+            const outline = node('copied-outline');
+            outline.classList.toggle('region', region);
+            outline.setAttribute('aria-hidden', 'true');
+            Object.assign(outline.style, {
+                left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px`,
+            });
+            // Move each edge inward by at most 6px or 9% of its axis.
+            const scaleX = Math.max(.82, 1 - 12 / rect.width);
+            const scaleY = Math.max(.82, 1 - 12 / rect.height);
+            outline.style.setProperty('--settled-scale', `scale(${scaleX}, ${scaleY})`);
+            outline.append(node('copied-stroke'));
+            root.append(outline);
+            const check = document.createElement('span');
+            check.className = 'copied-check';
+            check.setAttribute('aria-hidden', 'true');
+            check.textContent = '✓';
+            notice.prepend(check);
+        }
         root.append(notice);
         showLayer(host);
+        if (selection) {
+            const { x, y } = selection.rect;
+            const gap = 6;
+            const above = y - notice.offsetHeight - gap;
+            const top = above >= gap ? above : y + gap;
+            notice.style.left = `clamp(${gap}px, ${x}px, calc(100% - ${notice.offsetWidth + gap}px))`;
+            notice.style.top = `clamp(${gap}px, ${top}px, calc(100% - ${notice.offsetHeight + gap}px))`;
+        }
+        const watchers = new AbortController();
+        const options = { signal: watchers.signal };
+        window.addEventListener('pagehide', clearState, options);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'visible') clearState();
+        }, options);
+        if (selection) {
+            window.addEventListener('scroll', clearState, { ...options, capture: true });
+            window.addEventListener('resize', clearState, options);
+        }
         const expiry = setTimeout(clearState, duration);
         state.dismiss = () => {
+            watchers.abort();
             clearTimeout(expiry);
             host.remove();
         };
